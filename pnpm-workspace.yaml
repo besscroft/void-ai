@@ -11,6 +11,7 @@ catalog:
   vite: npm:@voidzero-dev/vite-plus-core@latest
   vitest: npm:@voidzero-dev/vite-plus-test@latest
   vite-plus: latest
+  electron: ^39.8.10
 overrides:
   vite: "catalog:"
   vitest: "catalog:"
@@ -22,6 +23,6 @@ peerDependencyRules:
     vite: "*"
     vitest: "*"
 allowBuilds:
-  electron: false
+  electron: true
   electron-winstaller: false
   esbuild: false

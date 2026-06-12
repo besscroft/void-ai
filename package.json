@@ -1,11 +1,15 @@
 {
   "name": "void-ai",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {
     "ready": "vp fmt && vp lint && vp run -r test && vp run -r build",
-    "dev": "vp run website#dev",
+    "dev:desktop": "vp run desktop#dev",
+    "build:desktop": "vp run desktop#build",
+    "build:desktop:win": "vp run desktop#build:win",
+    "build:desktop:mac": "vp run desktop#build:mac",
+    "build:desktop:linux": "vp run desktop#build:linux",
     "prepare": "vp config"
   },
   "devDependencies": {
