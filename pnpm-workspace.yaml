@@ -21,3 +21,7 @@ peerDependencyRules:
   allowedVersions:
     vite: "*"
     vitest: "*"
+allowBuilds:
+  electron: false
+  electron-winstaller: false
+  esbuild: false
