@@ -1,3 +1,10 @@
+/* Tailwind CSS v4 - 必须在最前（HeroUI v3 强制要求 v4） */
+@import "tailwindcss";
+
+/* HeroUI v3 组件样式 - 必须在 Tailwind 之后 */
+@import "@heroui/styles";
+
+/* 项目原有基础样式与变量 */
 @import "./base.css";
 
 body {
