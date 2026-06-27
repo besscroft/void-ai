@@ -14,6 +14,9 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "db:migrate": "drizzle-kit migrate",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
@@ -21,11 +24,20 @@
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.4",
+    "@ai-sdk/google": "^2.0.4",
+    "@ai-sdk/openai": "^2.0.4",
+    "@ai-sdk/react": "^2.0.4",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@heroui/react": "^3.2.1",
     "@heroui/styles": "^3.2.1",
+    "@hono/node-server": "^1.13.7",
+    "ai": "^5.0.4",
+    "better-sqlite3": "catalog:",
+    "drizzle-orm": "catalog:",
     "electron-updater": "^6.3.9",
+    "hono": "^4.6.12",
     "tailwind-variants": "^3.2.2"
   },
   "devDependencies": {
@@ -33,10 +45,12 @@
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@tailwindcss/postcss": "^4.3.1",
+    "@types/better-sqlite3": "catalog:",
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "drizzle-kit": "catalog:",
     "electron": "catalog:",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
@@ -55,7 +69,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "better-sqlite3"
     ]
   }
 }

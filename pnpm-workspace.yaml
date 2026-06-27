@@ -12,6 +12,10 @@ catalog:
   vitest: npm:@voidzero-dev/vite-plus-test@latest
   vite-plus: latest
   electron: ^39.8.10
+  drizzle-orm: ^0.45.2
+  better-sqlite3: ^12.11.1
+  drizzle-kit: ^0.31.10
+  "@types/better-sqlite3": ^7.6.13
 overrides:
   vite: "catalog:"
   vitest: "catalog:"
@@ -26,3 +30,4 @@ allowBuilds:
   electron: true
   electron-winstaller: false
   esbuild: false
+  better-sqlite3: true

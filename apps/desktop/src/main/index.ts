@@ -2,14 +2,20 @@ import { app, shell, BrowserWindow, ipcMain } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import icon from "../../resources/icon.png?asset";
+import { initDb, closeDb } from "./lib/db";
+import { startServer, stopServer } from "./server";
+import { registerIpcHandlers } from "./ipc";
 
-function createWindow(): void {
-  // Create the browser window.
+function createWindow(): BrowserWindow {
+  // 创建浏览器窗口
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     show: false,
     autoHideMenuBar: true,
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
@@ -26,49 +32,67 @@ function createWindow(): void {
     return { action: "deny" };
   });
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
+  // HMR for renderer based on electron-vite cli.
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
     void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
+
+  return mainWindow;
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-void app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId("com.electron");
+// 应用就绪后初始化所有子系统
+void app.whenReady().then(async () => {
+  electronApp.setAppUserModelId("com.void-ai");
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
+  // 默认在开发环境用 F12 打开 DevTools，生产环境忽略 Cmd/Ctrl+R
   app.on("browser-window-created", (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
 
-  // IPC test
+  // 1. 初始化数据库（node:sqlite，实验性 API，需 flag 启用）
+  //    通过 NODE_OPTIONS 或环境变量在启动前已设置 --experimental-sqlite
+  try {
+    initDb();
+    console.log("[main] 数据库已初始化");
+  } catch (err) {
+    // 注意：electron-vite dev 下 stderr 偶发不刷新，改用 console.log 确保可见
+    console.log("[main] 数据库初始化失败:", err);
+  }
+
+  // 2. 启动本地 HTTP 服务（用于 AI SDK 流式通信）
+  try {
+    const port = await startServer();
+    console.log(`[main] AI 服务端口: ${port}`);
+  } catch (err) {
+    console.error("[main] AI 服务启动失败:", err);
+  }
+
+  // 3. 注册 IPC handlers
+  const mainWindow = createWindow();
+  registerIpcHandlers(mainWindow);
+
+  // IPC test（保留模板自带的 ping）
   ipcMain.on("ping", () => console.log("pong"));
 
-  createWindow();
-
   app.on("activate", function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
+    // macOS 上点击 dock 图标时若无窗口则重建
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// 所有窗口关闭时退出（macOS 除外）
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+// 应用退出前清理资源
+app.on("before-quit", () => {
+  stopServer();
+  closeDb();
+});
+
+// 其余 main 进程代码可以拆分到独立文件并在此 require

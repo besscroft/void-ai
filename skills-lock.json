@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "ai-sdk": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/use-ai-sdk/SKILL.md",
+      "computedHash": "3e2474e22308f3fc54a3da83869c497853081eaff36deb3b532629fdb26ac275"
+    },
     "heroui-react": {
       "source": "heroui-inc/heroui",
       "sourceType": "github",
