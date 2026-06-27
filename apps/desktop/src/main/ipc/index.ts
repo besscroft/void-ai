@@ -16,6 +16,7 @@ import {
   deleteApiKey,
 } from "../lib/db";
 import { listProviders } from "../lib/providers";
+import { getCacheStats, clearCache } from "../lib/cache";
 import type { Conversation, MessageRow } from "../../shared/types";
 
 /**
@@ -103,6 +104,13 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
 
   // ---------- 本地服务端口 ----------
   ipcMain.handle("server:port", () => getServerPort());
+
+  // ---------- 缓存管理 ----------
+  // 统计缓存占用与上限
+  ipcMain.handle("cache:stats", () => getCacheStats());
+
+  // 清理缓存，返回清理后剩余字节数
+  ipcMain.handle("cache:clear", async () => clearCache());
 }
 
 /** 导出类型供 preload 使用 */

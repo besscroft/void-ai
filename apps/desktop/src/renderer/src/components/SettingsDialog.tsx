@@ -1,9 +1,31 @@
 import { useEffect, useState } from "react";
 import { Button, Input, Label, TextField, Description } from "@heroui/react";
 import { api } from "../lib/api";
-import { useTheme, type ThemeMode } from "../lib/theme";
-import { IconClose, IconKey, IconCheck, IconSun, IconMoon, IconMonitor } from "./icons";
-import type { ProviderInfo } from "@shared/types";
+import { useSettings } from "../lib/settings";
+import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
+import { ConfirmDialog } from "./ConfirmDialog";
+import {
+  IconClose,
+  IconKey,
+  IconCheck,
+  IconSun,
+  IconMoon,
+  IconMonitor,
+  IconPalette,
+  IconSliders,
+  IconCpu,
+  IconRotateCcw,
+  IconDatabase,
+} from "./icons";
+import {
+  ACCENT_PRESETS,
+  FONT_SIZE_PX,
+  type ProviderInfo,
+  type ThemeMode,
+  type FontSizeLevel,
+  type LayoutDensity,
+  type AppLanguage,
+} from "@shared/types";
 
 interface SettingsDialogProps {
   /** 控制显隐 */
@@ -12,38 +34,33 @@ interface SettingsDialogProps {
   onClose: () => void;
 }
 
+/** Tab 定义 */
+type TabId = "theme" | "system" | "model" | "apikey";
+
 /**
- * 设置弹窗
- *
- * 内容：
- *  - 主题切换
- *  - 各 Provider 的 API Key 配置（脱敏显示是否已设置）
+ * 设置弹窗（分 Tab 结构）
  *
  * 布局示意：
- * ┌───────────────────────────────────────┐
- * │ 设置                              [✕] │
- * │───────────────────────────────────────│
- * │ 外观                                  │
- * │   主题：[☀ 浅] [🌙 深] [🖥 跟随系统]   │
- * │                                       │
- * │ API Key                               │
- * │ ┌ OpenAI ───────────────────────────┐│
- * │ │ [sk-•••••••••••]   [获取 key ↗]    ││
- * │ │ [保存] [清除]                     ││
- * │ │ ✓ 已保存                          ││
- * │ └───────────────────────────────────┘│
- * │ ┌ Anthropic ─────────────────────────┐│
- * │ │ ...                                ││
- * │ └───────────────────────────────────┘│
- * └───────────────────────────────────────┘
+ * ┌──────────────────────────────────────────────┐
+ * │ 设置                                     [✕] │
+ * │────────────┬─────────────────────────────────│
+ * │ 🎨 主题    │                                 │
+ * │ ⚙️ 系统    │      <当前 Tab 内容>            │
+ * │ 🤖 模型    │                                 │
+ * │ 🔑 API Key │                                 │
+ * │────────────│                                 │
+ * │ ↺ 恢复默认  │                                 │
+ * └────────────┴─────────────────────────────────┘
+ *
+ * 所有外观/模型设置即时应用并持久化（实时预览）；
+ * 破坏性操作（重置、清缓存、删 Key）通过 ConfirmDialog 二次确认。
  */
 export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JSX.Element | null {
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const { mode, setMode } = useTheme();
-
-  useEffect(() => {
-    if (open) void api.providers.list().then(setProviders);
-  }, [open]);
+  const { t } = useT();
+  const { settings, update, reset } = useSettings();
+  const [tab, setTab] = useState<TabId>("theme");
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
 
   // ESC 关闭
   useEffect(() => {
@@ -57,6 +74,20 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
 
   if (!open) return null;
 
+  const handleReset = (): void => {
+    void reset().then(() => {
+      setResetDone(true);
+      setTimeout(() => setResetDone(false), 2000);
+    });
+  };
+
+  const tabs: { id: TabId; label: string; Icon: typeof IconPalette }[] = [
+    { id: "theme", label: t("settings.tab.theme"), Icon: IconPalette },
+    { id: "system", label: t("settings.tab.system"), Icon: IconSliders },
+    { id: "model", label: t("settings.tab.model"), Icon: IconCpu },
+    { id: "apikey", label: t("settings.tab.apiKey"), Icon: IconKey },
+  ];
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
@@ -66,83 +97,592 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
       aria-labelledby="settings-title"
     >
       <div
-        className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
         <div className="flex items-center justify-between border-b border-foreground/10 px-6 py-4">
           <h2 id="settings-title" className="text-lg font-semibold">
-            设置
+            {t("settings.title")}
           </h2>
           <button
             type="button"
             className="rounded p-1 text-foreground/50 hover:bg-foreground/10 hover:text-foreground"
             onClick={onClose}
-            aria-label="关闭设置"
+            aria-label={t("common.close")}
           >
             <IconClose className="size-5" />
           </button>
         </div>
 
-        {/* 内容 */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {/* 外观 */}
-          <section className="mb-6">
-            <h3 className="mb-3 text-sm font-medium text-foreground/70">外观</h3>
-            <div className="rounded-md border border-foreground/10 p-4">
-              <p className="mb-2 text-xs text-foreground/50">主题</p>
-              <div className="flex gap-2">
-                <ThemeButton
-                  current={mode}
-                  value="light"
-                  label="浅色"
-                  Icon={IconSun}
-                  onClick={(v) => void setMode(v)}
-                />
-                <ThemeButton
-                  current={mode}
-                  value="dark"
-                  label="深色"
-                  Icon={IconMoon}
-                  onClick={(v) => void setMode(v)}
-                />
-                <ThemeButton
-                  current={mode}
-                  value="system"
-                  label="跟随系统"
-                  Icon={IconMonitor}
-                  onClick={(v) => void setMode(v)}
-                />
-              </div>
-            </div>
-          </section>
+        {/* 主体：导航 + 内容，窄屏纵向布局 */}
+        <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+          {/* 导航 */}
+          <nav className="flex shrink-0 gap-1 border-b border-foreground/10 p-2 md:w-48 md:flex-col md:border-b-0 md:border-r">
+            {tabs.map(({ id, label, Icon }) => {
+              const active = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={[
+                    "flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-sm transition md:flex-none",
+                    active
+                      ? "bg-accent/10 text-accent"
+                      : "text-foreground/70 hover:bg-foreground/5",
+                  ].join(" ")}
+                  onClick={() => setTab(id)}
+                  aria-pressed={active}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  <span className="truncate">{label}</span>
+                </button>
+              );
+            })}
 
-          {/* API Key */}
-          <section>
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground/70">
-              <IconKey className="size-4" />
-              API Key
-            </h3>
-            <p className="mb-3 text-xs text-foreground/50">
-              密钥使用 AES-256-GCM 加密后本地存储，仅用于 main 进程内调用 AI
-              服务，不会上传到任何服务器。
-            </p>
-            <div className="space-y-3">
-              {providers.map((p) => (
-                <ProviderKeyEditor key={p.id} provider={p} />
-              ))}
+            {/* 恢复默认：仅侧栏模式下贴底 */}
+            <button
+              type="button"
+              className="mt-auto hidden items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground/60 transition hover:bg-danger/10 hover:text-danger md:flex"
+              onClick={() => setConfirmReset(true)}
+            >
+              <IconRotateCcw className="size-4 shrink-0" />
+              {t("settings.reset.title")}
+            </button>
+          </nav>
+
+          {/* 内容 */}
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {tab === "theme" && <ThemeTab settings={settings} update={update} />}
+            {tab === "system" && <SystemTab settings={settings} update={update} />}
+            {tab === "model" && <ModelTab settings={settings} update={update} />}
+            {tab === "apikey" && <ApiKeyTab />}
+
+            {/* 窄屏下的恢复默认按钮 */}
+            <div className="mt-6 border-t border-foreground/10 pt-4 md:hidden">
+              <Button variant="tertiary" size="sm" onPress={() => setConfirmReset(true)}>
+                <IconRotateCcw className="mr-1 size-3.5" />
+                {t("settings.reset.title")}
+              </Button>
+              {resetDone && (
+                <span className="ml-3 text-xs text-success">{t("settings.reset.done")}</span>
+              )}
             </div>
-          </section>
+          </div>
         </div>
 
         {/* 底部 */}
-        <div className="flex justify-end border-t border-foreground/10 px-6 py-3">
+        <div className="flex items-center justify-between border-t border-foreground/10 px-6 py-3">
+          <span className="text-xs text-success">{resetDone ? t("settings.reset.done") : ""}</span>
           <Button variant="secondary" onPress={onClose}>
-            完成
+            {t("common.done")}
           </Button>
         </div>
       </div>
+
+      {/* 恢复默认确认 */}
+      <ConfirmDialog
+        open={confirmReset}
+        title={t("settings.reset.title")}
+        message={t("settings.reset.confirm")}
+        danger
+        confirmLabel={t("common.reset")}
+        onConfirm={() => {
+          setConfirmReset(false);
+          handleReset();
+        }}
+        onClose={() => setConfirmReset(false)}
+      />
     </div>
+  );
+}
+
+// ============================================================
+// 通用小组件
+// ============================================================
+
+/** 设置项行：左侧标签 + 描述，右侧控件 */
+function SettingRow({
+  title,
+  desc,
+  children,
+}: {
+  title: string;
+  desc?: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="rounded-md border border-foreground/10 p-4">
+      <div className="mb-3 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium">{title}</p>
+          {desc && <p className="mt-0.5 text-xs text-foreground/50">{desc}</p>}
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ============================================================
+// 主题 Tab
+// ============================================================
+
+function ThemeTab({
+  settings,
+  update,
+}: {
+  settings: import("@shared/types").AppSettings;
+  update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
+}): React.JSX.Element {
+  const { t } = useT();
+  const modes: { value: ThemeMode; label: string; Icon: typeof IconSun }[] = [
+    { value: "light", label: t("shell.theme.light"), Icon: IconSun },
+    { value: "dark", label: t("shell.theme.dark"), Icon: IconMoon },
+    { value: "system", label: t("shell.theme.system"), Icon: IconMonitor },
+  ];
+
+  // 自定义颜色：若当前 accent 是预设则取其 swatch，否则原样作为 hex
+  const preset = ACCENT_PRESETS.find((p) => p.id === settings.accentColor);
+  const customHex = preset ? preset.swatch : settings.accentColor;
+
+  return (
+    <section className="space-y-4">
+      <h3 className="text-sm font-medium text-foreground/70">{t("theme.section.appearance")}</h3>
+
+      {/* 主题模式 */}
+      <SettingRow title={t("theme.mode")} desc={t("theme.mode.desc")}>
+        <div className="flex gap-2">
+          {modes.map(({ value, label, Icon }) => {
+            const active = settings.theme === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                className={[
+                  "flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition",
+                  active
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
+                ].join(" ")}
+                onClick={() => void update({ theme: value })}
+                aria-pressed={active}
+              >
+                <Icon className="size-4" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </SettingRow>
+
+      {/* 强调色预设 */}
+      <SettingRow title={t("theme.preset")} desc={t("theme.preset.desc")}>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          {ACCENT_PRESETS.map((p) => {
+            const active = settings.accentColor === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className={[
+                  "flex flex-col items-center gap-1.5 rounded-md border p-2 text-xs transition",
+                  active
+                    ? "border-accent bg-accent/10"
+                    : "border-foreground/15 hover:bg-foreground/5",
+                ].join(" ")}
+                onClick={() => void update({ accentColor: p.id })}
+                aria-pressed={active}
+                title={p.label}
+              >
+                <span
+                  className="size-6 rounded-full ring-2 ring-offset-2 ring-offset-background"
+                  style={{
+                    backgroundColor: p.swatch,
+                    boxShadow: active ? `0 0 0 2px ${p.swatch}` : undefined,
+                  }}
+                />
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 自定义颜色 */}
+        <div className="mt-3 flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-foreground/60">
+            <span>{t("theme.custom")}</span>
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(customHex) ? customHex : "#4f46e5"}
+              onChange={(e) => void update({ accentColor: e.target.value })}
+              className="size-7 cursor-pointer rounded border border-foreground/15 bg-transparent"
+              aria-label={t("theme.custom")}
+            />
+          </label>
+        </div>
+      </SettingRow>
+
+      {/* 实时预览 */}
+      <SettingRow title={t("theme.preview")}>
+        <div className="rounded-md border border-foreground/10 bg-background p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Button variant="primary" size="sm">
+              {t("theme.preview.button")}
+            </Button>
+            <Button variant="secondary" size="sm">
+              {t("common.cancel")}
+            </Button>
+            <span className="ml-auto rounded-full bg-accent/15 px-2 py-0.5 text-xs text-accent">
+              Tag
+            </span>
+          </div>
+          <p className="text-sm text-foreground/70">{t("theme.preview.text")}</p>
+        </div>
+      </SettingRow>
+    </section>
+  );
+}
+
+// ============================================================
+// 系统 Tab
+// ============================================================
+
+function SystemTab({
+  settings,
+  update,
+}: {
+  settings: import("@shared/types").AppSettings;
+  update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
+}): React.JSX.Element {
+  const { t } = useT();
+  const fontLevels: FontSizeLevel[] = ["xs", "sm", "base", "lg", "xl"];
+  const densities: { value: LayoutDensity; label: string }[] = [
+    { value: "compact", label: t("system.density.compact") },
+    { value: "comfortable", label: t("system.density.comfortable") },
+    { value: "loose", label: t("system.density.loose") },
+  ];
+
+  return (
+    <section className="space-y-4">
+      <h3 className="text-sm font-medium text-foreground/70">{t("settings.tab.system")}</h3>
+
+      {/* 字体大小 */}
+      <SettingRow title={t("system.fontSize")} desc={t("system.fontSize.desc")}>
+        <div className="flex gap-2">
+          {fontLevels.map((lv) => {
+            const active = settings.fontSize === lv;
+            return (
+              <button
+                key={lv}
+                type="button"
+                className={[
+                  "flex-1 rounded-md border px-2 py-2 text-center transition",
+                  active
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
+                ].join(" ")}
+                style={{ fontSize: `${FONT_SIZE_PX[lv]}px` }}
+                onClick={() => void update({ fontSize: lv })}
+                aria-pressed={active}
+              >
+                A
+              </button>
+            );
+          })}
+        </div>
+      </SettingRow>
+
+      {/* 界面密度 */}
+      <SettingRow title={t("system.density")} desc={t("system.density.desc")}>
+        <div className="flex gap-2">
+          {densities.map(({ value, label }) => {
+            const active = settings.density === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                className={[
+                  "flex-1 rounded-md border px-3 py-2 text-sm transition",
+                  active
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
+                ].join(" ")}
+                onClick={() => void update({ density: value })}
+                aria-pressed={active}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </SettingRow>
+
+      {/* 语言 */}
+      <SettingRow title={t("system.language")} desc={t("system.language.desc")}>
+        <div className="flex gap-2">
+          {LANGUAGE_OPTIONS.map((opt) => {
+            const active = settings.language === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                className={[
+                  "flex-1 rounded-md border px-3 py-2 text-sm transition",
+                  active
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
+                ].join(" ")}
+                onClick={() => void update({ language: opt.value as AppLanguage })}
+                aria-pressed={active}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </SettingRow>
+    </section>
+  );
+}
+
+// ============================================================
+// 模型 Tab
+// ============================================================
+
+function ModelTab({
+  settings,
+  update,
+}: {
+  settings: import("@shared/types").AppSettings;
+  update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
+}): React.JSX.Element {
+  const { t } = useT();
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [cacheBytes, setCacheBytes] = useState<number>(0);
+  const [cacheLimit, setCacheLimit] = useState<number>(settings.cacheSizeMb);
+  const [clearing, setClearing] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [cleared, setCleared] = useState(false);
+
+  const refreshCache = (): void => {
+    void api.cache.stats().then((s) => {
+      setCacheBytes(s.bytes);
+      setCacheLimit(s.limitMb);
+    });
+  };
+
+  useEffect(() => {
+    void api.providers.list().then(setProviders);
+    refreshCache();
+  }, []);
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleClear = (): void => {
+    setClearing(true);
+    void api.cache.clear().then((remaining) => {
+      setCacheBytes(remaining);
+      setClearing(false);
+      setCleared(true);
+      setTimeout(() => setCleared(false), 2000);
+    });
+  };
+
+  return (
+    <section className="space-y-4">
+      <h3 className="text-sm font-medium text-foreground/70">{t("settings.tab.model")}</h3>
+
+      {/* 默认模型 */}
+      <SettingRow title={t("model.default")} desc={t("model.default.desc")}>
+        <select
+          className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
+          value={settings.selectedModel ?? ""}
+          onChange={(e) => void update({ selectedModel: e.target.value || null })}
+        >
+          <option value="">{t("chat.selectModel")}</option>
+          {providers.map((p) => (
+            <optgroup key={p.id} label={p.label}>
+              {p.models.map((m) => (
+                <option key={m.id} value={`${p.id}/${m.id}`}>
+                  {m.label ?? m.id}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </SettingRow>
+
+      {/* 模型参数 */}
+      <SettingRow title={t("model.params")} desc={t("model.params.desc")}>
+        <div className="space-y-4">
+          {/* 温度 */}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs">
+              <span className="text-foreground/60">
+                {t("model.temperature")} · {settings.modelTemperature.toFixed(1)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={2}
+              step={0.1}
+              value={settings.modelTemperature}
+              onChange={(e) => void update({ modelTemperature: Number(e.target.value) })}
+              className="w-full accent-[var(--color-accent)]"
+              aria-label={t("model.temperature")}
+            />
+            <p className="mt-0.5 text-xs text-foreground/40">{t("model.temperature.hint")}</p>
+          </div>
+
+          {/* Top-P */}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs">
+              <span className="text-foreground/60">
+                {t("model.topP")} · {settings.modelTopP.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={settings.modelTopP}
+              onChange={(e) => void update({ modelTopP: Number(e.target.value) })}
+              className="w-full accent-[var(--color-accent)]"
+              aria-label={t("model.topP")}
+            />
+            <p className="mt-0.5 text-xs text-foreground/40">{t("model.topP.hint")}</p>
+          </div>
+
+          {/* 最大输出长度 */}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs">
+              <span className="text-foreground/60">
+                {t("model.maxTokens")} · {settings.modelMaxTokens}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={256}
+              max={8192}
+              step={256}
+              value={Math.min(settings.modelMaxTokens, 8192)}
+              onChange={(e) => void update({ modelMaxTokens: Number(e.target.value) })}
+              className="w-full accent-[var(--color-accent)]"
+              aria-label={t("model.maxTokens")}
+            />
+            <p className="mt-0.5 text-xs text-foreground/40">{t("model.maxTokens.hint")}</p>
+          </div>
+        </div>
+      </SettingRow>
+
+      {/* 缓存管理 */}
+      <SettingRow title={t("model.cache")} desc={t("model.cache.desc")}>
+        <div className="space-y-3">
+          {/* 用量进度条 */}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
+              <span>
+                {t("model.cache.used")}: {formatBytes(cacheBytes)}
+              </span>
+              <span>
+                {t("model.cache.limit")}: {cacheLimit} MB
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-foreground/10">
+              <div
+                className="h-full rounded-full bg-accent transition-all"
+                style={{
+                  width: `${Math.min(100, (cacheBytes / (cacheLimit * 1024 * 1024)) * 100)}%`,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* 缓存上限 */}
+          <div>
+            <div className="mb-1 text-xs text-foreground/60">
+              {t("model.cache.size")} · {settings.cacheSizeMb} MB
+            </div>
+            <input
+              type="range"
+              min={50}
+              max={4096}
+              step={50}
+              value={settings.cacheSizeMb}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setCacheLimit(v);
+                void update({ cacheSizeMb: v });
+              }}
+              className="w-full accent-[var(--color-accent)]"
+              aria-label={t("model.cache.size")}
+            />
+          </div>
+
+          {/* 清理按钮 */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="tertiary"
+              size="sm"
+              onPress={() => setConfirmClear(true)}
+              isDisabled={clearing || cacheBytes === 0}
+            >
+              <IconDatabase className="mr-1 size-3.5" />
+              {clearing ? t("model.cache.clearing") : t("model.cache.clear")}
+            </Button>
+            {cleared && <span className="text-xs text-success">{t("model.cache.cleared")}</span>}
+          </div>
+        </div>
+      </SettingRow>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title={t("model.cache.clear")}
+        message={t("model.cache.confirm")}
+        danger
+        confirmLabel={t("common.clear")}
+        onConfirm={() => {
+          setConfirmClear(false);
+          handleClear();
+        }}
+        onClose={() => setConfirmClear(false)}
+      />
+    </section>
+  );
+}
+
+// ============================================================
+// API Key Tab
+// ============================================================
+
+function ApiKeyTab(): React.JSX.Element {
+  const { t } = useT();
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+
+  useEffect(() => {
+    void api.providers.list().then(setProviders);
+  }, []);
+
+  return (
+    <section className="space-y-3">
+      <h3 className="flex items-center gap-2 text-sm font-medium text-foreground/70">
+        <IconKey className="size-4" />
+        {t("apikey.title")}
+      </h3>
+      <p className="text-xs text-foreground/50">{t("apikey.desc")}</p>
+      <div className="space-y-3">
+        {providers.map((p) => (
+          <ProviderKeyEditor key={p.id} provider={p} />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -150,12 +690,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
  * 单个 Provider 的 API Key 编辑器
  */
 function ProviderKeyEditor({ provider }: { provider: ProviderInfo }): React.JSX.Element {
+  const { t } = useT();
   const [hasKey, setHasKey] = useState(false);
   const [value, setValue] = useState("");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // 初始加载是否已配置
   const refresh = (): void => {
     void api.apikeys.list().then((list) => {
       setHasKey(list.includes(provider.id));
@@ -197,10 +738,10 @@ function ProviderKeyEditor({ provider }: { provider: ProviderInfo }): React.JSX.
         <span className="text-sm font-medium">{provider.label}</span>
         {hasKey ? (
           <span className="flex items-center gap-1 text-xs text-success">
-            <IconCheck className="size-3" /> 已配置
+            <IconCheck className="size-3" /> {t("apikey.configured")}
           </span>
         ) : (
-          <span className="text-xs text-foreground/40">未配置</span>
+          <span className="text-xs text-foreground/40">{t("apikey.notConfigured")}</span>
         )}
       </div>
 
@@ -209,7 +750,9 @@ function ProviderKeyEditor({ provider }: { provider: ProviderInfo }): React.JSX.
         <Input
           type="password"
           placeholder={
-            hasKey ? "••••••••（已保存，输入新值替换）" : `粘贴 ${provider.label} API Key`
+            hasKey
+              ? t("apikey.placeholder.replace")
+              : t("apikey.placeholder.set", { label: provider.label })
           }
           value={value}
           onChange={(e) => setValue((e.target as HTMLInputElement).value)}
@@ -222,7 +765,7 @@ function ProviderKeyEditor({ provider }: { provider: ProviderInfo }): React.JSX.
             rel="noreferrer"
             className="text-xs text-accent hover:underline"
           >
-            获取 API Key ↗
+            {t("apikey.getKey")}
           </a>
         </Description>
       </TextField>
@@ -234,49 +777,32 @@ function ProviderKeyEditor({ provider }: { provider: ProviderInfo }): React.JSX.
           onPress={handleSave}
           isDisabled={!value.trim() || loading}
         >
-          {saved ? "已保存" : "保存"}
+          {saved ? t("common.saved") : t("common.save")}
         </Button>
         {hasKey && (
-          <Button variant="tertiary" size="sm" onPress={handleDelete} isDisabled={loading}>
-            清除
+          <Button
+            variant="tertiary"
+            size="sm"
+            onPress={() => setConfirmDelete(true)}
+            isDisabled={loading}
+          >
+            {t("common.clear")}
           </Button>
         )}
       </div>
-    </div>
-  );
-}
 
-/**
- * 主题按钮
- */
-function ThemeButton({
-  current,
-  value,
-  label,
-  Icon,
-  onClick,
-}: {
-  current: ThemeMode;
-  value: ThemeMode;
-  label: string;
-  Icon: typeof IconSun;
-  onClick: (v: ThemeMode) => void;
-}): React.JSX.Element {
-  const active = current === value;
-  return (
-    <button
-      type="button"
-      className={[
-        "flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition",
-        active
-          ? "border-accent bg-accent/10 text-accent"
-          : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
-      ].join(" ")}
-      onClick={() => onClick(value)}
-      aria-pressed={active}
-    >
-      <Icon className="size-4" />
-      {label}
-    </button>
+      <ConfirmDialog
+        open={confirmDelete}
+        title={t("common.clear")}
+        message={t("apikey.confirmDelete", { label: provider.label })}
+        danger
+        confirmLabel={t("common.clear")}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          handleDelete();
+        }}
+        onClose={() => setConfirmDelete(false)}
+      />
+    </div>
   );
 }

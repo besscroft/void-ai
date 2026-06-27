@@ -41,6 +41,12 @@ function createApp(): Hono {
       /** 形如 "openai/gpt-4o" 的模型引用 */
       model?: string;
       system?: string;
+      /** 采样温度 0~2 */
+      temperature?: number;
+      /** nucleus sampling 概率 0~1 */
+      topP?: number;
+      /** 最大输出 token 数 */
+      maxOutputTokens?: number;
     };
 
     if (!body.messages?.length) {
@@ -56,6 +62,16 @@ function createApp(): Hono {
         model,
         system: body.system ?? "你是一个有帮助的 AI 助手。请用简洁清晰的中文回答。",
         messages: convertToModelMessages(body.messages),
+        // 仅在有效范围内应用模型参数，避免无效值透传到 provider
+        ...(typeof body.temperature === "number" && body.temperature >= 0 && body.temperature <= 2
+          ? { temperature: body.temperature }
+          : {}),
+        ...(typeof body.topP === "number" && body.topP >= 0 && body.topP <= 1
+          ? { topP: body.topP }
+          : {}),
+        ...(typeof body.maxOutputTokens === "number" && body.maxOutputTokens > 0
+          ? { maxOutputTokens: Math.floor(body.maxOutputTokens) }
+          : {}),
       });
 
       // 返回 AI SDK 的 UIMessage 流式响应（SSE 格式）

@@ -14,6 +14,23 @@
 :root {
   /* 应用自定义品牌色（可选，覆盖 HeroUI 默认 accent） */
   /* --color-accent: oklch(0.55 0.22 264); */
+
+  /*
+   * 界面密度基准变量（Tailwind v4 间距单位）。
+   * 默认标准值；紧凑/宽松模式由 lib/theme.ts applyDensity 运行时覆盖。
+   * 此处显式声明默认值，避免在设置加载前出现布局抖动。
+   */
+  --spacing: 0.25rem;
+}
+
+/*
+ * 主题色与字号切换的平滑过渡，让实时预览更顺滑。
+ * 仅对颜色与字体相关属性生效，不影响布局性能。
+ */
+html {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 html,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { useT } from "../lib/i18n";
 import { IconChevronDown, IconCheck } from "./icons";
 import type { ProviderInfo } from "@shared/types";
 import { SettingKey } from "@shared/types";
@@ -29,6 +30,7 @@ interface ModelSelectorProps {
  *   └──────────────────────┘
  */
 export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JSX.Element {
+  const { t } = useT();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -57,7 +59,7 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JS
 
   // 显示当前选中模型的友好名
   const selectedLabel = (): string => {
-    if (!value) return "选择模型";
+    if (!value) return t("chat.selectModel");
     const [pid, mid] = value.split("/");
     const p = providers.find((x) => x.id === pid);
     const m = p?.models.find((x) => x.id === mid);

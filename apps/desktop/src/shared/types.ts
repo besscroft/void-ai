@@ -31,14 +31,171 @@ export interface ProviderInfo {
   helpUrl: string;
 }
 
-/** 应用设置键名枚举（避免拼写错误） */
+/**
+ * 应用设置键名枚举（避免拼写错误）
+ *
+ * 所有设置项统一以字符串存入 settings 表的 KV 结构。
+ * 复杂结构（如 accent）也以字符串形式存储，由渲染层解析。
+ */
 export const SettingKey = {
-  /** 主题：'light' | 'dark' | 'system' */
+  // —— 主题 / 外观 ——
+  /** 主题模式：'light' | 'dark' | 'system' */
   Theme: "theme",
+  /** 强调色预设 id（见 AccentPreset），或自定义 oklch 字符串 */
+  AccentColor: "accent_color",
+  /** 字号级别：'xs' | 'sm' | 'base' | 'lg' | 'xl' */
+  FontSize: "font_size",
+  /** 界面密度：'compact' | 'comfortable' | 'loose' */
+  LayoutDensity: "layout_density",
+  /** 界面语言：'zh-CN' | 'en' */
+  Language: "language",
+  // —— 模型 ——
   /** 当前选中的模型引用，形如 "openai/gpt-4o" */
   SelectedModel: "selected_model",
+  /** 采样温度 0~2，默认 0.7 */
+  ModelTemperature: "model_temperature",
+  /** 最大输出 token 数，默认 4096 */
+  ModelMaxTokens: "model_max_tokens",
+  /** nucleus sampling 概率 0~1，默认 1 */
+  ModelTopP: "model_top_p",
+  /** 缓存上限（MB），默认 200 */
+  CacheSizeMb: "cache_size_mb",
+  // —— 其它 ——
   /** 当前会话 ID */
   ActiveConversationId: "active_conversation_id",
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
+
+// ============================================================
+// 设置项类型定义
+// ============================================================
+
+/** 主题模式 */
+export type ThemeMode = "light" | "dark" | "system";
+
+/** 字号级别 */
+export type FontSizeLevel = "xs" | "sm" | "base" | "lg" | "xl";
+
+/** 界面密度 */
+export type LayoutDensity = "compact" | "comfortable" | "loose";
+
+/** 支持的界面语言 */
+export type AppLanguage = "zh-CN" | "en";
+
+/**
+ * 强调色预设
+ *
+ * value 为 oklch 字符串，运行时覆盖 --color-accent。
+ * foreground 为配套的前景色（保证对比度），覆盖 --color-accent-foreground。
+ */
+export interface AccentPreset {
+  id: string;
+  /** 显示名 */
+  label: string;
+  /** oklch 主色 */
+  value: string;
+  /** oklch 前景色（通常为白/雪色） */
+  foreground: string;
+  /** 用于预览圆点的十六进制回退色（仅展示） */
+  swatch: string;
+}
+
+/** 预置强调色预设 */
+export const ACCENT_PRESETS: AccentPreset[] = [
+  {
+    id: "indigo",
+    label: "靛蓝",
+    value: "oklch(0.55 0.22 264)",
+    foreground: "oklch(0.98 0.01 264)",
+    swatch: "#4f46e5",
+  },
+  {
+    id: "emerald",
+    label: "翡翠",
+    value: "oklch(0.62 0.17 155)",
+    foreground: "oklch(0.98 0.01 155)",
+    swatch: "#059669",
+  },
+  {
+    id: "rose",
+    label: "玫瑰",
+    value: "oklch(0.62 0.22 16)",
+    foreground: "oklch(0.98 0.01 16)",
+    swatch: "#e11d48",
+  },
+  {
+    id: "amber",
+    label: "琥珀",
+    value: "oklch(0.72 0.18 70)",
+    foreground: "oklch(0.2 0.02 70)",
+    swatch: "#d97706",
+  },
+  {
+    id: "sky",
+    label: "天蓝",
+    value: "oklch(0.62 0.16 230)",
+    foreground: "oklch(0.98 0.01 230)",
+    swatch: "#0284c7",
+  },
+  {
+    id: "violet",
+    label: "紫罗兰",
+    value: "oklch(0.58 0.22 300)",
+    foreground: "oklch(0.98 0.01 300)",
+    swatch: "#7c3aed",
+  },
+];
+
+/** 字号级别到像素值的映射（应用于根 font-size） */
+export const FONT_SIZE_PX: Record<FontSizeLevel, number> = {
+  xs: 13,
+  sm: 14,
+  base: 15,
+  lg: 16,
+  xl: 18,
+};
+
+/** 缓存统计信息 */
+export interface CacheStats {
+  /** 当前缓存占用字节数 */
+  bytes: number;
+  /** 缓存上限（MB），来自设置 */
+  limitMb: number;
+}
+
+/**
+ * 应用设置聚合（渲染层使用）
+ *
+ * 每个字段都可独立持久化，聚合后便于在 UI 中统一消费与实时应用。
+ */
+export interface AppSettings {
+  theme: ThemeMode;
+  accentColor: string;
+  fontSize: FontSizeLevel;
+  density: LayoutDensity;
+  language: AppLanguage;
+  selectedModel: string | null;
+  modelTemperature: number;
+  modelMaxTokens: number;
+  modelTopP: number;
+  cacheSizeMb: number;
+}
+
+/**
+ * 默认设置
+ *
+ * "恢复默认设置" 一键重置到此对象。
+ */
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: "system",
+  accentColor: "indigo",
+  fontSize: "base",
+  density: "comfortable",
+  language: "zh-CN",
+  selectedModel: null,
+  modelTemperature: 0.7,
+  modelMaxTokens: 4096,
+  modelTopP: 1,
+  cacheSizeMb: 200,
+};

@@ -12,16 +12,18 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
-    "dev": "electron-vite dev",
-    "build": "npm run typecheck && electron-vite build",
+    "rebuild:native": "node scripts/rebuild-better-sqlite3.cjs",
+    "setup": "pnpm install && pnpm run rebuild:native",
+    "dev": "pnpm run rebuild:native && electron-vite dev",
+    "build": "pnpm run rebuild:native && npm run typecheck && electron-vite build",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:migrate": "drizzle-kit migrate",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/rebuild-better-sqlite3.cjs",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:mac": "pnpm run rebuild:native && electron-vite build && electron-builder --mac",
+    "build:linux": "pnpm run rebuild:native && electron-vite build && electron-builder --linux"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.4",

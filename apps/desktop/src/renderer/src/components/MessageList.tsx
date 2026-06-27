@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { UIMessage } from "@ai-sdk/react";
+import { useT } from "../lib/i18n";
 
 interface MessageListProps {
   messages: UIMessage[];
@@ -27,6 +28,7 @@ interface MessageListProps {
  * └─────────────────────────────────────────────┘
  */
 export function MessageList({ messages, isLoading, error }: MessageListProps): React.JSX.Element {
+  const { t } = useT();
   const endRef = useRef<HTMLDivElement>(null);
 
   // 新消息到达或流式更新时自动滚动到底部
@@ -38,8 +40,8 @@ export function MessageList({ messages, isLoading, error }: MessageListProps): R
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 text-center text-foreground/40">
         <div className="mb-3 text-5xl">✦</div>
-        <p className="text-lg font-medium">开始一段新对话</p>
-        <p className="mt-1 text-sm">输入你的问题，AI 会在这里回应你</p>
+        <p className="text-lg font-medium">{t("msg.empty.title")}</p>
+        <p className="mt-1 text-sm">{t("msg.empty.desc")}</p>
       </div>
     );
   }
@@ -67,7 +69,7 @@ export function MessageList({ messages, isLoading, error }: MessageListProps): R
         {/* 错误提示 */}
         {error && (
           <div className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
-            <p className="font-medium">请求失败</p>
+            <p className="font-medium">{t("msg.error.title")}</p>
             <p className="mt-1 opacity-80">{error.message}</p>
           </div>
         )}
@@ -118,6 +120,7 @@ function MessageBubble({ message }: { message: UIMessage }): React.JSX.Element {
  * 头像
  */
 function Avatar({ role }: { role: "user" | "assistant" | "system" }): React.JSX.Element {
+  const { t } = useT();
   const isUser = role === "user";
   return (
     <div
@@ -127,7 +130,7 @@ function Avatar({ role }: { role: "user" | "assistant" | "system" }): React.JSX.
       ].join(" ")}
       aria-hidden
     >
-      {isUser ? "我" : "AI"}
+      {isUser ? t("msg.avatar.you") : "AI"}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
-import type { Conversation, MessageRow, ProviderInfo } from "../shared/types";
+import type { Conversation, MessageRow, ProviderInfo, CacheStats } from "../shared/types";
 
 /**
  * Void AI 暴露给渲染进程的 API
@@ -43,6 +43,11 @@ export interface VoidAIApi {
   // 本地 AI 服务
   server: {
     port: () => Promise<number>;
+  };
+  // 缓存管理
+  cache: {
+    stats: () => Promise<CacheStats>;
+    clear: () => Promise<number>;
   };
 }
 

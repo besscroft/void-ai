@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@heroui/react";
 import { api } from "../lib/api";
-import { useTheme } from "../lib/theme";
+import { useSettings } from "../lib/settings";
+import { useT } from "../lib/i18n";
 import {
   IconMessage,
   IconPlus,
@@ -43,6 +44,9 @@ interface AppShellProps {
  * │ 主题切换 │                               │
  * │ 设置     │                               │
  * └──────────┴───────────────────────────────┘
+ *
+ * 主题模式直接读写 useSettings，与设置弹窗共享同一数据源；
+ * 文案经 i18n 本地化。
  */
 export function AppShell({
   activeConversationId,
@@ -52,8 +56,8 @@ export function AppShell({
   onOpenSettings,
   children,
 }: AppShellProps): React.JSX.Element {
+  const { t } = useT();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const { mode, setMode } = useTheme();
 
   // 加载会话列表
   const refresh = (): void => {
@@ -70,9 +74,6 @@ export function AppShell({
   }, [activeConversationId]);
 
   const handleDelete = (id: string): void => {
-    if (id === activeConversationId) {
-      // 删除当前会话后，清空激活态（App 层会处理后续选择）
-    }
     void api.conversations.delete(id).then(() => {
       refresh();
       onDeleteConversation(id);
@@ -91,17 +92,15 @@ export function AppShell({
             onPress={onCreateConversation}
           >
             <IconPlus className="size-4" />
-            新建会话
+            {t("shell.newConversation")}
           </Button>
         </div>
 
         {/* 会话列表 */}
         <nav className="flex-1 overflow-y-auto px-2 pb-2">
           {conversations.length === 0 ? (
-            <p className="px-3 py-8 text-center text-sm text-foreground/50">
-              暂无会话
-              <br />
-              点击上方按钮开始
+            <p className="whitespace-pre-line px-3 py-8 text-center text-sm text-foreground/50">
+              {t("shell.noConversation")}
             </p>
           ) : (
             <ul className="space-y-1">
@@ -125,7 +124,7 @@ export function AppShell({
                           e.stopPropagation();
                           handleDelete(conv.id);
                         }}
-                        aria-label={`删除会话 ${conv.title}`}
+                        aria-label={`${t("common.delete")} ${conv.title}`}
                       >
                         <IconTrash className="size-3.5" />
                       </button>
@@ -139,14 +138,14 @@ export function AppShell({
 
         {/* 底部：主题 + 设置 */}
         <div className="border-t border-foreground/10 p-2">
-          <ThemeSwitcher mode={mode} onModeChange={(m) => void setMode(m)} />
+          <ThemeSwitcher />
           <Button
             variant="ghost"
             className="mt-1 w-full justify-start gap-2"
             onPress={onOpenSettings}
           >
             <IconSettings className="size-4" />
-            设置
+            {t("shell.settings")}
           </Button>
         </div>
       </aside>
@@ -159,18 +158,18 @@ export function AppShell({
 
 /**
  * 主题切换器：light / dark / system 三选一
+ *
+ * 直接读写 useSettings，与设置弹窗的主题 Tab 共享状态。
  */
-function ThemeSwitcher({
-  mode,
-  onModeChange,
-}: {
-  mode: ThemeMode;
-  onModeChange: (m: ThemeMode) => void;
-}): React.JSX.Element {
+function ThemeSwitcher(): React.JSX.Element {
+  const { t } = useT();
+  const { settings, update } = useSettings();
+  const mode = settings.theme;
+
   const options: { value: ThemeMode; label: string; Icon: typeof IconSun }[] = [
-    { value: "light", label: "浅色", Icon: IconSun },
-    { value: "dark", label: "深色", Icon: IconMoon },
-    { value: "system", label: "跟随系统", Icon: IconMonitor },
+    { value: "light", label: t("shell.theme.light"), Icon: IconSun },
+    { value: "dark", label: t("shell.theme.dark"), Icon: IconMoon },
+    { value: "system", label: t("shell.theme.system"), Icon: IconMonitor },
   ];
   return (
     <div className="flex items-center gap-1 rounded-md bg-foreground/5 p-1">
@@ -184,9 +183,10 @@ function ThemeSwitcher({
               ? "bg-background text-foreground shadow-sm"
               : "text-foreground/60 hover:text-foreground",
           ].join(" ")}
-          onClick={() => onModeChange(value)}
+          onClick={() => void update({ theme: value })}
           aria-label={label}
           aria-pressed={mode === value}
+          title={label}
         >
           <Icon className="size-3.5" />
         </button>

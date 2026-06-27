@@ -39,6 +39,10 @@ const api = {
   server: {
     port: () => ipcRenderer.invoke("server:port"),
   },
+  cache: {
+    stats: () => ipcRenderer.invoke("cache:stats"),
+    clear: () => ipcRenderer.invoke("cache:clear"),
+  },
 } as const;
 
 // contextIsolation 启用时通过 contextBridge 暴露；否则直接挂到 window

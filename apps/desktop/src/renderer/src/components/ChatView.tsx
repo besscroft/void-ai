@@ -5,6 +5,8 @@ import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { ModelSelector } from "./ModelSelector";
 import { api } from "../lib/api";
+import { useSettings } from "../lib/settings";
+import { useT } from "../lib/i18n";
 import { SettingKey } from "@shared/types";
 
 interface ChatViewProps {
@@ -25,6 +27,8 @@ interface ChatViewProps {
  *  - 流式完成后将消息保存到 DB
  */
 export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
+  const { t } = useT();
+  const { settings } = useSettings();
   const [serverPort, setServerPort] = useState<number | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   // 防止同一会话内 onFinish 重复保存
@@ -39,14 +43,25 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
   }, []);
 
   // 构造 transport：当端口就绪后启用
+  // 透传模型参数（温度/Top-P/最大输出长度）到后端，参数变更即生效
   const transport = useMemo(() => {
     if (!serverPort) return null;
     return new DefaultChatTransport({
       api: `http://127.0.0.1:${serverPort}/api/chat`,
-      // 额外把 selectedModel 透传到后端 body
-      body: { model: selectedModel ?? undefined },
+      body: {
+        model: selectedModel ?? undefined,
+        temperature: settings.modelTemperature,
+        topP: settings.modelTopP,
+        maxOutputTokens: settings.modelMaxTokens,
+      },
     });
-  }, [serverPort, selectedModel]);
+  }, [
+    serverPort,
+    selectedModel,
+    settings.modelTemperature,
+    settings.modelTopP,
+    settings.modelMaxTokens,
+  ]);
 
   // 加载该会话的历史消息作为初始值
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
@@ -100,7 +115,7 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
   if (!historyLoaded) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-foreground/40">
-        加载历史...
+        {t("chat.loadingHistory")}
       </div>
     );
   }
@@ -109,7 +124,7 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* 顶栏：模型选择器 */}
       <header className="flex items-center justify-between border-b border-foreground/10 px-4 py-2.5">
-        <h1 className="text-sm font-medium text-foreground/70">对话</h1>
+        <h1 className="text-sm font-medium text-foreground/70">{t("chat.title")}</h1>
         <ModelSelector value={selectedModel} onChange={setSelectedModel} />
       </header>
 

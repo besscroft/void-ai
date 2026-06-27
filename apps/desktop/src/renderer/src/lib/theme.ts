@@ -1,32 +1,36 @@
-import { useCallback, useEffect, useState } from "react";
-import { api } from "./api";
-import { SettingKey } from "@shared/types";
+/**
+ * 主题与外观辅助函数（纯函数，无 React 依赖）
+ *
+ * 由 lib/settings.tsx 的 SettingsProvider 调用，统一应用到 DOM。
+ * 拆分为独立模块便于单测与复用，避免与 settings 上下文循环依赖。
+ */
 
-/** 主题模式枚举 */
-export type ThemeMode = "light" | "dark" | "system";
+import {
+  ACCENT_PRESETS,
+  FONT_SIZE_PX,
+  type ThemeMode,
+  type FontSizeLevel,
+  type LayoutDensity,
+} from "@shared/types";
 
 /** 实际生效的主题（system 会被解析为 light 或 dark） */
 export type ResolvedTheme = "light" | "dark";
 
-/** 主题持久化键名 */
-const THEME_KEY = SettingKey.Theme;
+export type { ThemeMode };
 
-/**
- * 解析 system 主题为实际值
- */
-function resolveSystemTheme(): ResolvedTheme {
-  // matchMedia 在 Electron 渲染进程中可用
+/** 系统主题解析（matchMedia 在 Electron 渲染进程可用） */
+export function resolveSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 /**
- * 将主题应用到 documentElement
- * HeroUI v3 通过 [data-theme="dark"] 切换暗色
+ * 将已解析的主题应用到 documentElement。
+ * HeroUI v3 通过 [data-theme="dark"] 切换暗色；
+ * 同时设置 class="dark" 兼容 Tailwind 的 dark: 变体。
  */
-function applyTheme(theme: ResolvedTheme): void {
+export function applyResolvedTheme(theme: ResolvedTheme): void {
   const root = document.documentElement;
   root.setAttribute("data-theme", theme);
-  // 同时设置 class="dark" 以兼容 Tailwind 的 dark: 变体
   if (theme === "dark") {
     root.classList.add("dark");
   } else {
@@ -35,56 +39,44 @@ function applyTheme(theme: ResolvedTheme): void {
 }
 
 /**
- * 主题 Hook：管理主题状态、持久化、system 模式监听
+ * 解析主题模式为实际值（system → light/dark）
  */
-export function useTheme(): {
-  mode: ThemeMode;
-  resolved: ResolvedTheme;
-  setMode: (m: ThemeMode) => Promise<void>;
-  toggle: () => Promise<void>;
-} {
-  const [mode, setModeState] = useState<ThemeMode>("system");
-  const [resolved, setResolved] = useState<ResolvedTheme>(() => resolveSystemTheme());
+export function resolveTheme(mode: ThemeMode): ResolvedTheme {
+  return mode === "system" ? resolveSystemTheme() : mode;
+}
 
-  // 启动时从设置加载
-  useEffect(() => {
-    void (async () => {
-      const stored = (await api.settings.get(THEME_KEY)) as ThemeMode | null;
-      if (stored && ["light", "dark", "system"].includes(stored)) {
-        setModeState(stored);
-      }
-    })();
-  }, []);
+/**
+ * 应用强调色：覆盖 --color-accent / --color-accent-foreground。
+ *
+ * 支持两种输入：
+ *  - 预设 id（如 "indigo"）：从 ACCENT_PRESETS 查找
+ *  - 自定义 oklch/hex 字符串：直接作为主色，前景色推断为雪色
+ */
+export function applyAccent(accent: string): void {
+  const preset = ACCENT_PRESETS.find((p) => p.id === accent);
+  const value = preset?.value ?? accent;
+  const foreground = preset?.foreground ?? "oklch(0.98 0.01 264)";
+  const root = document.documentElement;
+  root.style.setProperty("--color-accent", value);
+  root.style.setProperty("--color-accent-foreground", foreground);
+}
 
-  // 当 mode 或 system 主题变化时，重新计算并应用
-  useEffect(() => {
-    const next: ResolvedTheme = mode === "system" ? resolveSystemTheme() : mode;
-    setResolved(next);
-    applyTheme(next);
-  }, [mode]);
+/**
+ * 应用字号：设置根 font-size，影响所有 rem 单位（HeroUI 全局缩放）。
+ */
+export function applyFontSize(level: FontSizeLevel): void {
+  const px = FONT_SIZE_PX[level] ?? FONT_SIZE_PX.base;
+  document.documentElement.style.fontSize = `${px}px`;
+}
 
-  // 监听系统主题变化（仅 system 模式下生效）
-  useEffect(() => {
-    if (mode !== "system") return;
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (): void => {
-      const next = resolveSystemTheme();
-      setResolved(next);
-      applyTheme(next);
-    };
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, [mode]);
-
-  const setMode = useCallback(async (m: ThemeMode): Promise<void> => {
-    setModeState(m);
-    await api.settings.set(THEME_KEY, m);
-  }, []);
-
-  const toggle = useCallback(async (): Promise<void> => {
-    const next: ThemeMode = resolved === "dark" ? "light" : "dark";
-    await setMode(next);
-  }, [resolved, setMode]);
-
-  return { mode, resolved, setMode, toggle };
+/**
+ * 应用界面密度：通过 data-density 属性 + Tailwind v4 --spacing 变量缩放间距。
+ * compact 更紧凑，loose 更宽松。
+ */
+export function applyDensity(density: LayoutDensity): void {
+  const root = document.documentElement;
+  root.setAttribute("data-density", density);
+  // Tailwind v4 的间距基准变量；适度缩放避免布局破坏
+  const spacing = density === "compact" ? "0.22rem" : density === "loose" ? "0.3rem" : "0.25rem";
+  root.style.setProperty("--spacing", spacing);
 }

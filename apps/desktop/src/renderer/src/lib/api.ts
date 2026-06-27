@@ -1,4 +1,4 @@
-import type { Conversation, MessageRow, ProviderInfo } from "@shared/types";
+import type { Conversation, MessageRow, ProviderInfo, CacheStats } from "@shared/types";
 
 /**
  * 渲染层对 window.api 的类型化封装
@@ -49,6 +49,10 @@ export const api = {
   },
   server: {
     port: (): Promise<number> => assertApi().server.port(),
+  },
+  cache: {
+    stats: (): Promise<CacheStats> => assertApi().cache.stats(),
+    clear: (): Promise<number> => assertApi().cache.clear(),
   },
 };
 
