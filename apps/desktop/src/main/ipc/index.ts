@@ -2,9 +2,13 @@ import { ipcMain, type BrowserWindow } from "electron";
 import { getServerPort } from "../server";
 import {
   listConversations,
+  listDeletedConversations,
   getConversation,
   createConversation,
   deleteConversation,
+  restoreConversation,
+  permanentlyDeleteConversation,
+  purgeExpiredDeletedConversations,
   touchConversation,
   listMessages,
   saveMessage,
@@ -62,6 +66,20 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     touchConversation(id, title);
     return true;
   });
+
+  ipcMain.handle("conversations:listDeleted", () => listDeletedConversations());
+
+  ipcMain.handle("conversations:restore", (_e, id: string) => {
+    restoreConversation(id);
+    return true;
+  });
+
+  ipcMain.handle("conversations:permanentDelete", (_e, id: string) => {
+    permanentlyDeleteConversation(id);
+    return true;
+  });
+
+  ipcMain.handle("conversations:purgeExpired", () => purgeExpiredDeletedConversations());
 
   // ---------- 消息 ----------
   ipcMain.handle("messages:list", (_e, conversationId: string) => listMessages(conversationId));

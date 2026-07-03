@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Chip } from "@heroui/react";
 import { api } from "../lib/api";
+import { notify } from "../lib/toast";
 import { useSettings } from "../lib/settings";
 import { useT } from "../lib/i18n";
 import {
@@ -21,6 +22,7 @@ import {
 import type { Conversation } from "@shared/types";
 import type { ThemeMode } from "../lib/theme";
 import type { WorkspaceSection } from "./WorkspaceView";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export type AppView = "chat" | WorkspaceSection;
 
@@ -59,6 +61,7 @@ export function AppShell({
 }: AppShellProps): React.JSX.Element {
   const { t } = useT();
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
 
   const refresh = (): void => {
     void api.conversations.list().then(setConversations);
@@ -72,11 +75,21 @@ export function AppShell({
     refresh();
   }, [activeConversationId]);
 
-  const handleDelete = (id: string): void => {
-    void api.conversations.delete(id).then(() => {
-      refresh();
-      onDeleteConversation(id);
-    });
+  const confirmDeleteConversation = (): void => {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    void notify
+      .promise(api.conversations.delete(id), {
+        loading: t("toast.conversation.deleting"),
+        success: t("toast.conversation.deleted"),
+        error: t("toast.conversation.deleteFailed"),
+      })
+      .then(() => {
+        refresh();
+        onDeleteConversation(id);
+      })
+      .catch(() => undefined);
+    setPendingDelete(null);
   };
 
   return (
@@ -155,7 +168,7 @@ export function AppShell({
                           className="opacity-0 transition group-hover:opacity-100 hover:text-danger"
                           onClick={(event) => {
                             event.stopPropagation();
-                            handleDelete(conv.id);
+                            setPendingDelete(conv);
                           }}
                           aria-label={`${t("common.delete")} ${conv.title}`}
                         >
@@ -184,6 +197,16 @@ export function AppShell({
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title={t("conversation.delete.title")}
+        message={t("conversation.delete.confirm", { title: pendingDelete?.title ?? "" })}
+        danger
+        confirmLabel={t("common.delete")}
+        onConfirm={confirmDeleteConversation}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

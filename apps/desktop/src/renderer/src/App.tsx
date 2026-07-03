@@ -7,6 +7,7 @@ import { api } from "./lib/api";
 import { SettingsProvider, useSettings } from "./lib/settings";
 import { AppI18nProvider, useT } from "./lib/i18n";
 import { SettingKey } from "@shared/types";
+import { Toaster } from "sonner";
 
 function App(): React.JSX.Element {
   return (
@@ -105,6 +106,7 @@ function AppContent(): React.JSX.Element {
       </AppShell>
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <Toaster richColors closeButton position="top-right" />
     </>
   );
 }

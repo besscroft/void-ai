@@ -10,17 +10,27 @@ import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 // 会话表
 // ============================================================
 
-export const conversations = sqliteTable("conversations", {
-  /** 会话 ID（前端生成的 UUID） */
-  id: text("id").primaryKey(),
-  /** 会话标题，默认 "新会话" */
-  title: text("title").notNull().default("新会话"),
-  /** 创建时间（毫秒时间戳） */
-  created_at: integer("created_at").notNull(),
-  /** 最后更新时间（毫秒时间戳），用于排序与展示 */
-  updated_at: integer("updated_at").notNull(),
-});
-
+export const conversations = sqliteTable(
+  "conversations",
+  {
+    /** 会话 ID（前端生成的 UUID） */
+    id: text("id").primaryKey(),
+    /** 会话标题，默认 "新会话" */
+    title: text("title").notNull().default("新会话"),
+    /** 创建时间（毫秒时间戳） */
+    created_at: integer("created_at").notNull(),
+    /** 最后更新时间（毫秒时间戳），用于排序与展示 */
+    updated_at: integer("updated_at").notNull(),
+    /** 软删除时间；null 表示仍在普通会话列表中 */
+    deleted_at: integer("deleted_at"),
+    /** 自动永久删除时间；删除后固定为 deleted_at + 7 天 */
+    purge_after_at: integer("purge_after_at"),
+  },
+  (table) => [
+    index("idx_conversations_deleted_at").on(table.deleted_at),
+    index("idx_conversations_purge_after_at").on(table.purge_after_at),
+  ],
+);
 // ============================================================
 // 消息表
 // ============================================================

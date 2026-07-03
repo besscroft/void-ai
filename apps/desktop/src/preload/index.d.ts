@@ -27,9 +27,13 @@ export interface VoidAIApi {
   // 会话历史
   conversations: {
     list: () => Promise<Conversation[]>;
+    listDeleted: () => Promise<Conversation[]>;
     get: (id: string) => Promise<Conversation | null>;
     create: (id: string, title?: string) => Promise<Conversation>;
     delete: (id: string) => Promise<boolean>;
+    restore: (id: string) => Promise<boolean>;
+    permanentDelete: (id: string) => Promise<boolean>;
+    purgeExpired: () => Promise<number>;
     touch: (id: string, title?: string) => Promise<boolean>;
   };
   // 消息

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, Input, Label, TextField, Description } from "@heroui/react";
 import { api } from "../lib/api";
+import { notify } from "../lib/toast";
 import { useSettings } from "../lib/settings";
 import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -16,10 +17,12 @@ import {
   IconCpu,
   IconRotateCcw,
   IconDatabase,
+  IconTrash,
 } from "./icons";
 import {
   ACCENT_PRESETS,
   FONT_SIZE_PX,
+  type Conversation,
   type ProviderInfo,
   type ThemeMode,
   type FontSizeLevel,
@@ -35,7 +38,7 @@ interface SettingsDialogProps {
 }
 
 /** Tab 定义 */
-type TabId = "theme" | "system" | "model" | "apikey";
+type TabId = "theme" | "system" | "model" | "apikey" | "trash";
 
 /**
  * 设置弹窗（分 Tab 结构）
@@ -75,10 +78,17 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   if (!open) return null;
 
   const handleReset = (): void => {
-    void reset().then(() => {
-      setResetDone(true);
-      setTimeout(() => setResetDone(false), 2000);
-    });
+    void notify
+      .promise(reset(), {
+        loading: t("toast.settings.resetting"),
+        success: t("toast.settings.reset"),
+        error: t("toast.settings.resetFailed"),
+      })
+      .then(() => {
+        setResetDone(true);
+        setTimeout(() => setResetDone(false), 2000);
+      })
+      .catch(() => undefined);
   };
 
   const tabs: { id: TabId; label: string; Icon: typeof IconPalette }[] = [
@@ -86,6 +96,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
     { id: "system", label: t("settings.tab.system"), Icon: IconSliders },
     { id: "model", label: t("settings.tab.model"), Icon: IconCpu },
     { id: "apikey", label: t("settings.tab.apiKey"), Icon: IconKey },
+    { id: "trash", label: t("settings.tab.trash"), Icon: IconTrash },
   ];
 
   return (
@@ -157,6 +168,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
             {tab === "system" && <SystemTab settings={settings} update={update} />}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
             {tab === "apikey" && <ApiKeyTab />}
+            {tab === "trash" && <TrashTab />}
 
             {/* 窄屏下的恢复默认按钮 */}
             <div className="mt-6 border-t border-foreground/10 pt-4 md:hidden">
@@ -485,12 +497,19 @@ function ModelTab({
 
   const handleClear = (): void => {
     setClearing(true);
-    void api.cache.clear().then((remaining) => {
-      setCacheBytes(remaining);
-      setClearing(false);
-      setCleared(true);
-      setTimeout(() => setCleared(false), 2000);
-    });
+    void notify
+      .promise(api.cache.clear(), {
+        loading: t("toast.cache.clearing"),
+        success: t("toast.cache.cleared"),
+        error: t("toast.cache.clearFailed"),
+      })
+      .then((remaining) => {
+        setCacheBytes(remaining);
+        setCleared(true);
+        setTimeout(() => setCleared(false), 2000);
+      })
+      .finally(() => setClearing(false))
+      .catch(() => undefined);
   };
 
   return (
@@ -659,6 +678,138 @@ function ModelTab({
 }
 
 // ============================================================
+// 回收站 Tab
+// ============================================================
+
+function TrashTab(): React.JSX.Element {
+  const { t } = useT();
+  const [items, setItems] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState<Conversation | null>(null);
+
+  const refresh = (): void => {
+    setLoading(true);
+    void api.conversations
+      .purgeExpired()
+      .then(() => api.conversations.listDeleted())
+      .then(setItems)
+      .catch((error) => notify.error(t("toast.trash.loadFailed"), error))
+      .finally(() => setLoading(false))
+      .catch(() => undefined);
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const handleRestore = (conversation: Conversation): void => {
+    void notify
+      .promise(api.conversations.restore(conversation.id), {
+        loading: t("toast.conversation.restoring"),
+        success: t("toast.conversation.restored"),
+        error: t("toast.conversation.restoreFailed"),
+      })
+      .then(refresh)
+      .catch(() => undefined);
+  };
+
+  const handlePermanentDelete = (): void => {
+    if (!pendingPermanentDelete) return;
+    const id = pendingPermanentDelete.id;
+    void notify
+      .promise(api.conversations.permanentDelete(id), {
+        loading: t("toast.conversation.permanentDeleting"),
+        success: t("toast.conversation.permanentDeleted"),
+        error: t("toast.conversation.permanentDeleteFailed"),
+      })
+      .then(refresh)
+      .catch(() => undefined);
+    setPendingPermanentDelete(null);
+  };
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h3 className="flex items-center gap-2 text-sm font-medium text-foreground/70">
+          <IconTrash className="size-4" />
+          {t("trash.title")}
+        </h3>
+        <p className="mt-1 text-xs text-foreground/50">{t("trash.desc")}</p>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="rounded-md border border-foreground/10 px-4 py-8 text-center text-sm text-foreground/45">
+          {loading ? t("chat.loadingHistory") : t("trash.empty")}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((conversation) => (
+            <div key={conversation.id} className="rounded-md border border-foreground/10 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{conversation.title}</p>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/50">
+                    <span>
+                      {t("trash.deletedAt")}: {formatDate(conversation.deleted_at)}
+                    </span>
+                    <span>
+                      {t("trash.purgeIn")}:{" "}
+                      {formatRemaining(conversation.purge_after_at, t("trash.expired"))}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button variant="secondary" size="sm" onPress={() => handleRestore(conversation)}>
+                    {t("common.restore")}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onPress={() => setPendingPermanentDelete(conversation)}
+                  >
+                    {t("common.permanentDelete")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!pendingPermanentDelete}
+        title={t("trash.permanent.title")}
+        message={t("trash.permanent.confirm", { title: pendingPermanentDelete?.title ?? "" })}
+        danger
+        confirmLabel={t("common.permanentDelete")}
+        onConfirm={handlePermanentDelete}
+        onClose={() => setPendingPermanentDelete(null)}
+      />
+    </section>
+  );
+}
+
+function formatDate(value: number | null): string {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatRemaining(value: number | null, expiredLabel: string): string {
+  if (!value) return "-";
+  const remaining = value - Date.now();
+  if (remaining <= 0) return expiredLabel;
+  const days = Math.floor(remaining / 86_400_000);
+  const hours = Math.ceil((remaining % 86_400_000) / 3_600_000);
+  if (days <= 0) return `${hours}h`;
+  return `${days}d ${hours}h`;
+}
+// ============================================================
 // API Key Tab
 // ============================================================
 
@@ -710,26 +861,36 @@ function ProviderKeyEditor({ provider }: { provider: ProviderInfo }): React.JSX.
   const handleSave = (): void => {
     if (!value.trim()) return;
     setLoading(true);
-    void api.apikeys
-      .set(provider.id, value.trim())
+    void notify
+      .promise(api.apikeys.set(provider.id, value.trim()), {
+        loading: t("toast.apikey.saving"),
+        success: t("toast.apikey.saved"),
+        error: t("toast.apikey.saveFailed"),
+      })
       .then(() => {
         setHasKey(true);
         setValue("");
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       })
-      .finally(() => setLoading(false));
+      .finally(() => setLoading(false))
+      .catch(() => undefined);
   };
 
   const handleDelete = (): void => {
     setLoading(true);
-    void api.apikeys
-      .delete(provider.id)
+    void notify
+      .promise(api.apikeys.delete(provider.id), {
+        loading: t("toast.apikey.clearing"),
+        success: t("toast.apikey.cleared"),
+        error: t("toast.apikey.clearFailed"),
+      })
       .then(() => {
         setHasKey(false);
         setValue("");
       })
-      .finally(() => setLoading(false));
+      .finally(() => setLoading(false))
+      .catch(() => undefined);
   };
 
   return (

@@ -33,10 +33,15 @@ function assertApi(): NonNullable<Window["api"]> {
 export const api = {
   conversations: {
     list: (): Promise<Conversation[]> => assertApi().conversations.list(),
+    listDeleted: (): Promise<Conversation[]> => assertApi().conversations.listDeleted(),
     get: (id: string): Promise<Conversation | null> => assertApi().conversations.get(id),
     create: (id: string, title?: string): Promise<Conversation> =>
       assertApi().conversations.create(id, title),
     delete: (id: string): Promise<boolean> => assertApi().conversations.delete(id),
+    restore: (id: string): Promise<boolean> => assertApi().conversations.restore(id),
+    permanentDelete: (id: string): Promise<boolean> =>
+      assertApi().conversations.permanentDelete(id),
+    purgeExpired: (): Promise<number> => assertApi().conversations.purgeExpired(),
     touch: (id: string, title?: string): Promise<boolean> =>
       assertApi().conversations.touch(id, title),
   },

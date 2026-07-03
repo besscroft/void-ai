@@ -11,6 +11,8 @@ export interface Conversation {
   title: string;
   created_at: number;
   updated_at: number;
+  deleted_at: number | null;
+  purge_after_at: number | null;
 }
 
 /** 消息记录（对应 DB 中的 messages 表） */

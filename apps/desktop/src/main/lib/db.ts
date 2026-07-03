@@ -15,7 +15,7 @@
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, desc, asc, and, isNull, isNotNull, lt } from "drizzle-orm";
 import { existsSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -65,6 +65,7 @@ const DB_FILENAME = "void-ai.db";
 /** 数据目录名（位于 userData 下） */
 const DATA_DIRNAME = "data";
 const DEFAULT_AGENT_ID = "agent-void";
+const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** drizzle 实例类型（基于 schema 推断，保证类型安全的查询/插入/更新） */
 type DbInstance = BetterSQLite3Database<typeof schema>;
@@ -120,6 +121,7 @@ export function initDb(): DbInstance {
   console.log("[db] 迁移目录:", migrationsFolder);
   try {
     migrate(dbInstance, { migrationsFolder });
+    purgeExpiredDeletedConversations();
     seedWorkspaceDefaults();
     console.log("[db] 迁移应用完成");
   } catch (err) {
@@ -155,36 +157,93 @@ export function closeDb(): void {
 /** 创建新会话 */
 export function createConversation(id: string, title = "新会话"): Conversation {
   const now = Date.now();
-  getDb().insert(conversations).values({ id, title, created_at: now, updated_at: now }).run();
-  return { id, title, created_at: now, updated_at: now };
+  const row: Conversation = {
+    id,
+    title,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+    purge_after_at: null,
+  };
+  getDb().insert(conversations).values(row).run();
+  return row;
 }
 
-/** 列出所有会话（按更新时间倒序） */
+/** 列出普通会话（按更新时间倒序，不包含回收站） */
 export function listConversations(): Conversation[] {
-  return getDb().select().from(conversations).orderBy(desc(conversations.updated_at)).all();
+  return getDb()
+    .select()
+    .from(conversations)
+    .where(isNull(conversations.deleted_at))
+    .orderBy(desc(conversations.updated_at))
+    .all();
 }
 
-/** 获取单个会话 */
+/** 列出回收站会话（按删除时间倒序） */
+export function listDeletedConversations(): Conversation[] {
+  return getDb()
+    .select()
+    .from(conversations)
+    .where(isNotNull(conversations.deleted_at))
+    .orderBy(desc(conversations.deleted_at))
+    .all();
+}
+
+/** 获取单个普通会话 */
 export function getConversation(id: string): Conversation | null {
-  return getDb().select().from(conversations).where(eq(conversations.id, id)).get() ?? null;
+  return (
+    getDb()
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, id), isNull(conversations.deleted_at)))
+      .get() ?? null
+  );
 }
 
 /** 更新会话标题/时间戳 */
 export function touchConversation(id: string, title?: string): void {
   const now = Date.now();
   const db = getDb();
+  const where = and(eq(conversations.id, id), isNull(conversations.deleted_at));
   if (title) {
-    db.update(conversations).set({ title, updated_at: now }).where(eq(conversations.id, id)).run();
+    db.update(conversations).set({ title, updated_at: now }).where(where).run();
   } else {
-    db.update(conversations).set({ updated_at: now }).where(eq(conversations.id, id)).run();
+    db.update(conversations).set({ updated_at: now }).where(where).run();
   }
 }
 
-/** 删除会话及其所有消息（外键级联） */
+/** 软删除会话：移入回收站，7 天后自动永久删除 */
 export function deleteConversation(id: string): void {
+  const now = Date.now();
+  getDb()
+    .update(conversations)
+    .set({ deleted_at: now, purge_after_at: now + TRASH_RETENTION_MS, updated_at: now })
+    .where(and(eq(conversations.id, id), isNull(conversations.deleted_at)))
+    .run();
+}
+
+/** 从回收站恢复会话 */
+export function restoreConversation(id: string): void {
+  const now = Date.now();
+  getDb()
+    .update(conversations)
+    .set({ deleted_at: null, purge_after_at: null, updated_at: now })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+/** 永久删除会话及其所有消息（外键级联） */
+export function permanentlyDeleteConversation(id: string): void {
   getDb().delete(conversations).where(eq(conversations.id, id)).run();
 }
 
+/** 永久删除已超过回收站保留期的会话 */
+export function purgeExpiredDeletedConversations(now = Date.now()): number {
+  return getDb()
+    .delete(conversations)
+    .where(and(isNotNull(conversations.deleted_at), lt(conversations.purge_after_at, now)))
+    .run().changes;
+}
 /** 保存一条消息（已存在则更新） */
 export function saveMessage(msg: MessageRow): void {
   getDb()

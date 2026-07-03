@@ -6,6 +6,7 @@ import { MessageInput } from "./MessageInput";
 import { ModelSelector } from "./ModelSelector";
 import { AgentSelector } from "./AgentSelector";
 import { api } from "../lib/api";
+import { notify } from "../lib/toast";
 import { useSettings } from "../lib/settings";
 import { useT } from "../lib/i18n";
 import { DEFAULT_AGENT_ID, SettingKey } from "@shared/types";
@@ -88,6 +89,7 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
     },
     onError: (err) => {
       console.error("[chat] 流式错误:", err);
+      notify.error(t("toast.chat.failed"), err);
     },
   });
 

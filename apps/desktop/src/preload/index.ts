@@ -13,9 +13,13 @@ import { electronAPI } from "@electron-toolkit/preload";
 const api = {
   conversations: {
     list: () => ipcRenderer.invoke("conversations:list"),
+    listDeleted: () => ipcRenderer.invoke("conversations:listDeleted"),
     get: (id: string) => ipcRenderer.invoke("conversations:get", id),
     create: (id: string, title?: string) => ipcRenderer.invoke("conversations:create", id, title),
     delete: (id: string) => ipcRenderer.invoke("conversations:delete", id),
+    restore: (id: string) => ipcRenderer.invoke("conversations:restore", id),
+    permanentDelete: (id: string) => ipcRenderer.invoke("conversations:permanentDelete", id),
+    purgeExpired: () => ipcRenderer.invoke("conversations:purgeExpired"),
     touch: (id: string, title?: string) => ipcRenderer.invoke("conversations:touch", id, title),
   },
   messages: {

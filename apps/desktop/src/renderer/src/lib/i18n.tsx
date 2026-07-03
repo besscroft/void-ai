@@ -27,6 +27,8 @@ const zhCN: Dict = {
   "common.close": "关闭",
   "common.done": "完成",
   "common.reset": "恢复默认设置",
+  "common.restore": "恢复",
+  "common.permanentDelete": "永久删除",
   "common.yes": "是",
   "common.no": "否",
 
@@ -62,10 +64,24 @@ const zhCN: Dict = {
   "settings.tab.system": "系统",
   "settings.tab.model": "模型",
   "settings.tab.apiKey": "API Key",
+  "settings.tab.trash": "回收站",
 
   "settings.reset.title": "恢复默认设置",
   "settings.reset.confirm": "确定要将所有设置恢复为默认值吗？此操作不可撤销。",
   "settings.reset.done": "已恢复默认设置",
+
+  "conversation.delete.title": "删除会话",
+  "conversation.delete.confirm":
+    "确定要删除“{title}”吗？会话将移入回收站，并在 7 天后自动永久删除。",
+
+  "trash.title": "回收站",
+  "trash.desc": "删除后的会话最多保留 7 天。你可以在此恢复，也可以手动永久删除。",
+  "trash.empty": "回收站为空",
+  "trash.deletedAt": "删除时间",
+  "trash.purgeIn": "剩余",
+  "trash.expired": "等待自动清理",
+  "trash.permanent.title": "永久删除会话",
+  "trash.permanent.confirm": "确定要永久删除“{title}”吗？此操作会同时删除消息记录，且不可恢复。",
 
   // 主题
   "theme.section.appearance": "外观",
@@ -120,6 +136,30 @@ const zhCN: Dict = {
   "apikey.placeholder.replace": "••••••••（已保存，输入新值替换）",
   "apikey.getKey": "获取 API Key ↗",
   "apikey.confirmDelete": "确定要清除 {label} 的 API Key 吗？",
+
+  "toast.conversation.deleting": "正在移入回收站...",
+  "toast.conversation.deleted": "会话已移入回收站",
+  "toast.conversation.deleteFailed": "删除会话失败",
+  "toast.conversation.restoring": "正在恢复会话...",
+  "toast.conversation.restored": "会话已恢复",
+  "toast.conversation.restoreFailed": "恢复会话失败",
+  "toast.conversation.permanentDeleting": "正在永久删除...",
+  "toast.conversation.permanentDeleted": "会话已永久删除",
+  "toast.conversation.permanentDeleteFailed": "永久删除失败",
+  "toast.trash.loadFailed": "加载回收站失败",
+  "toast.settings.resetting": "正在恢复默认设置...",
+  "toast.settings.reset": "已恢复默认设置",
+  "toast.settings.resetFailed": "恢复默认设置失败",
+  "toast.cache.clearing": "正在清理缓存...",
+  "toast.cache.cleared": "缓存已清理",
+  "toast.cache.clearFailed": "清理缓存失败",
+  "toast.apikey.saving": "正在保存 API Key...",
+  "toast.apikey.saved": "API Key 已保存",
+  "toast.apikey.saveFailed": "保存 API Key 失败",
+  "toast.apikey.clearing": "正在清除 API Key...",
+  "toast.apikey.cleared": "API Key 已清除",
+  "toast.apikey.clearFailed": "清除 API Key 失败",
+  "toast.chat.failed": "聊天请求失败",
 };
 
 const en: Dict = {
@@ -133,6 +173,8 @@ const en: Dict = {
   "common.close": "Close",
   "common.done": "Done",
   "common.reset": "Reset to defaults",
+  "common.restore": "Restore",
+  "common.permanentDelete": "Delete forever",
   "common.yes": "Yes",
   "common.no": "No",
 
@@ -164,10 +206,26 @@ const en: Dict = {
   "settings.tab.system": "System",
   "settings.tab.model": "Model",
   "settings.tab.apiKey": "API Key",
+  "settings.tab.trash": "Trash",
 
   "settings.reset.title": "Reset to defaults",
   "settings.reset.confirm": "Reset all settings to defaults? This cannot be undone.",
   "settings.reset.done": "Settings reset to defaults",
+
+  "conversation.delete.title": "Delete conversation",
+  "conversation.delete.confirm":
+    "Delete “{title}”? The conversation will move to Trash and be permanently deleted after 7 days.",
+
+  "trash.title": "Trash",
+  "trash.desc":
+    "Deleted conversations are kept for up to 7 days. Restore them here or delete them forever.",
+  "trash.empty": "Trash is empty",
+  "trash.deletedAt": "Deleted",
+  "trash.purgeIn": "Remaining",
+  "trash.expired": "Pending cleanup",
+  "trash.permanent.title": "Delete conversation forever",
+  "trash.permanent.confirm":
+    "Delete “{title}” forever? This also deletes its messages and cannot be undone.",
 
   "theme.section.appearance": "Appearance",
   "theme.mode": "Theme mode",
@@ -218,6 +276,30 @@ const en: Dict = {
   "apikey.placeholder.replace": "•••••••• (saved, type new value to replace)",
   "apikey.getKey": "Get API Key ↗",
   "apikey.confirmDelete": "Clear the API Key for {label}?",
+
+  "toast.conversation.deleting": "Moving to Trash...",
+  "toast.conversation.deleted": "Conversation moved to Trash",
+  "toast.conversation.deleteFailed": "Failed to delete conversation",
+  "toast.conversation.restoring": "Restoring conversation...",
+  "toast.conversation.restored": "Conversation restored",
+  "toast.conversation.restoreFailed": "Failed to restore conversation",
+  "toast.conversation.permanentDeleting": "Deleting forever...",
+  "toast.conversation.permanentDeleted": "Conversation deleted forever",
+  "toast.conversation.permanentDeleteFailed": "Failed to delete forever",
+  "toast.trash.loadFailed": "Failed to load Trash",
+  "toast.settings.resetting": "Resetting settings...",
+  "toast.settings.reset": "Settings reset",
+  "toast.settings.resetFailed": "Failed to reset settings",
+  "toast.cache.clearing": "Clearing cache...",
+  "toast.cache.cleared": "Cache cleared",
+  "toast.cache.clearFailed": "Failed to clear cache",
+  "toast.apikey.saving": "Saving API Key...",
+  "toast.apikey.saved": "API Key saved",
+  "toast.apikey.saveFailed": "Failed to save API Key",
+  "toast.apikey.clearing": "Clearing API Key...",
+  "toast.apikey.cleared": "API Key cleared",
+  "toast.apikey.clearFailed": "Failed to clear API Key",
+  "toast.chat.failed": "Chat request failed",
 };
 
 /** 语言字典映射 */

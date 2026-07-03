@@ -15,6 +15,13 @@
       "when": 1783081590212,
       "tag": "0001_even_ben_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783083777260,
+      "tag": "0002_jazzy_marrow",
+      "breakpoints": true
     }
   ]
 }
