@@ -53,14 +53,14 @@ export function AgentSelector({
         type="button"
         variant="secondary"
         size="sm"
-        className="h-9 min-w-0 rounded-full border border-foreground/10 bg-foreground/[0.035] px-2.5 shadow-sm hover:bg-foreground/[0.06]"
+        className="h-8 min-w-0 gap-1.5 rounded-full border border-foreground/10 bg-foreground/[0.035] px-2 text-[13px] shadow-sm hover:bg-foreground/[0.06]"
         onPress={() => setOpen((next) => !next)}
       >
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-[11px] font-semibold text-accent">
+        <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-accent/15 text-[10px] font-semibold text-accent">
           {selected?.avatar ?? "V"}
         </span>
-        <span className="max-w-[120px] truncate text-sm">{selected?.name ?? "Void"}</span>
-        <IconChevronDown className={`size-3.5 shrink-0 transition ${open ? "rotate-180" : ""}`} />
+        <span className="max-w-[104px] truncate">{selected?.name ?? "Void"}</span>
+        <IconChevronDown className={`size-3 shrink-0 transition ${open ? "rotate-180" : ""}`} />
       </Button>
 
       {open && (

@@ -32,9 +32,9 @@ export function MessageInput({
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = "0px";
-    const maxHeight = 176;
+    const maxHeight = 152;
     const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
-    textarea.style.height = `${Math.max(nextHeight, 80)}px`;
+    textarea.style.height = `${Math.max(nextHeight, 64)}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [value]);
 
@@ -54,19 +54,19 @@ export function MessageInput({
   };
 
   return (
-    <div className="shrink-0 border-t border-foreground/10 bg-background/70 px-4 pb-4 pt-3 backdrop-blur-xl">
+    <div className="shrink-0 bg-background/70 px-4 pb-3 pt-2 backdrop-blur-xl">
       <div className="mx-auto w-full max-w-4xl">
         <div
           className={[
-            "rounded-[28px] border bg-background/95 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.65)] transition-all duration-200",
+            "rounded-[24px] border bg-background/95 shadow-[0_18px_60px_-42px_rgba(15,23,42,0.65)] transition-all duration-200",
             "focus-within:border-accent/45 focus-within:ring-4 focus-within:ring-accent/10",
             modelSelected ? "border-foreground/15" : "border-warning/35",
           ].join(" ")}
         >
-          <div className="px-5 pb-3 pt-5">
+          <div className="px-4 pb-2 pt-4">
             <textarea
               ref={textareaRef}
-              className="block max-h-44 min-h-20 w-full resize-none overflow-hidden bg-transparent text-base leading-6 text-foreground outline-none placeholder:text-foreground/35 disabled:cursor-not-allowed disabled:opacity-70"
+              className="block max-h-[152px] min-h-16 w-full resize-none overflow-hidden bg-transparent text-[15px] leading-6 text-foreground outline-none placeholder:text-foreground/35 disabled:cursor-not-allowed disabled:opacity-70"
               placeholder={isLoading ? t("input.generating") : t("input.placeholder")}
               value={value}
               onChange={(e) => setValue(e.target.value)}
@@ -79,15 +79,15 @@ export function MessageInput({
             {!modelSelected && (
               <p
                 id="message-input-model-warning"
-                className="mt-3 inline-flex max-w-full rounded-full bg-warning/10 px-3 py-1 text-xs font-medium text-warning"
+                className="mt-2 inline-flex max-w-full rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning"
               >
                 {t("input.noModel")}
               </p>
             )}
           </div>
 
-          <div className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-t border-foreground/10 px-3 py-3 sm:px-4">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="flex min-h-11 flex-wrap items-center justify-between gap-1.5 px-3 py-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <AgentSelector value={selectedAgentId} onChange={onAgentChange} placement="top" />
               <ModelSelector value={selectedModel} onChange={onModelChange} placement="top" />
             </div>
@@ -98,14 +98,14 @@ export function MessageInput({
               size="sm"
               variant={canSend ? "primary" : "secondary"}
               className={[
-                "size-10 shrink-0 rounded-2xl transition",
+                "size-8 min-w-8 shrink-0 rounded-xl transition",
                 canSend ? "shadow-lg shadow-accent/20" : "opacity-70",
               ].join(" ")}
               onPress={submit}
               isDisabled={!canSend}
               aria-label={t("input.send")}
             >
-              <IconArrowUp className="size-4" />
+              <IconArrowUp className="size-3.5" />
             </Button>
           </div>
         </div>
