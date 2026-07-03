@@ -6,30 +6,16 @@ import type { ProviderInfo } from "@shared/types";
 import { SettingKey } from "@shared/types";
 
 interface ModelSelectorProps {
-  /** 当前选中的模型引用（"provider/model" 格式） */
   value: string | null;
-  /** 选择变更回调 */
   onChange: (modelRef: string) => void;
+  placement?: "top" | "bottom";
 }
 
-/**
- * 模型选择下拉
- *
- * 显示所有 provider 及其模型，用户可切换。
- * 选中值持久化到 settings 表。
- *
- * 示意：
- * ┌─────────────────────────┐
- * │ OpenAI / GPT-4o    ▼    │
- * └─────────────────────────┘
- *   ┌─ OpenAI ─────────────┐
- *   │  ✓ GPT-4o            │
- *   │    GPT-4o mini       │
- *   ├─ Anthropic ──────────┤
- *   │    Claude 3.5 Sonnet│
- *   └──────────────────────┘
- */
-export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JSX.Element {
+export function ModelSelector({
+  value,
+  onChange,
+  placement = "bottom",
+}: ModelSelectorProps): React.JSX.Element {
   const { t } = useT();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [open, setOpen] = useState(false);
@@ -39,7 +25,6 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JS
     void api.providers.list().then(setProviders);
   }, []);
 
-  // 点击外部关闭
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent): void => {
@@ -57,7 +42,6 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JS
     setOpen(false);
   };
 
-  // 显示当前选中模型的友好名
   const selectedLabel = (): string => {
     if (!value) return t("chat.selectModel");
     const [pid, mid] = value.split("/");
@@ -66,23 +50,26 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JS
     return `${p?.label ?? pid} / ${m?.label ?? mid}`;
   };
 
+  const menuPlacement = placement === "top" ? "bottom-full mb-2 left-0" : "top-full mt-2 right-0";
+
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative min-w-0">
       <button
         type="button"
-        className="flex items-center gap-2 rounded-md border border-foreground/15 bg-background px-3 py-1.5 text-sm transition hover:bg-foreground/5"
+        className="flex h-9 min-w-0 items-center gap-2 rounded-full border border-foreground/10 bg-foreground/[0.035] px-3 text-sm shadow-sm transition hover:bg-foreground/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="max-w-[200px] truncate">{selectedLabel()}</span>
-        <IconChevronDown className={`size-3.5 transition ${open ? "rotate-180" : ""}`} />
+        <span className="size-2.5 shrink-0 rounded-full bg-accent shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-accent)_18%,transparent)]" />
+        <span className="max-w-[180px] truncate font-medium">{selectedLabel()}</span>
+        <IconChevronDown className={`size-3.5 shrink-0 transition ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
         <div
           role="listbox"
-          className="absolute right-0 top-full z-50 mt-1 max-h-80 w-64 overflow-y-auto rounded-md border border-foreground/15 bg-background shadow-lg"
+          className={`absolute z-50 max-h-80 w-72 overflow-y-auto rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
         >
           {providers.map((p) => (
             <div key={p.id}>
@@ -104,8 +91,8 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JS
                     ].join(" ")}
                     onClick={() => handleChange(ref)}
                   >
-                    <span className="flex-1">{m.label ?? m.id}</span>
-                    {selected && <IconCheck className="size-3.5" />}
+                    <span className="min-w-0 flex-1 truncate">{m.label ?? m.id}</span>
+                    {selected && <IconCheck className="size-3.5 shrink-0" />}
                   </button>
                 );
               })}

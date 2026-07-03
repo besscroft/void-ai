@@ -47,10 +47,11 @@ const zhCN: Dict = {
   "chat.initializing": "正在初始化...",
 
   // —— MessageInput ——
-  "input.placeholder": "输入消息（Enter 发送，Shift+Enter 换行）",
-  "input.generating": "AI 正在回复...",
-  "input.noModel": "请先在右上角选择一个 AI 模型，或在设置中配置对应 Provider 的 API Key",
+  "input.placeholder": "问 Void 任何事...",
+  "input.generating": "Void 正在思考...",
+  "input.noModel": "先选择一个模型即可开始对话",
   "input.send": "发送消息",
+  "input.params": "Temp {temperature} · Max {maxTokens}",
 
   // —— MessageList ——
   "msg.empty.title": "开始一段新对话",
@@ -190,11 +191,11 @@ const en: Dict = {
   "chat.loadingHistory": "Loading history...",
   "chat.initializing": "Initializing...",
 
-  "input.placeholder": "Type a message (Enter to send, Shift+Enter for newline)",
-  "input.generating": "AI is replying...",
-  "input.noModel":
-    "Please select an AI model in the top-right, or configure the provider's API Key in settings",
+  "input.placeholder": "Ask Void anything...",
+  "input.generating": "Void is thinking...",
+  "input.noModel": "Choose a model to start chatting",
   "input.send": "Send message",
+  "input.params": "Temp {temperature} · Max {maxTokens}",
 
   "msg.empty.title": "Start a new conversation",
   "msg.empty.desc": "Type your question and the AI will respond here",
