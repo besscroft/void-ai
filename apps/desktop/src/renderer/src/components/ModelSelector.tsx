@@ -58,14 +58,14 @@ export function ModelSelector({
     <div ref={ref} className="relative min-w-0">
       <button
         type="button"
-        className="flex h-9 min-w-0 items-center gap-2 rounded-full border border-foreground/10 bg-foreground/[0.035] px-3 text-sm shadow-sm transition hover:bg-foreground/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+        className="flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-foreground/10 bg-foreground/[0.035] px-2.5 text-[13px] shadow-sm transition hover:bg-foreground/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="size-2.5 shrink-0 rounded-full bg-accent shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-accent)_18%,transparent)]" />
-        <span className="max-w-[180px] truncate font-medium">{selectedLabel()}</span>
-        <IconChevronDown className={`size-3.5 shrink-0 transition ${open ? "rotate-180" : ""}`} />
+        <span className="size-2 shrink-0 rounded-full bg-accent shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-accent)_18%,transparent)]" />
+        <span className="max-w-[160px] truncate font-medium">{selectedLabel()}</span>
+        <IconChevronDown className={`size-3 shrink-0 transition ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
