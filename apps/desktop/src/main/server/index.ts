@@ -26,12 +26,14 @@ function createApp(): Hono {
 
   // 列出可用 provider 及其模型
   app.get("/api/models", (c) => {
-    const providers = listProviders().map((p) => ({
-      id: p.id,
-      label: p.label,
-      models: p.models.filter((model) => model.enabled),
-      helpUrl: p.helpUrl,
-    }));
+    const providers = listProviders()
+      .map((p) => ({
+        id: p.id,
+        label: p.label,
+        models: p.models.filter((model) => model.enabled),
+        helpUrl: p.helpUrl,
+      }))
+      .filter((provider) => provider.models.length > 0);
     return c.json({ providers });
   });
 
@@ -39,17 +41,11 @@ function createApp(): Hono {
   app.post("/api/chat", async (c) => {
     const body = (await c.req.json()) as {
       messages: UIMessage[];
-      /** 形如 "openai/gpt-4o" 的模型引用 */
+      /** Formatted as "provider/model". */
       model?: string;
       system?: string;
       agentId?: string;
       conversationId?: string;
-      /** 采样温度 0~2 */
-      temperature?: number;
-      /** nucleus sampling 概率 0~1 */
-      topP?: number;
-      /** 最大输出 token 数 */
-      maxOutputTokens?: number;
     };
 
     if (!body.messages?.length) {
@@ -60,21 +56,14 @@ function createApp(): Hono {
     }
 
     try {
-      const model = resolveModel(body.model);
+      const resolved = resolveModel(body.model);
       const result = streamText({
-        model,
+        model: resolved.model,
         system: body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
         messages: convertToModelMessages(body.messages),
-        // 仅在有效范围内应用模型参数，避免无效值透传到 provider
-        ...(typeof body.temperature === "number" && body.temperature >= 0 && body.temperature <= 2
-          ? { temperature: body.temperature }
-          : {}),
-        ...(typeof body.topP === "number" && body.topP >= 0 && body.topP <= 1
-          ? { topP: body.topP }
-          : {}),
-        ...(typeof body.maxOutputTokens === "number" && body.maxOutputTokens > 0
-          ? { maxOutputTokens: Math.floor(body.maxOutputTokens) }
-          : {}),
+        temperature: resolved.temperature,
+        topP: resolved.topP,
+        maxOutputTokens: resolved.maxOutputTokens,
       });
 
       // 返回 AI SDK 的 UIMessage 流式响应（SSE 格式）

@@ -141,6 +141,9 @@ export interface ModelOption {
   label?: string;
   source: ModelCatalogSource;
   enabled: boolean;
+  temperature: number;
+  topP: number;
+  maxOutputTokens: number;
 }
 
 /** Provider metadata without API keys. */
@@ -166,6 +169,9 @@ export interface CustomModelInput {
   id: string;
   label?: string;
   enabled?: boolean;
+  temperature?: number;
+  topP?: number;
+  maxOutputTokens?: number;
 }
 
 export interface ModelCatalogSettings {
@@ -182,6 +188,10 @@ export interface ModelCatalogSettings {
     providerId: string;
     id: string;
     label?: string;
+    enabled: boolean;
+    temperature: number;
+    topP: number;
+    maxOutputTokens: number;
     createdAt: number;
     updatedAt: number;
   }>;
@@ -206,6 +216,9 @@ export interface ManagedModelInfo {
   modelSource: ModelCatalogSource;
   enabled: boolean;
   hasApiKey: boolean;
+  temperature: number;
+  topP: number;
+  maxOutputTokens: number;
 }
 
 /**

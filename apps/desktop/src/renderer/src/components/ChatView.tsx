@@ -41,9 +41,6 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
       api: `http://127.0.0.1:${serverPort}/api/chat`,
       body: {
         model: selectedModel ?? undefined,
-        temperature: settings.modelTemperature,
-        topP: settings.modelTopP,
-        maxOutputTokens: settings.modelMaxTokens,
         agentId: selectedAgentId ?? DEFAULT_AGENT_ID,
         conversationId,
       },
@@ -53,9 +50,6 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
     selectedModel,
     selectedAgentId,
     conversationId,
-    settings.modelTemperature,
-    settings.modelTopP,
-    settings.modelMaxTokens,
   ]);
 
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
@@ -96,14 +90,6 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
   });
 
   const isLoading = chat.status === "submitted" || chat.status === "streaming";
-  const modelParametersLabel = useMemo(
-    () =>
-      t("input.params", {
-        temperature: settings.modelTemperature.toFixed(1),
-        maxTokens: settings.modelMaxTokens,
-      }),
-    [settings.modelMaxTokens, settings.modelTemperature, t],
-  );
 
   const handleSend = (text: string): void => {
     if (!selectedModel) return;
@@ -133,7 +119,6 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
         selectedAgentId={selectedAgentId}
         onModelChange={setSelectedModel}
         onAgentChange={setSelectedAgentId}
-        modelParametersLabel={modelParametersLabel}
       />
     </div>
   );

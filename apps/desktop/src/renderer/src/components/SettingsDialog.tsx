@@ -5,6 +5,7 @@ import {
   Description,
   Input,
   Label,
+  Modal,
   parseColor,
   Switch,
   TextField,
@@ -36,7 +37,6 @@ import {
   FONT_SIZE_PX,
   THEME_PRESETS,
   type Conversation,
-  type CustomModelInput,
   type CustomProviderInput,
   type ManagedModelInfo,
   type ProviderInfo,
@@ -520,34 +520,10 @@ function ModelTab({
   const { t } = useT();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [models, setModels] = useState<ManagedModelInfo[]>([]);
-  const [addMode, setAddMode] = useState<"existing" | "custom">("existing");
-  const [providerForm, setProviderForm] = useState<CustomProviderInput>({
-    id: "",
-    label: "",
-    baseUrl: "",
-    helpUrl: "",
-  });
-  const [modelForm, setModelForm] = useState<CustomModelInput>({
-    providerId: "",
-    id: "",
-    label: "",
-    enabled: true,
-  });
-  const [modelApiKey, setModelApiKey] = useState("");
-  const [editingModel, setEditingModel] = useState<ManagedModelInfo | null>(null);
-  const [editModelForm, setEditModelForm] = useState<CustomModelInput>({
-    providerId: "",
-    id: "",
-    label: "",
-    enabled: true,
-  });
-  const [editProviderForm, setEditProviderForm] = useState<CustomProviderInput>({
-    id: "",
-    label: "",
-    baseUrl: "",
-    helpUrl: "",
-  });
-  const [editApiKey, setEditApiKey] = useState("");
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [editorState, setEditorState] = useState<
+    { mode: "add" } | { mode: "edit"; model: ManagedModelInfo } | null
+  >(null);
   const [modelToDelete, setModelToDelete] = useState<ManagedModelInfo | null>(null);
   const [cacheBytes, setCacheBytes] = useState<number>(0);
   const [cacheLimit, setCacheLimit] = useState<number>(settings.cacheSizeMb);
@@ -563,10 +539,7 @@ function ModelTab({
       ([providerList, modelList]) => {
         setProviders(providerList);
         setModels(modelList);
-        setModelForm((prev) => {
-          const stillExists = providerList.some((provider) => provider.id === prev.providerId);
-          return stillExists ? prev : { ...prev, providerId: providerList[0]?.id ?? "" };
-        });
+        setModelsLoaded(true);
       },
     );
   }, []);
@@ -584,10 +557,10 @@ function ModelTab({
   }, [refreshModels, refreshCache]);
 
   useEffect(() => {
-    if (!settings.selectedModel || models.length === 0) return;
+    if (!modelsLoaded || !settings.selectedModel) return;
     const selected = models.find((model) => model.ref === settings.selectedModel);
     if (!selected || !selected.enabled) void update({ selectedModel: null });
-  }, [models, settings.selectedModel, update]);
+  }, [models, modelsLoaded, settings.selectedModel, update]);
 
   const enabledProviders = providers
     .map((provider) => ({
@@ -596,116 +569,14 @@ function ModelTab({
     }))
     .filter((provider) => provider.models.length > 0);
 
-  const canSaveNewModel =
-    modelForm.id.trim().length > 0 &&
-    (addMode === "existing"
-      ? modelForm.providerId.length > 0
-      : providerForm.label.trim().length > 0 && providerForm.baseUrl.trim().length > 0);
-
   const formatBytes = (bytes: number): string => {
     if (bytes < 1024) return String(bytes) + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
-  const resetNewModelForm = (): void => {
-    setProviderForm({ id: "", label: "", baseUrl: "", helpUrl: "" });
-    setModelForm((prev) => ({
-      providerId: addMode === "existing" ? prev.providerId : providers[0]?.id ?? "",
-      id: "",
-      label: "",
-      enabled: true,
-    }));
-    setModelApiKey("");
-  };
-
-  const openEditor = (model: ManagedModelInfo): void => {
-    setEditingModel(model);
-    setEditModelForm({
-      providerId: model.providerId,
-      id: model.modelId,
-      label: model.modelLabel ?? "",
-      enabled: model.enabled,
-    });
-    setEditProviderForm({
-      id: model.providerId,
-      label: model.providerLabel,
-      baseUrl: model.providerBaseUrl ?? "",
-      helpUrl: model.providerHelpUrl,
-    });
-    setEditApiKey("");
-  };
-
-  const handleSaveModel = (): void => {
-    if (!canSaveNewModel) return;
-    const task = (async (): Promise<void> => {
-      const providerId =
-        addMode === "custom"
-          ? (await api.providers.upsertCustomProvider(providerForm)).id
-          : modelForm.providerId;
-      await api.providers.upsertCustomModel({
-        ...modelForm,
-        providerId,
-        enabled: true,
-      });
-      if (modelApiKey.trim()) {
-        await api.providers.setModelApiKey(providerId, modelForm.id.trim(), modelApiKey.trim());
-      }
-    })();
-
-    void notify
-      .promise(task, {
-        loading: t("toast.model.modelSaving"),
-        success: t("toast.model.modelSaved"),
-        error: t("toast.model.modelSaveFailed"),
-      })
-      .then(() => {
-        resetNewModelForm();
-        refreshModels();
-      })
-      .catch(() => undefined);
-  };
-
-  const handleSaveEdit = (): void => {
-    if (!editingModel) return;
-    const task = (async (): Promise<void> => {
-      if (editingModel.providerSource === "custom") {
-        await api.providers.upsertCustomProvider(editProviderForm);
-      }
-      if (editingModel.modelSource === "custom") {
-        await api.providers.upsertCustomModel(editModelForm);
-      } else {
-        await api.providers.updateModelEnabled(
-          editingModel.providerId,
-          editingModel.modelId,
-          editModelForm.enabled ?? true,
-        );
-      }
-      if (editApiKey.trim()) {
-        await api.providers.setModelApiKey(
-          editingModel.providerId,
-          editingModel.modelId,
-          editApiKey.trim(),
-        );
-      }
-      if (!editModelForm.enabled && settings.selectedModel === editingModel.ref) {
-        await update({ selectedModel: null });
-      }
-    })();
-
-    void notify
-      .promise(task, {
-        loading: t("toast.model.modelSaving"),
-        success: t("toast.model.modelSaved"),
-        error: t("toast.model.modelSaveFailed"),
-      })
-      .then(() => {
-        setEditingModel(null);
-        setEditApiKey("");
-        refreshModels();
-      })
-      .catch(() => undefined);
-  };
+  const formatParams = (model: ManagedModelInfo): string =>
+    `${t("model.temperature")} ${model.temperature.toFixed(1)} · ${t("model.topP")} ${model.topP.toFixed(2)} · ${t("model.maxTokens")} ${model.maxOutputTokens}`;
 
   const handleToggleModel = (model: ManagedModelInfo, enabled: boolean): void => {
     void notify
@@ -716,21 +587,6 @@ function ModelTab({
       })
       .then(() => {
         if (!enabled && settings.selectedModel === model.ref) void update({ selectedModel: null });
-        refreshModels();
-      })
-      .catch(() => undefined);
-  };
-
-  const handleClearEditKey = (): void => {
-    if (!editingModel) return;
-    void notify
-      .promise(api.providers.deleteModelApiKey(editingModel.providerId, editingModel.modelId), {
-        loading: t("toast.apikey.clearing"),
-        success: t("toast.apikey.cleared"),
-        error: t("toast.apikey.clearFailed"),
-      })
-      .then(() => {
-        setEditingModel((prev) => (prev ? { ...prev, hasApiKey: false } : prev));
         refreshModels();
       })
       .catch(() => undefined);
@@ -747,7 +603,7 @@ function ModelTab({
       })
       .then(() => {
         if (settings.selectedModel === model.ref) void update({ selectedModel: null });
-        if (editingModel?.ref === model.ref) setEditingModel(null);
+        if (editorState?.mode === "edit" && editorState.model.ref === model.ref) setEditorState(null);
         setModelToDelete(null);
         refreshModels();
       })
@@ -795,370 +651,90 @@ function ModelTab({
       </SettingRow>
 
       <SettingRow title={t("model.catalog")} desc={t("model.catalog.desc")}>
-        <div className="space-y-2">
-          {models.map((model) => {
-            const selected = settings.selectedModel === model.ref;
-            return (
-              <div
-                key={model.ref}
-                className={[
-                  "grid gap-3 rounded-md border px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto]",
-                  selected ? "border-accent bg-accent/10" : "border-foreground/10",
-                  model.enabled ? "" : "opacity-65",
-                ].join(" ")}
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-sm font-medium">
-                      {model.modelLabel ?? model.modelId}
-                    </span>
-                    <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] text-foreground/55">
-                      {model.modelSource === "builtin"
-                        ? t("model.provider.builtin")
-                        : t("model.custom")}
-                    </span>
-                    <span
-                      className={[
-                        "rounded-full px-2 py-0.5 text-[11px]",
-                        model.hasApiKey ? "bg-success/10 text-success" : "bg-warning/10 text-warning",
-                      ].join(" ")}
-                    >
-                      {model.hasApiKey ? t("apikey.configured") : t("apikey.notConfigured")}
-                    </span>
-                    {selected && (
-                      <span className="inline-flex items-center gap-1 text-xs text-accent">
-                        <IconCheck className="size-3" /> {t("model.selected")}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 break-all text-xs text-foreground/45">
-                    {model.providerLabel} / {model.modelId}
-                  </p>
-                  {model.providerBaseUrl && (
-                    <p className="mt-1 break-all text-xs text-foreground/35">
-                      {t("model.provider.baseUrl")}: {model.providerBaseUrl}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                  <Switch
-                    size="sm"
-                    isSelected={model.enabled}
-                    onChange={(enabled) => handleToggleModel(model, enabled)}
-                    aria-label={t("model.enabled")}
-                  />
-                  <Button variant="secondary" size="sm" onPress={() => openEditor(model)}>
-                    <IconKey className="mr-1 size-3.5" />
-                    {model.modelSource === "custom" || model.providerSource === "custom"
-                      ? t("common.edit")
-                      : t("model.configureKey")}
-                  </Button>
-                  {model.modelSource === "custom" && (
-                    <Button variant="tertiary" size="sm" onPress={() => setModelToDelete(model)}>
-                      <IconTrash className="size-3.5" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </SettingRow>
-
-      {editingModel && (
-        <SettingRow title={t("model.editModel")} desc={t("model.editModel.desc")}>
-          <div className="grid gap-3 md:grid-cols-2">
-            {editingModel.providerSource === "custom" && (
-              <>
-                <TextField>
-                  <Label>{t("model.providerName")}</Label>
-                  <Input
-                    value={editProviderForm.label}
-                    onChange={(e) =>
-                      setEditProviderForm((prev) => ({
-                        ...prev,
-                        label: (e.target as HTMLInputElement).value,
-                      }))
-                    }
-                  />
-                </TextField>
-                <TextField>
-                  <Label>{t("model.baseUrl")}</Label>
-                  <Input
-                    value={editProviderForm.baseUrl}
-                    onChange={(e) =>
-                      setEditProviderForm((prev) => ({
-                        ...prev,
-                        baseUrl: (e.target as HTMLInputElement).value,
-                      }))
-                    }
-                  />
-                </TextField>
-                <TextField className="md:col-span-2">
-                  <Label>{t("model.helpUrl")}</Label>
-                  <Input
-                    value={editProviderForm.helpUrl ?? ""}
-                    onChange={(e) =>
-                      setEditProviderForm((prev) => ({
-                        ...prev,
-                        helpUrl: (e.target as HTMLInputElement).value,
-                      }))
-                    }
-                  />
-                </TextField>
-              </>
-            )}
-
-            <TextField>
-              <Label>{t("model.modelId")}</Label>
-              <Input value={editingModel.modelId} disabled />
-            </TextField>
-            <TextField>
-              <Label>{t("model.modelName")}</Label>
-              <Input
-                value={editModelForm.label ?? ""}
-                disabled={editingModel.modelSource !== "custom"}
-                onChange={(e) =>
-                  setEditModelForm((prev) => ({
-                    ...prev,
-                    label: (e.target as HTMLInputElement).value,
-                  }))
-                }
-              />
-            </TextField>
-            <TextField className="md:col-span-2">
-              <Label>{t("model.apiKey")}</Label>
-              <Input
-                type="password"
-                value={editApiKey}
-                placeholder={
-                  editingModel.hasApiKey ? t("apikey.placeholder.replace") : t("model.placeholder.apiKey")
-                }
-                onChange={(e) => setEditApiKey((e.target as HTMLInputElement).value)}
-              />
-              <Description className="mt-1">
-                <a
-                  href={editingModel.providerHelpUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-accent hover:underline"
-                >
-                  {t("apikey.getKey")}
-                </a>
-              </Description>
-            </TextField>
-            <div className="flex items-center gap-3 md:col-span-2">
-              <Switch
-                size="sm"
-                isSelected={editModelForm.enabled !== false}
-                onChange={(enabled) => setEditModelForm((prev) => ({ ...prev, enabled }))}
-              >
-                {t("model.enabled")}
-              </Switch>
-            </div>
-            <div className="flex flex-wrap gap-2 md:col-span-2">
-              <Button variant="primary" onPress={handleSaveEdit}>
-                {t("common.save")}
-              </Button>
-              {editingModel.hasApiKey && (
-                <Button variant="tertiary" onPress={handleClearEditKey}>
-                  {t("common.clear")}
-                </Button>
-              )}
-              <Button variant="secondary" onPress={() => setEditingModel(null)}>
-                {t("common.cancel")}
-              </Button>
-            </div>
-          </div>
-        </SettingRow>
-      )}
-
-      <SettingRow title={t("model.addModel")} desc={t("model.addModel.desc")}>
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="text-sm">
-            <span className="mb-1 block text-xs text-foreground/60">{t("model.provider")}</span>
-            <select
-              className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
-              value={addMode}
-              onChange={(e) => setAddMode(e.target.value === "custom" ? "custom" : "existing")}
-            >
-              <option value="existing">{t("model.addToProvider")}</option>
-              <option value="custom">{t("model.addWithProvider")}</option>
-            </select>
-          </label>
-          {addMode === "existing" && (
-            <label className="text-sm">
-              <span className="mb-1 block text-xs text-foreground/60">{t("model.provider")}</span>
-              <select
-                className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
-                value={modelForm.providerId}
-                onChange={(e) =>
-                  setModelForm((prev) => ({ ...prev, providerId: e.target.value }))
-                }
-              >
-                {providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {addMode === "custom" && (
-            <>
-              <TextField>
-                <Label>{t("model.providerName")}</Label>
-                <Input
-                  value={providerForm.label}
-                  placeholder={t("model.placeholder.providerName")}
-                  onChange={(e) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      label: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                />
-              </TextField>
-              <TextField>
-                <Label>{t("model.providerId")}</Label>
-                <Input
-                  value={providerForm.id ?? ""}
-                  placeholder={t("model.placeholder.providerId")}
-                  onChange={(e) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      id: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                />
-              </TextField>
-              <TextField>
-                <Label>{t("model.baseUrl")}</Label>
-                <Input
-                  value={providerForm.baseUrl}
-                  placeholder={t("model.placeholder.baseUrl")}
-                  onChange={(e) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      baseUrl: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                />
-              </TextField>
-              <TextField>
-                <Label>{t("model.helpUrl")}</Label>
-                <Input
-                  value={providerForm.helpUrl ?? ""}
-                  placeholder={t("model.placeholder.helpUrl")}
-                  onChange={(e) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      helpUrl: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                />
-              </TextField>
-            </>
-          )}
-          <TextField>
-            <Label>{t("model.modelId")}</Label>
-            <Input
-              value={modelForm.id}
-              placeholder={t("model.placeholder.modelId")}
-              onChange={(e) =>
-                setModelForm((prev) => ({ ...prev, id: (e.target as HTMLInputElement).value }))
-              }
-            />
-          </TextField>
-          <TextField>
-            <Label>{t("model.modelName")}</Label>
-            <Input
-              value={modelForm.label ?? ""}
-              placeholder={t("model.placeholder.modelName")}
-              onChange={(e) =>
-                setModelForm((prev) => ({
-                  ...prev,
-                  label: (e.target as HTMLInputElement).value,
-                }))
-              }
-            />
-          </TextField>
-          <TextField className="md:col-span-2">
-            <Label>{t("model.apiKey")}</Label>
-            <Input
-              type="password"
-              value={modelApiKey}
-              placeholder={t("model.placeholder.apiKey")}
-              onChange={(e) => setModelApiKey((e.target as HTMLInputElement).value)}
-            />
-          </TextField>
-          <div className="md:col-span-2">
-            <Button variant="primary" onPress={handleSaveModel} isDisabled={!canSaveNewModel}>
+        <div className="space-y-3">
+          <div className="flex justify-end">
+            <Button variant="primary" size="sm" onPress={() => setEditorState({ mode: "add" })}>
               <IconPlus className="mr-1 size-3.5" />
               {t("model.addModel")}
             </Button>
           </div>
-        </div>
-      </SettingRow>
 
-      <SettingRow title={t("model.params")} desc={t("model.params.desc")}>
-        <div className="space-y-4">
-          <div>
-            <div className="mb-1 flex items-center justify-between text-xs">
-              <span className="text-foreground/60">
-                {t("model.temperature")} · {settings.modelTemperature.toFixed(1)}
-              </span>
+          {models.length === 0 ? (
+            <div className="rounded-md border border-dashed border-foreground/15 px-4 py-8 text-center text-sm text-foreground/50">
+              {t("model.empty")}
             </div>
-            <input
-              type="range"
-              min={0}
-              max={2}
-              step={0.1}
-              value={settings.modelTemperature}
-              onChange={(e) => void update({ modelTemperature: Number(e.target.value) })}
-              className="w-full accent-[var(--color-accent)]"
-              aria-label={t("model.temperature")}
-            />
-            <p className="mt-0.5 text-xs text-foreground/40">{t("model.temperature.hint")}</p>
-          </div>
-
-          <div>
-            <div className="mb-1 flex items-center justify-between text-xs">
-              <span className="text-foreground/60">
-                {t("model.topP")} · {settings.modelTopP.toFixed(2)}
-              </span>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-foreground/10">
+              {models.map((model, index) => {
+                const selected = settings.selectedModel === model.ref;
+                return (
+                  <div
+                    key={model.ref}
+                    className={[
+                      "grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto]",
+                      index > 0 ? "border-t border-foreground/10" : "",
+                      selected ? "bg-accent/10" : "",
+                      model.enabled ? "" : "opacity-65",
+                    ].join(" ")}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {model.modelLabel ?? model.modelId}
+                        </span>
+                        <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] text-foreground/55">
+                          {t("model.custom")}
+                        </span>
+                        <span
+                          className={[
+                            "rounded-full px-2 py-0.5 text-[11px]",
+                            model.hasApiKey
+                              ? "bg-success/10 text-success"
+                              : "bg-warning/10 text-warning",
+                          ].join(" ")}
+                        >
+                          {model.hasApiKey ? t("apikey.configured") : t("apikey.notConfigured")}
+                        </span>
+                        {selected && (
+                          <span className="inline-flex items-center gap-1 text-xs text-accent">
+                            <IconCheck className="size-3" /> {t("model.selected")}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 break-all text-xs text-foreground/45">
+                        {model.providerLabel} / {model.modelId}
+                      </p>
+                      <p className="mt-1 text-xs text-foreground/40">{formatParams(model)}</p>
+                      {model.providerBaseUrl && (
+                        <p className="mt-1 break-all text-xs text-foreground/35">
+                          {t("model.provider.baseUrl")}: {model.providerBaseUrl}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                      <Switch
+                        size="sm"
+                        isSelected={model.enabled}
+                        onChange={(enabled) => handleToggleModel(model, enabled)}
+                        aria-label={t("model.enabled")}
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onPress={() => setEditorState({ mode: "edit", model })}
+                      >
+                        <IconKey className="mr-1 size-3.5" />
+                        {t("common.edit")}
+                      </Button>
+                      <Button variant="tertiary" size="sm" onPress={() => setModelToDelete(model)}>
+                        <IconTrash className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={settings.modelTopP}
-              onChange={(e) => void update({ modelTopP: Number(e.target.value) })}
-              className="w-full accent-[var(--color-accent)]"
-              aria-label={t("model.topP")}
-            />
-            <p className="mt-0.5 text-xs text-foreground/40">{t("model.topP.hint")}</p>
-          </div>
-
-          <div>
-            <div className="mb-1 flex items-center justify-between text-xs">
-              <span className="text-foreground/60">
-                {t("model.maxTokens")} · {settings.modelMaxTokens}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={256}
-              max={8192}
-              step={256}
-              value={Math.min(settings.modelMaxTokens, 8192)}
-              onChange={(e) => void update({ modelMaxTokens: Number(e.target.value) })}
-              className="w-full accent-[var(--color-accent)]"
-              aria-label={t("model.maxTokens")}
-            />
-            <p className="mt-0.5 text-xs text-foreground/40">{t("model.maxTokens.hint")}</p>
-          </div>
+          )}
         </div>
       </SettingRow>
 
@@ -1218,6 +794,17 @@ function ModelTab({
         </div>
       </SettingRow>
 
+      <ModelEditorDialog
+        open={!!editorState}
+        mode={editorState?.mode ?? "add"}
+        providers={providers}
+        model={editorState?.mode === "edit" ? editorState.model : null}
+        selectedModel={settings.selectedModel}
+        onClearSelectedModel={() => update({ selectedModel: null })}
+        onSaved={refreshModels}
+        onClose={() => setEditorState(null)}
+      />
+
       <ConfirmDialog
         open={confirmClear}
         title={t("model.cache.clear")}
@@ -1242,6 +829,439 @@ function ModelTab({
         onClose={() => setModelToDelete(null)}
       />
     </section>
+  );
+}
+
+type ModelEditorMode = "add" | "edit";
+
+interface ModelFormState {
+  providerId: string;
+  id: string;
+  label: string;
+  enabled: boolean;
+  temperature: number;
+  topP: number;
+  maxOutputTokens: number;
+}
+
+function createEmptyModelForm(providerId = ""): ModelFormState {
+  return {
+    providerId,
+    id: "",
+    label: "",
+    enabled: true,
+    temperature: 0.7,
+    topP: 1,
+    maxOutputTokens: 4096,
+  };
+}
+
+function ModelEditorDialog({
+  open,
+  mode,
+  providers,
+  model,
+  selectedModel,
+  onClearSelectedModel,
+  onSaved,
+  onClose,
+}: {
+  open: boolean;
+  mode: ModelEditorMode;
+  providers: ProviderInfo[];
+  model: ManagedModelInfo | null;
+  selectedModel: string | null;
+  onClearSelectedModel: () => Promise<void>;
+  onSaved: () => void;
+  onClose: () => void;
+}): React.JSX.Element {
+  const { t } = useT();
+  const [addMode, setAddMode] = useState<"existing" | "custom">("existing");
+  const [providerForm, setProviderForm] = useState<CustomProviderInput>({
+    id: "",
+    label: "",
+    baseUrl: "",
+    helpUrl: "",
+  });
+  const [modelForm, setModelForm] = useState<ModelFormState>(() =>
+    createEmptyModelForm(providers[0]?.id ?? ""),
+  );
+  const [apiKey, setApiKey] = useState("");
+  const [hasApiKey, setHasApiKey] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    if (mode === "edit" && model) {
+      setAddMode("existing");
+      setProviderForm({
+        id: model.providerId,
+        label: model.providerLabel,
+        baseUrl: model.providerBaseUrl ?? "",
+        helpUrl: model.providerHelpUrl,
+      });
+      setModelForm({
+        providerId: model.providerId,
+        id: model.modelId,
+        label: model.modelLabel ?? "",
+        enabled: model.enabled,
+        temperature: model.temperature,
+        topP: model.topP,
+        maxOutputTokens: model.maxOutputTokens,
+      });
+      setApiKey("");
+      setHasApiKey(model.hasApiKey);
+      return;
+    }
+
+    setAddMode("existing");
+    setProviderForm({ id: "", label: "", baseUrl: "", helpUrl: "" });
+    setModelForm(createEmptyModelForm(providers[0]?.id ?? ""));
+    setApiKey("");
+    setHasApiKey(false);
+  }, [mode, model, open, providers]);
+
+  useEffect(() => {
+    if (!open || mode !== "add" || modelForm.providerId || providers.length === 0) return;
+    setModelForm((prev) => ({ ...prev, providerId: providers[0].id }));
+  }, [mode, modelForm.providerId, open, providers]);
+
+  const isEditing = mode === "edit";
+  const canEditProvider = isEditing && model?.providerSource === "custom";
+  const providerHelpUrl = isEditing
+    ? providerForm.helpUrl || model?.providerHelpUrl
+    : addMode === "custom"
+      ? providerForm.helpUrl
+      : providers.find((provider) => provider.id === modelForm.providerId)?.helpUrl;
+
+  const canSave =
+    modelForm.id.trim().length > 0 &&
+    modelForm.maxOutputTokens > 0 &&
+    (isEditing
+      ? !canEditProvider ||
+        (providerForm.label.trim().length > 0 && providerForm.baseUrl.trim().length > 0)
+      : addMode === "existing"
+        ? modelForm.providerId.length > 0
+        : providerForm.label.trim().length > 0 && providerForm.baseUrl.trim().length > 0);
+
+  const updateModelNumber = (patch: Partial<ModelFormState>): void => {
+    setModelForm((prev) => ({ ...prev, ...patch }));
+  };
+
+  const handleSave = (): void => {
+    if (!canSave) return;
+    const task = (async (): Promise<void> => {
+      let providerId = modelForm.providerId;
+      if (!isEditing && addMode === "custom") {
+        providerId = (await api.providers.upsertCustomProvider(providerForm)).id;
+      } else if (canEditProvider) {
+        await api.providers.upsertCustomProvider(providerForm);
+      }
+
+      const modelId = modelForm.id.trim();
+      await api.providers.upsertCustomModel({
+        providerId,
+        id: modelId,
+        label: modelForm.label.trim(),
+        enabled: modelForm.enabled,
+        temperature: modelForm.temperature,
+        topP: modelForm.topP,
+        maxOutputTokens: Math.floor(modelForm.maxOutputTokens),
+      });
+
+      if (apiKey.trim()) {
+        await api.providers.setModelApiKey(providerId, modelId, apiKey.trim());
+      }
+      if (!modelForm.enabled && selectedModel === providerId + "/" + modelId) {
+        await onClearSelectedModel();
+      }
+    })();
+
+    void notify
+      .promise(task, {
+        loading: t("toast.model.modelSaving"),
+        success: t("toast.model.modelSaved"),
+        error: t("toast.model.modelSaveFailed"),
+      })
+      .then(() => {
+        onSaved();
+        onClose();
+      })
+      .catch(() => undefined);
+  };
+
+  const handleClearKey = (): void => {
+    if (!model) return;
+    void notify
+      .promise(api.providers.deleteModelApiKey(model.providerId, model.modelId), {
+        loading: t("toast.apikey.clearing"),
+        success: t("toast.apikey.cleared"),
+        error: t("toast.apikey.clearFailed"),
+      })
+      .then(() => {
+        setHasApiKey(false);
+        onSaved();
+      })
+      .catch(() => undefined);
+  };
+
+  return (
+    <Modal isOpen={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <Modal.Backdrop isDismissable>
+        <Modal.Container size="lg" placement="center" scroll="inside">
+          <Modal.Dialog>
+            <Modal.Header>
+              <div className="flex w-full items-center justify-between gap-3">
+                <Modal.Heading className="text-base font-semibold">
+                  {isEditing ? t("model.editModel") : t("model.addModel")}
+                </Modal.Heading>
+                <Button
+                  type="button"
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={onClose}
+                  aria-label={t("common.close")}
+                >
+                  <IconClose className="size-4" />
+                </Button>
+              </div>
+            </Modal.Header>
+
+            <Modal.Body>
+              <div className="grid gap-3 md:grid-cols-2">
+                {!isEditing && (
+                  <label className="text-sm md:col-span-2">
+                    <span className="mb-1 block text-xs text-foreground/60">
+                      {t("model.provider")}
+                    </span>
+                    <select
+                      className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
+                      value={addMode}
+                      onChange={(e) => setAddMode(e.target.value === "custom" ? "custom" : "existing")}
+                    >
+                      <option value="existing">{t("model.addToProvider")}</option>
+                      <option value="custom">{t("model.addWithProvider")}</option>
+                    </select>
+                  </label>
+                )}
+
+                {!isEditing && addMode === "existing" && (
+                  <label className="text-sm md:col-span-2">
+                    <span className="mb-1 block text-xs text-foreground/60">
+                      {t("model.provider")}
+                    </span>
+                    <select
+                      className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
+                      value={modelForm.providerId}
+                      onChange={(e) =>
+                        setModelForm((prev) => ({ ...prev, providerId: e.target.value }))
+                      }
+                    >
+                      {providers.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {((!isEditing && addMode === "custom") || canEditProvider) && (
+                  <>
+                    <TextField>
+                      <Label>{t("model.providerName")}</Label>
+                      <Input
+                        value={providerForm.label}
+                        placeholder={t("model.placeholder.providerName")}
+                        onChange={(e) =>
+                          setProviderForm((prev) => ({
+                            ...prev,
+                            label: (e.target as HTMLInputElement).value,
+                          }))
+                        }
+                      />
+                    </TextField>
+                    {!isEditing && (
+                      <TextField>
+                        <Label>{t("model.providerId")}</Label>
+                        <Input
+                          value={providerForm.id ?? ""}
+                          placeholder={t("model.placeholder.providerId")}
+                          onChange={(e) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              id: (e.target as HTMLInputElement).value,
+                            }))
+                          }
+                        />
+                      </TextField>
+                    )}
+                    <TextField>
+                      <Label>{t("model.baseUrl")}</Label>
+                      <Input
+                        value={providerForm.baseUrl}
+                        placeholder={t("model.placeholder.baseUrl")}
+                        onChange={(e) =>
+                          setProviderForm((prev) => ({
+                            ...prev,
+                            baseUrl: (e.target as HTMLInputElement).value,
+                          }))
+                        }
+                      />
+                    </TextField>
+                    <TextField>
+                      <Label>{t("model.helpUrl")}</Label>
+                      <Input
+                        value={providerForm.helpUrl ?? ""}
+                        placeholder={t("model.placeholder.helpUrl")}
+                        onChange={(e) =>
+                          setProviderForm((prev) => ({
+                            ...prev,
+                            helpUrl: (e.target as HTMLInputElement).value,
+                          }))
+                        }
+                      />
+                    </TextField>
+                  </>
+                )}
+
+                {isEditing && (
+                  <TextField>
+                    <Label>{t("model.provider")}</Label>
+                    <Input value={model?.providerId ?? ""} disabled />
+                  </TextField>
+                )}
+                <TextField>
+                  <Label>{t("model.modelId")}</Label>
+                  <Input
+                    value={modelForm.id}
+                    placeholder={t("model.placeholder.modelId")}
+                    disabled={isEditing}
+                    onChange={(e) =>
+                      setModelForm((prev) => ({ ...prev, id: (e.target as HTMLInputElement).value }))
+                    }
+                  />
+                </TextField>
+                <TextField>
+                  <Label>{t("model.modelName")}</Label>
+                  <Input
+                    value={modelForm.label}
+                    placeholder={t("model.placeholder.modelName")}
+                    onChange={(e) =>
+                      setModelForm((prev) => ({
+                        ...prev,
+                        label: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <TextField className="md:col-span-2">
+                  <Label>{t("model.apiKey")}</Label>
+                  <Input
+                    type="password"
+                    value={apiKey}
+                    placeholder={hasApiKey ? t("apikey.placeholder.replace") : t("model.placeholder.apiKey")}
+                    onChange={(e) => setApiKey((e.target as HTMLInputElement).value)}
+                  />
+                  {providerHelpUrl && (
+                    <Description className="mt-1">
+                      <a
+                        href={providerHelpUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-accent hover:underline"
+                      >
+                        {t("apikey.getKey")}
+                      </a>
+                    </Description>
+                  )}
+                </TextField>
+
+                <div className="md:col-span-2">
+                  <Switch
+                    size="sm"
+                    isSelected={modelForm.enabled}
+                    onChange={(enabled) => setModelForm((prev) => ({ ...prev, enabled }))}
+                  >
+                    {t("model.enabled")}
+                  </Switch>
+                </div>
+
+                <div className="space-y-4 md:col-span-2">
+                  <p className="text-xs font-medium text-foreground/60">{t("model.params")}</p>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
+                      <span>{t("model.temperature")}</span>
+                      <span>{modelForm.temperature.toFixed(1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={0.1}
+                      value={modelForm.temperature}
+                      onChange={(e) => updateModelNumber({ temperature: Number(e.target.value) })}
+                      className="w-full accent-[var(--color-accent)]"
+                      aria-label={t("model.temperature")}
+                    />
+                    <p className="mt-0.5 text-xs text-foreground/40">{t("model.temperature.hint")}</p>
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
+                      <span>{t("model.topP")}</span>
+                      <span>{modelForm.topP.toFixed(2)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={modelForm.topP}
+                      onChange={(e) => updateModelNumber({ topP: Number(e.target.value) })}
+                      className="w-full accent-[var(--color-accent)]"
+                      aria-label={t("model.topP")}
+                    />
+                    <p className="mt-0.5 text-xs text-foreground/40">{t("model.topP.hint")}</p>
+                  </div>
+                  <TextField>
+                    <Label>{t("model.maxTokens")}</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={32768}
+                      step={256}
+                      value={String(modelForm.maxOutputTokens)}
+                      onChange={(e) =>
+                        updateModelNumber({
+                          maxOutputTokens: Math.max(1, Number((e.target as HTMLInputElement).value) || 1),
+                        })
+                      }
+                    />
+                    <Description className="mt-1">{t("model.maxTokens.hint")}</Description>
+                  </TextField>
+                </div>
+              </div>
+            </Modal.Body>
+
+            <Modal.Footer>
+              <div className="flex w-full flex-wrap justify-end gap-2">
+                {isEditing && hasApiKey && (
+                  <Button variant="tertiary" onPress={handleClearKey}>
+                    {t("common.clear")}
+                  </Button>
+                )}
+                <Button variant="secondary" onPress={onClose}>
+                  {t("common.cancel")}
+                </Button>
+                <Button variant="primary" onPress={handleSave} isDisabled={!canSave}>
+                  {t("common.save")}
+                </Button>
+              </div>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }
 

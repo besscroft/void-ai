@@ -1,4 +1,4 @@
-﻿import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel } from "ai";
@@ -25,6 +25,17 @@ import {
 
 type ProviderConfig = ProviderInfo;
 
+const DEFAULT_MODEL_TEMPERATURE = 0.7;
+const DEFAULT_MODEL_TOP_P = 1;
+const DEFAULT_MODEL_MAX_OUTPUT_TOKENS = 4096;
+
+export interface ResolvedModelConfig {
+  model: LanguageModel;
+  temperature: number;
+  topP: number;
+  maxOutputTokens: number;
+}
+
 function emptyCatalog(): ModelCatalogSettings {
   return { providers: [], models: [], modelStates: [] };
 }
@@ -36,14 +47,7 @@ const BUILTIN_PROVIDERS: ProviderConfig[] = [
     kind: "openai",
     source: "builtin",
     baseUrl: "https://api.openai.com/v1",
-    models: [
-      builtinModel("gpt-4o", "GPT-4o"),
-      builtinModel("gpt-4o-mini", "GPT-4o mini"),
-      builtinModel("gpt-4.1", "GPT-4.1"),
-      builtinModel("gpt-4.1-mini", "GPT-4.1 mini"),
-      builtinModel("o3", "o3"),
-      builtinModel("o3-mini", "o3-mini"),
-    ],
+    models: [],
     helpUrl: "https://platform.openai.com/api-keys",
   },
   {
@@ -52,10 +56,7 @@ const BUILTIN_PROVIDERS: ProviderConfig[] = [
     kind: "openai-compatible",
     source: "builtin",
     baseUrl: "https://api.deepseek.com/v1",
-    models: [
-      builtinModel("deepseek-chat", "DeepSeek Chat"),
-      builtinModel("deepseek-reasoner", "DeepSeek Reasoner"),
-    ],
+    models: [],
     helpUrl: "https://platform.deepseek.com/api_keys",
   },
   {
@@ -63,11 +64,7 @@ const BUILTIN_PROVIDERS: ProviderConfig[] = [
     label: "Anthropic",
     kind: "anthropic",
     source: "builtin",
-    models: [
-      builtinModel("claude-3-5-sonnet-latest", "Claude 3.5 Sonnet"),
-      builtinModel("claude-3-5-haiku-latest", "Claude 3.5 Haiku"),
-      builtinModel("claude-3-opus-latest", "Claude 3 Opus"),
-    ],
+    models: [],
     helpUrl: "https://console.anthropic.com/settings/keys",
   },
   {
@@ -75,13 +72,7 @@ const BUILTIN_PROVIDERS: ProviderConfig[] = [
     label: "Google",
     kind: "google",
     source: "builtin",
-    models: [
-      builtinModel("gemini-2.5-pro", "Gemini 2.5 Pro"),
-      builtinModel("gemini-2.5-flash", "Gemini 2.5 Flash"),
-      builtinModel("gemini-2.0-flash", "Gemini 2.0 Flash"),
-      builtinModel("gemini-1.5-pro", "Gemini 1.5 Pro"),
-      builtinModel("gemini-1.5-flash", "Gemini 1.5 Flash"),
-    ],
+    models: [],
     helpUrl: "https://aistudio.google.com/apikey",
   },
   {
@@ -90,22 +81,24 @@ const BUILTIN_PROVIDERS: ProviderConfig[] = [
     kind: "openai-compatible",
     source: "builtin",
     baseUrl: "https://openrouter.ai/api/v1",
-    models: [
-      builtinModel("openai/gpt-4o", "OpenAI GPT-4o"),
-      builtinModel("openai/gpt-4o-mini", "OpenAI GPT-4o mini"),
-      builtinModel("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet"),
-      builtinModel("deepseek/deepseek-chat", "DeepSeek Chat"),
-    ],
+    models: [],
     helpUrl: "https://openrouter.ai/settings/keys",
   },
 ];
 
-function builtinModel(id: string, label?: string): ModelOption {
-  return { id, label, source: "builtin", enabled: true };
-}
-
-function customModel(id: string, label: string | undefined, enabled: boolean): ModelOption {
-  return { id, label, source: "custom", enabled };
+function customModel(
+  model: ModelCatalogSettings["models"][number],
+  enabled: boolean,
+): ModelOption {
+  return {
+    id: model.id,
+    label: model.label,
+    source: "custom",
+    enabled,
+    temperature: model.temperature,
+    topP: model.topP,
+    maxOutputTokens: model.maxOutputTokens,
+  };
 }
 
 function readCatalog(): ModelCatalogSettings {
@@ -121,7 +114,9 @@ function readCatalog(): ModelCatalogSettings {
 }
 
 function writeCatalog(catalog: ModelCatalogSettings): void {
-  setSetting(SettingKey.ModelCatalog, JSON.stringify(normalizeCatalog(catalog)));
+  const normalized = normalizeCatalog(catalog);
+  setSetting(SettingKey.ModelCatalog, JSON.stringify(normalized));
+  clearInvalidSelectedModel(normalized);
 }
 
 function normalizeCatalog(raw: Partial<ModelCatalogSettings>): ModelCatalogSettings {
@@ -143,25 +138,34 @@ function normalizeCatalog(raw: Partial<ModelCatalogSettings>): ModelCatalogSetti
     ...BUILTIN_PROVIDERS.map((provider) => provider.id),
     ...providers.map((provider) => provider.id),
   ]);
+
   const models = Array.isArray(raw.models)
     ? raw.models
         .map((model) => ({
           providerId: normalizeProviderId(model.providerId),
           id: String(model.id ?? "").trim(),
           label: normalizeOptionalText(model.label),
+          enabled: (model as { enabled?: boolean }).enabled !== false,
+          temperature: normalizeTemperature((model as { temperature?: unknown }).temperature),
+          topP: normalizeTopP((model as { topP?: unknown }).topP),
+          maxOutputTokens: normalizeMaxOutputTokens(
+            (model as { maxOutputTokens?: unknown }).maxOutputTokens,
+          ),
           createdAt: Number(model.createdAt) || Date.now(),
           updatedAt: Number(model.updatedAt) || Date.now(),
         }))
         .filter((model) => providerIds.has(model.providerId) && model.id)
     : [];
 
+  const modelRefs = new Set(models.map((model) => providerModelRef(model.providerId, model.id)));
   const modelStatesByRef = new Map<string, ModelCatalogSettings["modelStates"][number]>();
   if (Array.isArray(raw.modelStates)) {
     for (const state of raw.modelStates) {
       const providerId = normalizeProviderId(state.providerId);
       const id = String(state.id ?? "").trim();
-      if (!providerIds.has(providerId) || !id) continue;
-      modelStatesByRef.set(providerModelRef(providerId, id), {
+      const ref = providerModelRef(providerId, id);
+      if (!modelRefs.has(ref)) continue;
+      modelStatesByRef.set(ref, {
         providerId,
         id,
         enabled: state.enabled !== false,
@@ -170,7 +174,16 @@ function normalizeCatalog(raw: Partial<ModelCatalogSettings>): ModelCatalogSetti
     }
   }
 
-  return { providers, models, modelStates: [...modelStatesByRef.values()] };
+  const normalizedModels = models.map((model) => {
+    const state = modelStatesByRef.get(providerModelRef(model.providerId, model.id));
+    return { ...model, enabled: state?.enabled ?? model.enabled };
+  });
+
+  return {
+    providers,
+    models: normalizedModels,
+    modelStates: [...modelStatesByRef.values()],
+  };
 }
 
 function normalizeProviderId(raw: string | undefined): string {
@@ -207,6 +220,24 @@ function normalizeOptionalUrl(raw: unknown): string | undefined {
   return url.toString();
 }
 
+function normalizeTemperature(raw: unknown): number {
+  return normalizeNumber(raw, DEFAULT_MODEL_TEMPERATURE, 0, 2);
+}
+
+function normalizeTopP(raw: unknown): number {
+  return normalizeNumber(raw, DEFAULT_MODEL_TOP_P, 0, 1);
+}
+
+function normalizeMaxOutputTokens(raw: unknown): number {
+  return Math.floor(normalizeNumber(raw, DEFAULT_MODEL_MAX_OUTPUT_TOKENS, 1, 32768));
+}
+
+function normalizeNumber(raw: unknown, fallback: number, min: number, max: number): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
 function providerModelRef(providerId: string, modelId: string): string {
   return providerId + "/" + modelId;
 }
@@ -216,8 +247,12 @@ function isModelEnabled(
   providerId: string,
   modelId: string,
 ): boolean {
+  const state = catalog.modelStates.find(
+    (item) => item.providerId === providerId && item.id === modelId,
+  );
+  if (state) return state.enabled;
   return (
-    catalog.modelStates.find((state) => state.providerId === providerId && state.id === modelId)
+    catalog.models.find((model) => model.providerId === providerId && model.id === modelId)
       ?.enabled ?? true
   );
 }
@@ -238,6 +273,11 @@ function setModelState(
         state.providerId === providerId && state.id === modelId ? nextState : state,
       )
     : [...catalog.modelStates, nextState];
+  catalog.models = catalog.models.map((model) =>
+    model.providerId === providerId && model.id === modelId
+      ? { ...model, enabled, updatedAt: now }
+      : model,
+  );
 }
 
 function removeModelState(
@@ -248,6 +288,23 @@ function removeModelState(
   catalog.modelStates = catalog.modelStates.filter(
     (state) => !(state.providerId === providerId && state.id === modelId),
   );
+}
+
+function isSelectedModelValid(catalog: ModelCatalogSettings, selectedModel: string): boolean {
+  const slashIdx = selectedModel.indexOf("/");
+  if (slashIdx <= 0) return false;
+  const providerId = normalizeProviderId(selectedModel.slice(0, slashIdx));
+  const modelId = selectedModel.slice(slashIdx + 1).trim();
+  if (!modelId) return false;
+  const model = catalog.models.find((item) => item.providerId === providerId && item.id === modelId);
+  return !!model && isModelEnabled(catalog, providerId, modelId);
+}
+
+function clearInvalidSelectedModel(catalog = readCatalog()): void {
+  const selectedModel = getSetting(SettingKey.SelectedModel);
+  if (selectedModel && !isSelectedModelValid(catalog, selectedModel)) {
+    setSetting(SettingKey.SelectedModel, "");
+  }
 }
 
 function assertKnownProvider(providerId: string): void {
@@ -265,20 +322,9 @@ function assertKnownModel(providerId: string, modelId: string): void {
 }
 
 function mergeModels(provider: ProviderConfig, catalog: ModelCatalogSettings): ModelOption[] {
-  const models = new Map<string, ModelOption>();
-  for (const model of provider.models) {
-    models.set(model.id, {
-      ...model,
-      enabled: isModelEnabled(catalog, provider.id, model.id),
-    });
-  }
-  for (const model of catalog.models.filter((item) => item.providerId === provider.id)) {
-    models.set(
-      model.id,
-      customModel(model.id, model.label, isModelEnabled(catalog, provider.id, model.id)),
-    );
-  }
-  return [...models.values()];
+  return catalog.models
+    .filter((model) => model.providerId === provider.id)
+    .map((model) => customModel(model, isModelEnabled(catalog, provider.id, model.id)));
 }
 
 export function listProviders(): ProviderConfig[] {
@@ -315,6 +361,9 @@ export function listManagedModels(): ManagedModelInfo[] {
       modelSource: model.source,
       enabled: model.enabled,
       hasApiKey: keyRefs.has(providerModelRef(provider.id, model.id)),
+      temperature: model.temperature,
+      topP: model.topP,
+      maxOutputTokens: model.maxOutputTokens,
     })),
   );
 }
@@ -371,9 +420,6 @@ export function deleteCustomProvider(providerId: string): void {
   writeCatalog(catalog);
   deleteApiKey(id);
   deleteModelApiKeysForProvider(id);
-
-  const selectedModel = getSetting(SettingKey.SelectedModel);
-  if (selectedModel?.startsWith(id + "/")) setSetting(SettingKey.SelectedModel, "");
 }
 
 export function upsertCustomModel(input: CustomModelInput): ProviderInfo {
@@ -392,6 +438,10 @@ export function upsertCustomModel(input: CustomModelInput): ProviderInfo {
     providerId,
     id: modelId,
     label: normalizeOptionalText(input.label),
+    enabled: input.enabled ?? existing?.enabled ?? true,
+    temperature: normalizeTemperature(input.temperature ?? existing?.temperature),
+    topP: normalizeTopP(input.topP ?? existing?.topP),
+    maxOutputTokens: normalizeMaxOutputTokens(input.maxOutputTokens ?? existing?.maxOutputTokens),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -401,7 +451,7 @@ export function upsertCustomModel(input: CustomModelInput): ProviderInfo {
         model.providerId === providerId && model.id === modelId ? nextModel : model,
       )
     : [...catalog.models, nextModel];
-  if (input.enabled !== undefined) setModelState(catalog, providerId, modelId, input.enabled);
+  setModelState(catalog, providerId, modelId, nextModel.enabled);
   writeCatalog(catalog);
 
   const provider = getProviderConfig(providerId);
@@ -417,10 +467,6 @@ export function updateModelEnabled(providerId: string, modelId: string, enabled:
   const catalog = readCatalog();
   setModelState(catalog, normalizedProviderId, normalizedModelId, enabled);
   writeCatalog(catalog);
-
-  const selectedModel = getSetting(SettingKey.SelectedModel);
-  const ref = providerModelRef(normalizedProviderId, normalizedModelId);
-  if (!enabled && selectedModel === ref) setSetting(SettingKey.SelectedModel, "");
 }
 
 export function saveModelApiKey(providerId: string, modelId: string, apiKey: string): void {
@@ -448,10 +494,6 @@ export function deleteCustomModel(providerId: string, modelId: string): void {
   removeModelState(catalog, normalizedProviderId, normalizedModelId);
   writeCatalog(catalog);
   deleteModelApiKey(normalizedProviderId, normalizedModelId);
-
-  const selectedModel = getSetting(SettingKey.SelectedModel);
-  const deletedRef = providerModelRef(normalizedProviderId, normalizedModelId);
-  if (selectedModel === deletedRef) setSetting(SettingKey.SelectedModel, "");
 }
 
 export function migrateProviderApiKeysToModelKeys(): void {
@@ -466,17 +508,18 @@ export function migrateProviderApiKeysToModelKeys(): void {
       existingModelKeys.add(ref);
     }
   }
+  clearInvalidSelectedModel();
 }
 
-export function resolveModel(modelRef: string): LanguageModel {
+export function resolveModel(modelRef: string): ResolvedModelConfig {
   const slashIdx = modelRef.indexOf("/");
   if (slashIdx <= 0) {
     throw new Error(
       "Invalid model reference " + JSON.stringify(modelRef) + "; expected provider/model",
     );
   }
-  const providerId = modelRef.slice(0, slashIdx);
-  const modelId = modelRef.slice(slashIdx + 1);
+  const providerId = normalizeProviderId(modelRef.slice(0, slashIdx));
+  const modelId = modelRef.slice(slashIdx + 1).trim();
 
   const config = getProviderConfig(providerId);
   if (!config) throw new Error("Unknown provider: " + providerId);
@@ -495,7 +538,12 @@ export function resolveModel(modelRef: string): LanguageModel {
     );
   }
 
-  return createLanguageModel(config, apiKey, modelId);
+  return {
+    model: createLanguageModel(config, apiKey, modelId),
+    temperature: model.temperature,
+    topP: model.topP,
+    maxOutputTokens: model.maxOutputTokens,
+  };
 }
 
 function createLanguageModel(

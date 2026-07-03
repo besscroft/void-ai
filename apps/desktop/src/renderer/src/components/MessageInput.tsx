@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@heroui/react";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
-import { IconArrowUp, IconSliders } from "./icons";
+import { IconArrowUp } from "./icons";
 import { useT } from "../lib/i18n";
 
 interface MessageInputProps {
@@ -12,7 +12,6 @@ interface MessageInputProps {
   selectedAgentId: string | null;
   onModelChange: (modelRef: string | null) => void;
   onAgentChange: (agentId: string) => void;
-  modelParametersLabel: string;
 }
 
 export function MessageInput({
@@ -22,7 +21,6 @@ export function MessageInput({
   selectedAgentId,
   onModelChange,
   onAgentChange,
-  modelParametersLabel,
 }: MessageInputProps): React.JSX.Element {
   const { t } = useT();
   const [value, setValue] = useState("");
@@ -92,13 +90,6 @@ export function MessageInput({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <AgentSelector value={selectedAgentId} onChange={onAgentChange} placement="top" />
               <ModelSelector value={selectedModel} onChange={onModelChange} placement="top" />
-              <span
-                className="inline-flex h-9 max-w-full items-center gap-2 rounded-full border border-foreground/10 bg-foreground/[0.025] px-3 text-xs font-medium text-foreground/60"
-                title={modelParametersLabel}
-              >
-                <IconSliders className="size-3.5 shrink-0" />
-                <span className="truncate">{modelParametersLabel}</span>
-              </span>
             </div>
 
             <Button
