@@ -108,7 +108,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
       aria-labelledby="settings-title"
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
+        className="flex h-[calc(100vh-32px)] max-h-[672px] w-[calc(100vw-32px)] max-w-[768px] flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -127,7 +127,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
         </div>
 
         {/* 主体：导航 + 内容，窄屏纵向布局 */}
-        <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
           {/* 导航 */}
           <nav className="flex shrink-0 gap-1 border-b border-foreground/10 p-2 md:w-48 md:flex-col md:border-b-0 md:border-r">
             {tabs.map(({ id, label, Icon }) => {
@@ -163,7 +163,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
           </nav>
 
           {/* 内容 */}
-          <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             {tab === "theme" && <ThemeTab settings={settings} update={update} />}
             {tab === "system" && <SystemTab settings={settings} update={update} />}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
