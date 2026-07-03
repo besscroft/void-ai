@@ -140,6 +140,7 @@ export interface ModelOption {
   id: string;
   label?: string;
   source: ModelCatalogSource;
+  enabled: boolean;
 }
 
 /** Provider metadata without API keys. */
@@ -164,6 +165,7 @@ export interface CustomModelInput {
   providerId: string;
   id: string;
   label?: string;
+  enabled?: boolean;
 }
 
 export interface ModelCatalogSettings {
@@ -183,6 +185,27 @@ export interface ModelCatalogSettings {
     createdAt: number;
     updatedAt: number;
   }>;
+  modelStates: Array<{
+    providerId: string;
+    id: string;
+    enabled: boolean;
+    updatedAt: number;
+  }>;
+}
+
+export interface ManagedModelInfo {
+  ref: string;
+  providerId: string;
+  providerLabel: string;
+  providerKind: ModelProviderKind;
+  providerSource: ModelCatalogSource;
+  providerBaseUrl?: string;
+  providerHelpUrl: string;
+  modelId: string;
+  modelLabel?: string;
+  modelSource: ModelCatalogSource;
+  enabled: boolean;
+  hasApiKey: boolean;
 }
 
 /**

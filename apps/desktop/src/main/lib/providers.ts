@@ -1,12 +1,23 @@
-import { createOpenAI } from "@ai-sdk/openai";
+﻿import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel } from "ai";
-import { deleteApiKey, getApiKey, getSetting, setSetting } from "./db";
+import {
+  deleteApiKey,
+  deleteModelApiKey,
+  deleteModelApiKeysForProvider,
+  getApiKey,
+  getModelApiKey,
+  getSetting,
+  listModelApiKeyRefs,
+  setModelApiKey,
+  setSetting,
+} from "./db";
 import {
   SettingKey,
   type CustomModelInput,
   type CustomProviderInput,
+  type ManagedModelInfo,
   type ModelCatalogSettings,
   type ModelOption,
   type ProviderInfo,
@@ -15,7 +26,7 @@ import {
 type ProviderConfig = ProviderInfo;
 
 function emptyCatalog(): ModelCatalogSettings {
-  return { providers: [], models: [] };
+  return { providers: [], models: [], modelStates: [] };
 }
 
 const BUILTIN_PROVIDERS: ProviderConfig[] = [
@@ -90,11 +101,11 @@ const BUILTIN_PROVIDERS: ProviderConfig[] = [
 ];
 
 function builtinModel(id: string, label?: string): ModelOption {
-  return { id, label, source: "builtin" };
+  return { id, label, source: "builtin", enabled: true };
 }
 
-function customModel(id: string, label?: string): ModelOption {
-  return { id, label, source: "custom" };
+function customModel(id: string, label: string | undefined, enabled: boolean): ModelOption {
+  return { id, label, source: "custom", enabled };
 }
 
 function readCatalog(): ModelCatalogSettings {
@@ -129,8 +140,8 @@ function normalizeCatalog(raw: Partial<ModelCatalogSettings>): ModelCatalogSetti
     : [];
 
   const providerIds = new Set([
-    ...BUILTIN_PROVIDERS.map((p) => p.id),
-    ...providers.map((p) => p.id),
+    ...BUILTIN_PROVIDERS.map((provider) => provider.id),
+    ...providers.map((provider) => provider.id),
   ]);
   const models = Array.isArray(raw.models)
     ? raw.models
@@ -144,7 +155,22 @@ function normalizeCatalog(raw: Partial<ModelCatalogSettings>): ModelCatalogSetti
         .filter((model) => providerIds.has(model.providerId) && model.id)
     : [];
 
-  return { providers, models };
+  const modelStatesByRef = new Map<string, ModelCatalogSettings["modelStates"][number]>();
+  if (Array.isArray(raw.modelStates)) {
+    for (const state of raw.modelStates) {
+      const providerId = normalizeProviderId(state.providerId);
+      const id = String(state.id ?? "").trim();
+      if (!providerIds.has(providerId) || !id) continue;
+      modelStatesByRef.set(providerModelRef(providerId, id), {
+        providerId,
+        id,
+        enabled: state.enabled !== false,
+        updatedAt: Number(state.updatedAt) || Date.now(),
+      });
+    }
+  }
+
+  return { providers, models, modelStates: [...modelStatesByRef.values()] };
 }
 
 function normalizeProviderId(raw: string | undefined): string {
@@ -185,17 +211,72 @@ function providerModelRef(providerId: string, modelId: string): string {
   return providerId + "/" + modelId;
 }
 
+function isModelEnabled(
+  catalog: ModelCatalogSettings,
+  providerId: string,
+  modelId: string,
+): boolean {
+  return (
+    catalog.modelStates.find((state) => state.providerId === providerId && state.id === modelId)
+      ?.enabled ?? true
+  );
+}
+
+function setModelState(
+  catalog: ModelCatalogSettings,
+  providerId: string,
+  modelId: string,
+  enabled: boolean,
+): void {
+  const now = Date.now();
+  const existing = catalog.modelStates.find(
+    (state) => state.providerId === providerId && state.id === modelId,
+  );
+  const nextState = { providerId, id: modelId, enabled, updatedAt: now };
+  catalog.modelStates = existing
+    ? catalog.modelStates.map((state) =>
+        state.providerId === providerId && state.id === modelId ? nextState : state,
+      )
+    : [...catalog.modelStates, nextState];
+}
+
+function removeModelState(
+  catalog: ModelCatalogSettings,
+  providerId: string,
+  modelId: string,
+): void {
+  catalog.modelStates = catalog.modelStates.filter(
+    (state) => !(state.providerId === providerId && state.id === modelId),
+  );
+}
+
 function assertKnownProvider(providerId: string): void {
   if (!listProviders().some((provider) => provider.id === providerId)) {
     throw new Error("Unknown provider: " + providerId);
   }
 }
 
+function assertKnownModel(providerId: string, modelId: string): void {
+  const provider = getProviderConfig(providerId);
+  if (!provider) throw new Error("Unknown provider: " + providerId);
+  if (!provider.models.some((model) => model.id === modelId)) {
+    throw new Error("Unknown model: " + providerModelRef(providerId, modelId));
+  }
+}
+
 function mergeModels(provider: ProviderConfig, catalog: ModelCatalogSettings): ModelOption[] {
   const models = new Map<string, ModelOption>();
-  for (const model of provider.models) models.set(model.id, model);
+  for (const model of provider.models) {
+    models.set(model.id, {
+      ...model,
+      enabled: isModelEnabled(catalog, provider.id, model.id),
+    });
+  }
   for (const model of catalog.models.filter((item) => item.providerId === provider.id)) {
-    models.set(model.id, customModel(model.id, model.label));
+    models.set(
+      model.id,
+      customModel(model.id, model.label, isModelEnabled(catalog, provider.id, model.id)),
+    );
   }
   return [...models.values()];
 }
@@ -216,6 +297,26 @@ export function listProviders(): ProviderConfig[] {
     ...provider,
     models: mergeModels(provider, catalog),
   }));
+}
+
+export function listManagedModels(): ManagedModelInfo[] {
+  const keyRefs = new Set(listModelApiKeyRefs());
+  return listProviders().flatMap((provider) =>
+    provider.models.map((model) => ({
+      ref: providerModelRef(provider.id, model.id),
+      providerId: provider.id,
+      providerLabel: provider.label,
+      providerKind: provider.kind,
+      providerSource: provider.source,
+      providerBaseUrl: provider.baseUrl,
+      providerHelpUrl: provider.helpUrl,
+      modelId: model.id,
+      modelLabel: model.label,
+      modelSource: model.source,
+      enabled: model.enabled,
+      hasApiKey: keyRefs.has(providerModelRef(provider.id, model.id)),
+    })),
+  );
 }
 
 export function getProviderConfig(providerId: string): ProviderConfig | null {
@@ -266,8 +367,10 @@ export function deleteCustomProvider(providerId: string): void {
 
   catalog.providers = catalog.providers.filter((provider) => provider.id !== id);
   catalog.models = catalog.models.filter((model) => model.providerId !== id);
+  catalog.modelStates = catalog.modelStates.filter((state) => state.providerId !== id);
   writeCatalog(catalog);
   deleteApiKey(id);
+  deleteModelApiKeysForProvider(id);
 
   const selectedModel = getSetting(SettingKey.SelectedModel);
   if (selectedModel?.startsWith(id + "/")) setSetting(SettingKey.SelectedModel, "");
@@ -298,11 +401,39 @@ export function upsertCustomModel(input: CustomModelInput): ProviderInfo {
         model.providerId === providerId && model.id === modelId ? nextModel : model,
       )
     : [...catalog.models, nextModel];
+  if (input.enabled !== undefined) setModelState(catalog, providerId, modelId, input.enabled);
   writeCatalog(catalog);
 
   const provider = getProviderConfig(providerId);
   if (!provider) throw new Error("Failed to save model");
   return provider;
+}
+
+export function updateModelEnabled(providerId: string, modelId: string, enabled: boolean): void {
+  const normalizedProviderId = normalizeProviderId(providerId);
+  const normalizedModelId = modelId.trim();
+  assertKnownModel(normalizedProviderId, normalizedModelId);
+
+  const catalog = readCatalog();
+  setModelState(catalog, normalizedProviderId, normalizedModelId, enabled);
+  writeCatalog(catalog);
+
+  const selectedModel = getSetting(SettingKey.SelectedModel);
+  const ref = providerModelRef(normalizedProviderId, normalizedModelId);
+  if (!enabled && selectedModel === ref) setSetting(SettingKey.SelectedModel, "");
+}
+
+export function saveModelApiKey(providerId: string, modelId: string, apiKey: string): void {
+  const normalizedProviderId = normalizeProviderId(providerId);
+  const normalizedModelId = modelId.trim();
+  const key = apiKey.trim();
+  if (!key) throw new Error("API key is required");
+  assertKnownModel(normalizedProviderId, normalizedModelId);
+  setModelApiKey(normalizedProviderId, normalizedModelId, key);
+}
+
+export function clearModelApiKey(providerId: string, modelId: string): void {
+  deleteModelApiKey(normalizeProviderId(providerId), modelId.trim());
 }
 
 export function deleteCustomModel(providerId: string, modelId: string): void {
@@ -314,14 +445,27 @@ export function deleteCustomModel(providerId: string, modelId: string): void {
     (model) => !(model.providerId === normalizedProviderId && model.id === normalizedModelId),
   );
   if (catalog.models.length === before) throw new Error("Custom model not found");
+  removeModelState(catalog, normalizedProviderId, normalizedModelId);
   writeCatalog(catalog);
+  deleteModelApiKey(normalizedProviderId, normalizedModelId);
 
   const selectedModel = getSetting(SettingKey.SelectedModel);
   const deletedRef = providerModelRef(normalizedProviderId, normalizedModelId);
-  const stillExists = listProviders()
-    .find((provider) => provider.id === normalizedProviderId)
-    ?.models.some((model) => model.id === normalizedModelId);
-  if (selectedModel === deletedRef && !stillExists) setSetting(SettingKey.SelectedModel, "");
+  if (selectedModel === deletedRef) setSetting(SettingKey.SelectedModel, "");
+}
+
+export function migrateProviderApiKeysToModelKeys(): void {
+  const existingModelKeys = new Set(listModelApiKeyRefs());
+  for (const provider of listProviders()) {
+    const legacyKey = getApiKey(provider.id);
+    if (!legacyKey) continue;
+    for (const model of provider.models) {
+      const ref = providerModelRef(provider.id, model.id);
+      if (existingModelKeys.has(ref)) continue;
+      setModelApiKey(provider.id, model.id, legacyKey);
+      existingModelKeys.add(ref);
+    }
+  }
 }
 
 export function resolveModel(modelRef: string): LanguageModel {
@@ -337,9 +481,19 @@ export function resolveModel(modelRef: string): LanguageModel {
   const config = getProviderConfig(providerId);
   if (!config) throw new Error("Unknown provider: " + providerId);
 
-  const apiKey = getApiKey(providerId);
-  if (!apiKey)
-    throw new Error(config.label + " API key is not configured. Please add it in settings.");
+  const model = config.models.find((item) => item.id === modelId);
+  if (!model) throw new Error("Unknown model: " + modelRef);
+  if (!model.enabled) throw new Error((model.label ?? model.id) + " is disabled.");
+
+  const apiKey = getModelApiKey(providerId, modelId);
+  if (!apiKey) {
+    throw new Error(
+      config.label +
+        " / " +
+        (model.label ?? model.id) +
+        " API key is not configured. Please add it in model management.",
+    );
+  }
 
   return createLanguageModel(config, apiKey, modelId);
 }

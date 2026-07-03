@@ -28,6 +28,7 @@ import {
   messages,
   settings,
   apiKeys,
+  modelApiKeys,
   agents,
   memories,
   workflows,
@@ -377,6 +378,67 @@ export function listApiKeyProviders(): string[] {
   const rows = getDb().select({ provider: apiKeys.provider }).from(apiKeys).all();
   return rows.map((r) => r.provider);
 }
+
+// ============================================================
+// Model API Key encrypted storage
+// ============================================================
+
+export function setModelApiKey(providerId: string, modelId: string, apiKey: string): void {
+  const payload = encrypt(apiKey);
+  const now = Date.now();
+  getDb()
+    .insert(modelApiKeys)
+    .values({
+      provider_id: providerId,
+      model_id: modelId,
+      ciphertext: JSON.stringify(payload),
+      updated_at: now,
+    })
+    .onConflictDoUpdate({
+      target: [modelApiKeys.provider_id, modelApiKeys.model_id],
+      set: {
+        ciphertext: JSON.stringify(payload),
+        updated_at: now,
+      },
+    })
+    .run();
+}
+
+export function getModelApiKey(providerId: string, modelId: string): string | null {
+  const row = getDb()
+    .select()
+    .from(modelApiKeys)
+    .where(and(eq(modelApiKeys.provider_id, providerId), eq(modelApiKeys.model_id, modelId)))
+    .get();
+  if (!row) return null;
+  try {
+    const payload = JSON.parse(row.ciphertext) as EncryptedPayload;
+    return decrypt(payload);
+  } catch (err) {
+    console.error("[db] Failed to decrypt API key for " + providerId + "/" + modelId + ":", err);
+    return null;
+  }
+}
+
+export function deleteModelApiKey(providerId: string, modelId: string): void {
+  getDb()
+    .delete(modelApiKeys)
+    .where(and(eq(modelApiKeys.provider_id, providerId), eq(modelApiKeys.model_id, modelId)))
+    .run();
+}
+
+export function deleteModelApiKeysForProvider(providerId: string): void {
+  getDb().delete(modelApiKeys).where(eq(modelApiKeys.provider_id, providerId)).run();
+}
+
+export function listModelApiKeyRefs(): string[] {
+  const rows = getDb()
+    .select({ providerId: modelApiKeys.provider_id, modelId: modelApiKeys.model_id })
+    .from(modelApiKeys)
+    .all();
+  return rows.map((row) => row.providerId + "/" + row.modelId);
+}
+
 
 // ============================================================
 // 工作台数据：Agents / Memory / Workflows / Harness / Server / Sync

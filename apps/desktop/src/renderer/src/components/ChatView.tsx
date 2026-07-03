@@ -31,6 +31,10 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
     });
   }, []);
 
+  useEffect(() => {
+    setSelectedModel(settings.selectedModel);
+  }, [settings.selectedModel]);
+
   const transport = useMemo(() => {
     if (!serverPort) return null;
     return new DefaultChatTransport({

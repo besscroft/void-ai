@@ -10,7 +10,7 @@ interface MessageInputProps {
   onSend: (text: string) => void;
   selectedModel: string | null;
   selectedAgentId: string | null;
-  onModelChange: (modelRef: string) => void;
+  onModelChange: (modelRef: string | null) => void;
   onAgentChange: (agentId: string) => void;
   modelParametersLabel: string;
 }

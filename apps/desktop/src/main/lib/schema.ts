@@ -4,7 +4,7 @@
  * 时间戳统一使用 INTEGER（毫秒，Date.now()）。
  */
 
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 // ============================================================
 // 会话表
@@ -221,6 +221,20 @@ export const apiKeys = sqliteTable("api_keys", {
   updated_at: integer("updated_at").notNull(),
 });
 
+export const modelApiKeys = sqliteTable(
+  "model_api_keys",
+  {
+    provider_id: text("provider_id").notNull(),
+    model_id: text("model_id").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.provider_id, table.model_id] }),
+    index("idx_model_api_keys_provider").on(table.provider_id),
+  ],
+);
+
 export const schema = {
   conversations,
   messages,
@@ -234,6 +248,7 @@ export const schema = {
   syncState,
   settings,
   apiKeys,
+  modelApiKeys,
 };
 
 export type Conversation = typeof conversations.$inferSelect;

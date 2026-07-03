@@ -32,9 +32,13 @@ import {
   getWorkspaceSnapshot,
 } from "../lib/db";
 import {
+  clearModelApiKey,
   deleteCustomModel,
   deleteCustomProvider,
+  listManagedModels,
   listProviders,
+  saveModelApiKey,
+  updateModelEnabled,
   upsertCustomModel,
   upsertCustomProvider,
 } from "../lib/providers";
@@ -160,6 +164,8 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   // ---------- Provider metadata ----------
   ipcMain.handle("providers:list", () => listProviders());
 
+  ipcMain.handle("providers:listManagedModels", () => listManagedModels());
+
   ipcMain.handle("providers:upsertCustomProvider", (_e, input: CustomProviderInput) =>
     upsertCustomProvider(input),
   );
@@ -172,6 +178,27 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   ipcMain.handle("providers:upsertCustomModel", (_e, input: CustomModelInput) =>
     upsertCustomModel(input),
   );
+
+  ipcMain.handle(
+    "providers:updateModelEnabled",
+    (_e, providerId: string, modelId: string, enabled: boolean) => {
+      updateModelEnabled(providerId, modelId, enabled);
+      return true;
+    },
+  );
+
+  ipcMain.handle(
+    "providers:setModelApiKey",
+    (_e, providerId: string, modelId: string, apiKey: string) => {
+      saveModelApiKey(providerId, modelId, apiKey);
+      return true;
+    },
+  );
+
+  ipcMain.handle("providers:deleteModelApiKey", (_e, providerId: string, modelId: string) => {
+    clearModelApiKey(providerId, modelId);
+    return true;
+  });
 
   ipcMain.handle("providers:deleteCustomModel", (_e, providerId: string, modelId: string) => {
     deleteCustomModel(providerId, modelId);
