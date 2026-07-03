@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { IconChevronDown, IconCheck } from "./icons";
@@ -7,7 +7,7 @@ import { SettingKey } from "@shared/types";
 
 interface ModelSelectorProps {
   value: string | null;
-  onChange: (modelRef: string) => void;
+  onChange: (modelRef: string | null) => void;
   placement?: "top" | "bottom";
 }
 
@@ -24,6 +24,38 @@ export function ModelSelector({
   useEffect(() => {
     void api.providers.list().then(setProviders);
   }, []);
+
+  useEffect(() => {
+    if (open) void api.providers.list().then(setProviders);
+  }, [open]);
+
+  const enabledProviders = useMemo(
+    () =>
+      providers
+        .map((provider) => ({
+          ...provider,
+          models: provider.models.filter((model) => model.enabled),
+        }))
+        .filter((provider) => provider.models.length > 0),
+    [providers],
+  );
+
+  const enabledRefs = useMemo(
+    () =>
+      new Set(
+        enabledProviders.flatMap((provider) =>
+          provider.models.map((model) => `${provider.id}/${model.id}`),
+        ),
+      ),
+    [enabledProviders],
+  );
+
+  useEffect(() => {
+    if (value && providers.length > 0 && !enabledRefs.has(value)) {
+      onChange(null);
+      void api.settings.set(SettingKey.SelectedModel, "");
+    }
+  }, [enabledRefs, onChange, providers.length, value]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,11 +75,11 @@ export function ModelSelector({
   };
 
   const selectedLabel = (): string => {
-    if (!value) return t("chat.selectModel");
+    if (!value || !enabledRefs.has(value)) return t("chat.selectModel");
     const slashIdx = value.indexOf("/");
     const pid = slashIdx >= 0 ? value.slice(0, slashIdx) : value;
     const mid = slashIdx >= 0 ? value.slice(slashIdx + 1) : "";
-    const p = providers.find((x) => x.id === pid);
+    const p = enabledProviders.find((x) => x.id === pid);
     const m = p?.models.find((x) => x.id === mid);
     return `${p?.label ?? pid} / ${m?.label ?? mid}`;
   };
@@ -73,35 +105,33 @@ export function ModelSelector({
           role="listbox"
           className={`absolute z-50 max-h-80 w-72 overflow-y-auto rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
         >
-          {providers
-            .filter((p) => p.models.length > 0)
-            .map((p) => (
-              <div key={p.id}>
-                <div className="border-b border-foreground/10 px-3 py-1.5 text-xs font-semibold text-foreground/50">
-                  {p.label}
-                </div>
-                {p.models.map((m) => {
-                  const ref = `${p.id}/${m.id}`;
-                  const selected = ref === value;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      className={[
-                        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition",
-                        selected ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
-                      ].join(" ")}
-                      onClick={() => handleChange(ref)}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{m.label ?? m.id}</span>
-                      {selected && <IconCheck className="size-3.5 shrink-0" />}
-                    </button>
-                  );
-                })}
+          {enabledProviders.map((p) => (
+            <div key={p.id}>
+              <div className="border-b border-foreground/10 px-3 py-1.5 text-xs font-semibold text-foreground/50">
+                {p.label}
               </div>
-            ))}
+              {p.models.map((m) => {
+                const ref = `${p.id}/${m.id}`;
+                const selected = ref === value;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    className={[
+                      "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition",
+                      selected ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
+                    ].join(" ")}
+                    onClick={() => handleChange(ref)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{m.label ?? m.id}</span>
+                    {selected && <IconCheck className="size-3.5 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -7,6 +7,7 @@ import type {
   CustomProviderInput,
   HarnessEvent,
   InteractionProfile,
+  ManagedModelInfo,
   MemoryRecord,
   MessageRow,
   ProviderInfo,
@@ -87,9 +88,13 @@ export interface VoidAIApi {
   // Provider 元信息
   providers: {
     list: () => Promise<ProviderInfo[]>;
+    listManagedModels: () => Promise<ManagedModelInfo[]>;
     upsertCustomProvider: (input: CustomProviderInput) => Promise<ProviderInfo>;
     deleteCustomProvider: (providerId: string) => Promise<boolean>;
     upsertCustomModel: (input: CustomModelInput) => Promise<ProviderInfo>;
+    updateModelEnabled: (providerId: string, modelId: string, enabled: boolean) => Promise<boolean>;
+    setModelApiKey: (providerId: string, modelId: string, apiKey: string) => Promise<boolean>;
+    deleteModelApiKey: (providerId: string, modelId: string) => Promise<boolean>;
     deleteCustomModel: (providerId: string, modelId: string) => Promise<boolean>;
   };
   // 本地 AI 服务

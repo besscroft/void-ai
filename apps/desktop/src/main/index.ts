@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import icon from "../../resources/icon.png?asset";
 import { initDb, closeDb } from "./lib/db";
 import { startServer, stopServer } from "./server";
+import { migrateProviderApiKeysToModelKeys } from "./lib/providers";
 import { registerIpcHandlers } from "./ipc";
 
 function createWindow(): BrowserWindow {
@@ -55,6 +56,7 @@ void app.whenReady().then(async () => {
   //    通过 NODE_OPTIONS 或环境变量在启动前已设置 --experimental-sqlite
   try {
     initDb();
+    migrateProviderApiKeysToModelKeys();
     console.log("[main] 数据库已初始化");
   } catch (err) {
     // 注意：electron-vite dev 下 stderr 偶发不刷新，改用 console.log 确保可见

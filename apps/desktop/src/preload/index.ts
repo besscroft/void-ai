@@ -67,11 +67,18 @@ const api = {
   },
   providers: {
     list: () => ipcRenderer.invoke("providers:list"),
+    listManagedModels: () => ipcRenderer.invoke("providers:listManagedModels"),
     upsertCustomProvider: (input: unknown) =>
       ipcRenderer.invoke("providers:upsertCustomProvider", input),
     deleteCustomProvider: (providerId: string) =>
       ipcRenderer.invoke("providers:deleteCustomProvider", providerId),
     upsertCustomModel: (input: unknown) => ipcRenderer.invoke("providers:upsertCustomModel", input),
+    updateModelEnabled: (providerId: string, modelId: string, enabled: boolean) =>
+      ipcRenderer.invoke("providers:updateModelEnabled", providerId, modelId, enabled),
+    setModelApiKey: (providerId: string, modelId: string, apiKey: string) =>
+      ipcRenderer.invoke("providers:setModelApiKey", providerId, modelId, apiKey),
+    deleteModelApiKey: (providerId: string, modelId: string) =>
+      ipcRenderer.invoke("providers:deleteModelApiKey", providerId, modelId),
     deleteCustomModel: (providerId: string, modelId: string) =>
       ipcRenderer.invoke("providers:deleteCustomModel", providerId, modelId),
   },

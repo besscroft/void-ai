@@ -29,7 +29,7 @@ function createApp(): Hono {
     const providers = listProviders().map((p) => ({
       id: p.id,
       label: p.label,
-      models: p.models,
+      models: p.models.filter((model) => model.enabled),
       helpUrl: p.helpUrl,
     }));
     return c.json({ providers });
