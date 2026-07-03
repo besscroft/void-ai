@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain, type BrowserWindow } from "electron";
 import { getServerPort } from "../server";
 import {
   listConversations,
@@ -156,6 +156,9 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
 
   // ---------- 本地服务端口 ----------
   ipcMain.handle("server:port", () => getServerPort());
+
+  // ---------- System information ----------
+  ipcMain.handle("system:locale", () => app.getLocale());
 
   // ---------- 缓存管理 ----------
   // 统计缓存占用与上限

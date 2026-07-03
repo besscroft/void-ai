@@ -1,18 +1,3 @@
-/**
- * 应用设置上下文（单一数据源）
- *
- * 职责：
- *  - 启动时从 DB 一次性加载所有设置项（getAll）
- *  - 解析为 AppSettings，缺失/非法值回退到 DEFAULT_SETTINGS
- *  - 将外观（主题/强调色/字号/密度）实时应用到 DOM
- *  - 监听系统主题变化（仅 system 模式）
- *  - 暴露 update / reset，变更即持久化即应用
- *
- * 设计权衡：
- *  - 实时应用而非"应用/取消"模式：用户可立即看到效果，符合"实时预览"要求
- *  - 破坏性操作（重置/清缓存）由调用方通过确认弹窗保护
- */
-
 import {
   createContext,
   useCallback,
@@ -23,29 +8,24 @@ import {
   type ReactNode,
 } from "react";
 import { api } from "./api";
+import { resolveLanguage } from "./i18n";
 import {
   SettingKey,
   DEFAULT_SETTINGS,
   ACCENT_PRESETS,
   type AppSettings,
   type ThemeMode,
+  type ThemePresetId,
   type FontSizeLevel,
   type LayoutDensity,
+  type LanguageMode,
   type AppLanguage,
 } from "@shared/types";
-import {
-  resolveTheme,
-  resolveSystemTheme,
-  applyResolvedTheme,
-  applyAccent,
-  applyFontSize,
-  applyDensity,
-  type ResolvedTheme,
-} from "./theme";
+import { applyTheme, resolveSystemTheme, type ResolvedTheme } from "./theme";
 
-/** 可被"恢复默认"重置的键（排除 ActiveConversationId 等会话状态） */
 const RESETTABLE_KEYS: string[] = [
   SettingKey.Theme,
+  SettingKey.ThemePreset,
   SettingKey.AccentColor,
   SettingKey.FontSize,
   SettingKey.LayoutDensity,
@@ -57,15 +37,12 @@ const RESETTABLE_KEYS: string[] = [
   SettingKey.CacheSizeMb,
 ];
 
-/** 需要从 DB 加载的所有键 */
 const ALL_KEYS = [...RESETTABLE_KEYS, SettingKey.ActiveConversationId];
 
-/** 解析字符串为受限枚举，非法时回退默认 */
 function parseEnum<T extends string>(raw: string | null, allowed: readonly T[], fallback: T): T {
   return raw && (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback;
 }
 
-/** 解析数字，附带范围校验与回退 */
 function parseNumber(raw: string | null, fallback: number, min: number, max: number): number {
   if (raw == null) return fallback;
   const n = Number(raw);
@@ -73,20 +50,26 @@ function parseNumber(raw: string | null, fallback: number, min: number, max: num
   return Math.min(max, Math.max(min, n));
 }
 
-/**
- * 将 KV 字典解析为 AppSettings（带校验与回退）
- */
-function parseSettings(map: Record<string, string | null>): AppSettings {
+function getBrowserLocale(): string {
+  return typeof navigator !== "undefined" && navigator.language ? navigator.language : "en";
+}
+
+export function parseSettings(map: Record<string, string | null>): AppSettings {
   const theme = parseEnum<ThemeMode>(
     map[SettingKey.Theme],
     ["light", "dark", "system"],
     DEFAULT_SETTINGS.theme,
   );
+  const themePreset = parseEnum<ThemePresetId>(
+    map[SettingKey.ThemePreset],
+    ["default", "ocean", "forest", "rose"],
+    DEFAULT_SETTINGS.themePreset,
+  );
   const accentRaw = map[SettingKey.AccentColor];
-  // 强调色：预设 id 或自定义颜色字符串；空值回退默认
   const accentColor =
     accentRaw &&
-    (ACCENT_PRESETS.some((p) => p.id === accentRaw) ||
+    (accentRaw === "theme" ||
+      ACCENT_PRESETS.some((p) => p.id === accentRaw) ||
       accentRaw.startsWith("oklch") ||
       accentRaw.startsWith("#"))
       ? accentRaw
@@ -101,18 +84,19 @@ function parseSettings(map: Record<string, string | null>): AppSettings {
     ["compact", "comfortable", "loose"],
     DEFAULT_SETTINGS.density,
   );
-  const language = parseEnum<AppLanguage>(
+  const language = parseEnum<LanguageMode>(
     map[SettingKey.Language],
-    ["zh-CN", "en"],
+    ["system", "zh-CN", "en"],
     DEFAULT_SETTINGS.language,
   );
   return {
     theme,
+    themePreset,
     accentColor,
     fontSize,
     density,
     language,
-    selectedModel: map[SettingKey.SelectedModel] ?? null,
+    selectedModel: map[SettingKey.SelectedModel] || null,
     modelTemperature: parseNumber(
       map[SettingKey.ModelTemperature],
       DEFAULT_SETTINGS.modelTemperature,
@@ -131,69 +115,70 @@ function parseSettings(map: Record<string, string | null>): AppSettings {
 }
 
 interface SettingsContextValue {
-  /** 是否完成首次加载 */
   ready: boolean;
   settings: AppSettings;
-  /** 当前生效（已解析）主题 */
+  systemLocale: string;
+  resolvedLanguage: AppLanguage;
   resolvedTheme: ResolvedTheme;
-  /** 局部更新：立即持久化并应用 */
   update: (patch: Partial<AppSettings>) => Promise<void>;
-  /** 重置所有可重置项为默认值 */
   reset: () => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-/**
- * 将外观相关字段应用到 DOM
- */
-function applyAppearance(s: AppSettings): void {
-  const resolved = resolveTheme(s.theme);
-  applyResolvedTheme(resolved);
-  applyAccent(s.accentColor);
-  applyFontSize(s.fontSize);
-  applyDensity(s.density);
+function applyAppearance(s: AppSettings): ResolvedTheme {
+  return applyTheme(s);
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }): React.JSX.Element {
+  const initialLocale = getBrowserLocale();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [ready, setReady] = useState(false);
+  const [systemLocale, setSystemLocale] = useState(initialLocale);
+  const [resolvedLanguage, setResolvedLanguage] = useState<AppLanguage>(() =>
+    resolveLanguage(DEFAULT_SETTINGS.language, initialLocale),
+  );
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveSystemTheme());
 
-  // 首次加载：一次性读取所有键
   useEffect(() => {
     void (async () => {
-      const map = await api.settings.getAll(ALL_KEYS);
+      const [map, locale] = await Promise.all([
+        api.settings.getAll(ALL_KEYS),
+        api.system.locale().catch(() => getBrowserLocale()),
+      ]);
+      const nextLocale = locale || getBrowserLocale();
       const parsed = parseSettings(map);
+      setSystemLocale(nextLocale);
       setSettings(parsed);
+      setResolvedLanguage(resolveLanguage(parsed.language, nextLocale));
       setReady(true);
     })();
   }, []);
 
-  // 外观变更时重新应用
   useEffect(() => {
-    if (!ready) return;
-    const resolved = resolveTheme(settings.theme);
-    setResolvedTheme(resolved);
-    applyAppearance(settings);
-  }, [settings, ready]);
+    setResolvedTheme(applyAppearance(settings));
+  }, [settings]);
 
-  // 监听系统主题变化（仅 system 模式下需要重算 resolved）
+  useEffect(() => {
+    setResolvedLanguage(resolveLanguage(settings.language, systemLocale));
+  }, [settings.language, systemLocale]);
+
   useEffect(() => {
     if (!ready || settings.theme !== "system") return;
     const mql = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (): void => {
-      const next = resolveSystemTheme();
+      const next = applyAppearance(settings);
       setResolvedTheme(next);
-      applyResolvedTheme(next);
     };
     mql.addEventListener("change", handler);
     return () => mql.removeEventListener("change", handler);
-  }, [settings.theme, ready]);
+  }, [settings, ready]);
 
   const persist = useCallback(async (patch: Partial<AppSettings>): Promise<void> => {
     const writes: Promise<unknown>[] = [];
     if (patch.theme !== undefined) writes.push(api.settings.set(SettingKey.Theme, patch.theme));
+    if (patch.themePreset !== undefined)
+      writes.push(api.settings.set(SettingKey.ThemePreset, patch.themePreset));
     if (patch.accentColor !== undefined)
       writes.push(api.settings.set(SettingKey.AccentColor, patch.accentColor));
     if (patch.fontSize !== undefined)
@@ -217,7 +202,6 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
 
   const update = useCallback(
     async (patch: Partial<AppSettings>): Promise<void> => {
-      // 乐观更新：先改 UI，再持久化；失败时回滚由下一次加载修正
       setSettings((prev) => ({ ...prev, ...patch }));
       await persist(patch);
     },
@@ -225,14 +209,14 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
   );
 
   const reset = useCallback(async (): Promise<void> => {
-    // 仅重置外观/模型相关字段，保留会话状态
     const resetPatch: AppSettings = {
       ...DEFAULT_SETTINGS,
-      selectedModel: settings.selectedModel, // 保留已选模型，避免重置后无法对话
+      selectedModel: settings.selectedModel,
     };
     setSettings(resetPatch);
     const defaults: Record<string, string> = {
       [SettingKey.Theme]: DEFAULT_SETTINGS.theme,
+      [SettingKey.ThemePreset]: DEFAULT_SETTINGS.themePreset,
       [SettingKey.AccentColor]: DEFAULT_SETTINGS.accentColor,
       [SettingKey.FontSize]: DEFAULT_SETTINGS.fontSize,
       [SettingKey.LayoutDensity]: DEFAULT_SETTINGS.density,
@@ -246,19 +230,23 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
   }, [settings.selectedModel]);
 
   const value = useMemo<SettingsContextValue>(
-    () => ({ ready, settings, resolvedTheme, update, reset }),
-    [ready, settings, resolvedTheme, update, reset],
+    () => ({
+      ready,
+      settings,
+      systemLocale,
+      resolvedLanguage,
+      resolvedTheme,
+      update,
+      reset,
+    }),
+    [ready, settings, systemLocale, resolvedLanguage, resolvedTheme, update, reset],
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }
 
-/**
- * 读取应用设置上下文。
- * 必须在 SettingsProvider 内使用。
- */
 export function useSettings(): SettingsContextValue {
   const ctx = useContext(SettingsContext);
-  if (!ctx) throw new Error("useSettings 必须在 SettingsProvider 内调用");
+  if (!ctx) throw new Error("useSettings must be used inside SettingsProvider");
   return ctx;
 }

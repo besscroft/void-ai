@@ -27,6 +27,116 @@
  * 主题色与字号切换的平滑过渡，让实时预览更顺滑。
  * 仅对颜色与字体相关属性生效，不影响布局性能。
  */
+@layer base {
+  [data-theme-preset="ocean"][data-theme="light"] {
+    color-scheme: light;
+    --background: oklch(0.985 0.015 225);
+    --foreground: var(--eclipse);
+    --surface: var(--white);
+    --surface-foreground: var(--foreground);
+    --overlay: var(--white);
+    --overlay-foreground: var(--foreground);
+    --field-background: var(--white);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.72 0.06 230 / 32%);
+    --separator: oklch(0.9 0.025 230);
+    --accent: oklch(0.46 0.15 230);
+    --accent-foreground: var(--snow);
+    --focus: var(--accent);
+    --link: var(--accent);
+  }
+
+  [data-theme-preset="ocean"][data-theme="dark"] {
+    color-scheme: dark;
+    --background: oklch(0.14 0.025 230);
+    --foreground: var(--snow);
+    --surface: oklch(0.21 0.015 230);
+    --surface-foreground: var(--foreground);
+    --overlay: oklch(0.24 0.015 230);
+    --overlay-foreground: var(--foreground);
+    --field-background: oklch(0.25 0.012 230);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.34 0.035 230);
+    --separator: oklch(0.28 0.02 230);
+    --accent: oklch(0.78 0.11 220);
+    --accent-foreground: var(--eclipse);
+    --focus: var(--accent);
+    --link: var(--accent);
+  }
+
+  [data-theme-preset="forest"][data-theme="light"] {
+    color-scheme: light;
+    --background: oklch(0.982 0.018 145);
+    --foreground: oklch(0.22 0.02 145);
+    --surface: var(--white);
+    --surface-foreground: var(--foreground);
+    --overlay: var(--white);
+    --overlay-foreground: var(--foreground);
+    --field-background: var(--white);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.72 0.065 145 / 30%);
+    --separator: oklch(0.9 0.025 145);
+    --accent: oklch(0.48 0.14 150);
+    --accent-foreground: var(--snow);
+    --focus: var(--accent);
+    --link: var(--accent);
+  }
+
+  [data-theme-preset="forest"][data-theme="dark"] {
+    color-scheme: dark;
+    --background: oklch(0.15 0.025 145);
+    --foreground: var(--snow);
+    --surface: oklch(0.22 0.018 145);
+    --surface-foreground: var(--foreground);
+    --overlay: oklch(0.25 0.018 145);
+    --overlay-foreground: var(--foreground);
+    --field-background: oklch(0.27 0.016 145);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.35 0.035 145);
+    --separator: oklch(0.29 0.02 145);
+    --accent: oklch(0.76 0.13 150);
+    --accent-foreground: var(--eclipse);
+    --focus: var(--accent);
+    --link: var(--accent);
+  }
+
+  [data-theme-preset="rose"][data-theme="light"] {
+    color-scheme: light;
+    --background: oklch(0.986 0.014 15);
+    --foreground: oklch(0.23 0.018 15);
+    --surface: var(--white);
+    --surface-foreground: var(--foreground);
+    --overlay: var(--white);
+    --overlay-foreground: var(--foreground);
+    --field-background: var(--white);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.75 0.075 15 / 30%);
+    --separator: oklch(0.91 0.028 15);
+    --accent: oklch(0.58 0.18 15);
+    --accent-foreground: var(--snow);
+    --focus: var(--accent);
+    --link: var(--accent);
+  }
+
+  [data-theme-preset="rose"][data-theme="dark"] {
+    color-scheme: dark;
+    --background: oklch(0.15 0.025 15);
+    --foreground: var(--snow);
+    --surface: oklch(0.22 0.02 15);
+    --surface-foreground: var(--foreground);
+    --overlay: oklch(0.25 0.02 15);
+    --overlay-foreground: var(--foreground);
+    --field-background: oklch(0.27 0.018 15);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.36 0.04 15);
+    --separator: oklch(0.3 0.025 15);
+    --accent: oklch(0.76 0.13 18);
+    --accent-foreground: var(--eclipse);
+    --focus: var(--accent);
+    --link: var(--accent);
+  }
+}
+
 html {
   transition:
     background-color 0.2s ease,

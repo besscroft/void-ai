@@ -97,6 +97,9 @@ export const api = {
   server: {
     port: (): Promise<number> => assertApi().server.port(),
   },
+  system: {
+    locale: (): Promise<string> => assertApi().system.locale(),
+  },
   cache: {
     stats: (): Promise<CacheStats> => assertApi().cache.stats(),
     clear: (): Promise<number> => assertApi().cache.clear(),

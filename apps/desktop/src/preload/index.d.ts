@@ -90,6 +90,9 @@ export interface VoidAIApi {
   server: {
     port: () => Promise<number>;
   };
+  system: {
+    locale: () => Promise<string>;
+  };
   // 缓存管理
   cache: {
     stats: () => Promise<CacheStats>;

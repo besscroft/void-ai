@@ -18,9 +18,9 @@ function App(): React.JSX.Element {
 }
 
 function AppRoot(): React.JSX.Element {
-  const { settings } = useSettings();
+  const { resolvedLanguage } = useSettings();
   return (
-    <AppI18nProvider locale={settings.language}>
+    <AppI18nProvider locale={resolvedLanguage}>
       <AppContent />
     </AppI18nProvider>
   );
