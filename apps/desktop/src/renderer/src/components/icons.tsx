@@ -80,6 +80,14 @@ export function IconSend(props: IconProps): React.JSX.Element {
   );
 }
 
+export function IconArrowUp(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 19V5M5 12l7-7 7 7" />
+    </svg>
+  );
+}
+
 export function IconMessage(props: IconProps): React.JSX.Element {
   return (
     <svg {...base} {...props}>

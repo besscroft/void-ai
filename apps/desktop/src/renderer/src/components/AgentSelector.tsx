@@ -7,9 +7,14 @@ import { IconCheck, IconChevronDown, IconCpu } from "./icons";
 interface AgentSelectorProps {
   value: string | null;
   onChange: (agentId: string) => void;
+  placement?: "top" | "bottom";
 }
 
-export function AgentSelector({ value, onChange }: AgentSelectorProps): React.JSX.Element {
+export function AgentSelector({
+  value,
+  onChange,
+  placement = "bottom",
+}: AgentSelectorProps): React.JSX.Element {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -40,18 +45,28 @@ export function AgentSelector({ value, onChange }: AgentSelectorProps): React.JS
     setOpen(false);
   };
 
+  const menuPlacement = placement === "top" ? "bottom-full mb-2 left-0" : "top-full mt-2 right-0";
+
   return (
-    <div ref={ref} className="relative">
-      <Button variant="secondary" size="sm" onPress={() => setOpen((next) => !next)}>
-        <span className="flex size-5 items-center justify-center rounded-full bg-accent/15 text-[11px] font-semibold text-accent">
+    <div ref={ref} className="relative min-w-0">
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className="h-9 min-w-0 rounded-full border border-foreground/10 bg-foreground/[0.035] px-2.5 shadow-sm hover:bg-foreground/[0.06]"
+        onPress={() => setOpen((next) => !next)}
+      >
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-[11px] font-semibold text-accent">
           {selected?.avatar ?? "V"}
         </span>
-        <span className="max-w-[140px] truncate">{selected?.name ?? "Void"}</span>
-        <IconChevronDown className={`size-3.5 transition ${open ? "rotate-180" : ""}`} />
+        <span className="max-w-[120px] truncate text-sm">{selected?.name ?? "Void"}</span>
+        <IconChevronDown className={`size-3.5 shrink-0 transition ${open ? "rotate-180" : ""}`} />
       </Button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-md border border-foreground/15 bg-background shadow-xl">
+        <div
+          className={`absolute z-50 w-80 overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
+        >
           <div className="border-b border-foreground/10 px-3 py-2 text-xs font-medium text-foreground/50">
             Agents
           </div>

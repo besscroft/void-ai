@@ -3,8 +3,6 @@ import { useChat, type UIMessage } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
-import { ModelSelector } from "./ModelSelector";
-import { AgentSelector } from "./AgentSelector";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
 import { useSettings } from "../lib/settings";
@@ -88,12 +86,20 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
       void api.conversations.touch(conversationId);
     },
     onError: (err) => {
-      console.error("[chat] 流式错误:", err);
+      console.error("[chat] streaming error:", err);
       notify.error(t("toast.chat.failed"), err);
     },
   });
 
   const isLoading = chat.status === "submitted" || chat.status === "streaming";
+  const modelParametersLabel = useMemo(
+    () =>
+      t("input.params", {
+        temperature: settings.modelTemperature.toFixed(1),
+        maxTokens: settings.modelMaxTokens,
+      }),
+    [settings.modelMaxTokens, settings.modelTemperature, t],
+  );
 
   const handleSend = (text: string): void => {
     if (!selectedModel) return;
@@ -110,17 +116,21 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-foreground/10 px-4 py-2.5">
+      <header className="flex shrink-0 items-center border-b border-foreground/10 px-5 py-3">
         <h1 className="text-sm font-medium text-foreground/70">{t("chat.title")}</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <AgentSelector value={selectedAgentId} onChange={setSelectedAgentId} />
-          <ModelSelector value={selectedModel} onChange={setSelectedModel} />
-        </div>
       </header>
 
       <MessageList messages={chat.messages} isLoading={isLoading} error={chat.error} />
 
-      <MessageInput isLoading={isLoading} onSend={handleSend} modelSelected={!!selectedModel} />
+      <MessageInput
+        isLoading={isLoading}
+        onSend={handleSend}
+        selectedModel={selectedModel}
+        selectedAgentId={selectedAgentId}
+        onModelChange={setSelectedModel}
+        onAgentChange={setSelectedAgentId}
+        modelParametersLabel={modelParametersLabel}
+      />
     </div>
   );
 }
