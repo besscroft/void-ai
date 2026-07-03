@@ -1,29 +1,30 @@
-# Vite+ Monorepo Starter
+# Void AI
 
-A starter for creating a Vite+ monorepo.
+A local-first AI desktop workspace built with Electron, React, AI SDK, Hono, SQLite, Drizzle and HeroUI.
+
+Void AI is being shaped as more than a chat client. The desktop app now has first-class surfaces for Agents, Workflows, Harness, Memory, Server, interaction profiles and sync state. It can run locally without a self-hosted cloud server, while leaving a clear path for optional encrypted sync and a future Web client.
+
+See [docs/architecture.md](docs/architecture.md) for the full product and technical design.
 
 ## Development
 
-- Check everything is ready:
-
 ```bash
-vp run ready
+vp install
+vp run dev:desktop
 ```
 
-- Run the tests:
+## Validation
 
 ```bash
-vp run -r test
+vp check
+vp test
 ```
 
-- Build the monorepo:
+## Desktop builds
 
 ```bash
-vp run -r build
-```
-
-- Run the development server:
-
-```bash
-vp run dev
+vp run build:desktop
+vp run build:desktop:win
+vp run build:desktop:mac
+vp run build:desktop:linux
 ```

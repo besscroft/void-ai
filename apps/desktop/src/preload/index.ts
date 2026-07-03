@@ -33,6 +33,34 @@ const api = {
     set: (provider: string, apiKey: string) => ipcRenderer.invoke("apikeys:set", provider, apiKey),
     delete: (provider: string) => ipcRenderer.invoke("apikeys:delete", provider),
   },
+  workspace: {
+    snapshot: () => ipcRenderer.invoke("workspace:snapshot"),
+  },
+  agents: {
+    list: () => ipcRenderer.invoke("agents:list"),
+    save: (agent: unknown) => ipcRenderer.invoke("agents:save", agent),
+  },
+  memories: {
+    list: () => ipcRenderer.invoke("memories:list"),
+    save: (memory: unknown) => ipcRenderer.invoke("memories:save", memory),
+    delete: (id: string) => ipcRenderer.invoke("memories:delete", id),
+  },
+  workflows: {
+    list: () => ipcRenderer.invoke("workflows:list"),
+    runs: () => ipcRenderer.invoke("workflowRuns:list"),
+  },
+  harness: {
+    list: () => ipcRenderer.invoke("harness:list"),
+  },
+  serverNodes: {
+    list: () => ipcRenderer.invoke("serverNodes:list"),
+  },
+  interactions: {
+    list: () => ipcRenderer.invoke("interactions:list"),
+  },
+  sync: {
+    get: () => ipcRenderer.invoke("sync:get"),
+  },
   providers: {
     list: () => ipcRenderer.invoke("providers:list"),
   },

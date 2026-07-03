@@ -1,12 +1,6 @@
 /**
  * Drizzle ORM Schema 定义
  *
- * 设计原则：
- * - 类型安全：所有表结构以 TypeScript 描述，CRUD 时自动推断类型
- * - 字段命名：直接使用 snake_case（与数据库列名一致），让 $inferSelect 推断出的
- *   类型天然匹配 shared/types.ts 中的 Conversation / MessageRow，无需映射层
- * - 索引与约束：高频查询字段建立索引；外键级联删除保证数据完整性
- *
  * 时间戳统一使用 INTEGER（毫秒，Date.now()）。
  */
 
@@ -47,11 +41,151 @@ export const messages = sqliteTable(
     /** 创建时间（毫秒时间戳） */
     created_at: integer("created_at").notNull(),
   },
+  (table) => [index("idx_messages_conv").on(table.conversation_id)],
+);
+
+// ============================================================
+// 智能体、记忆与工作流
+// ============================================================
+
+export const agents = sqliteTable(
+  "agents",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    role: text("role").notNull(),
+    description: text("description").notNull(),
+    personality: text("personality").notNull(),
+    soul_prompt: text("soul_prompt").notNull(),
+    avatar: text("avatar").notNull(),
+    status: text("status", { enum: ["active", "draft", "archived"] })
+      .notNull()
+      .default("active"),
+    model_ref: text("model_ref"),
+    voice: text("voice"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [index("idx_agents_status").on(table.status)],
+);
+
+export const memories = sqliteTable(
+  "memories",
+  {
+    id: text("id").primaryKey(),
+    scope: text("scope", { enum: ["global", "agent", "conversation"] }).notNull(),
+    kind: text("kind", { enum: ["fact", "preference", "episode", "profile", "skill"] }).notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    agent_id: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    conversation_id: text("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    salience: integer("salience").notNull().default(50),
+    pinned: integer("pinned").notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
   (table) => [
-    // 按会话查询消息的高频索引
-    index("idx_messages_conv").on(table.conversation_id),
+    index("idx_memories_agent").on(table.agent_id),
+    index("idx_memories_conversation").on(table.conversation_id),
+    index("idx_memories_salience").on(table.salience),
   ],
 );
+
+export const workflows = sqliteTable(
+  "workflows",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    status: text("status", { enum: ["enabled", "paused", "draft"] })
+      .notNull()
+      .default("draft"),
+    steps_json: text("steps_json").notNull(),
+    trigger: text("trigger").notNull(),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [index("idx_workflows_status").on(table.status)],
+);
+
+export const workflowRuns = sqliteTable(
+  "workflow_runs",
+  {
+    id: text("id").primaryKey(),
+    workflow_id: text("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    status: text("status", {
+      enum: ["queued", "running", "succeeded", "failed", "cancelled"],
+    }).notNull(),
+    input_json: text("input_json"),
+    output_json: text("output_json"),
+    started_at: integer("started_at").notNull(),
+    finished_at: integer("finished_at"),
+  },
+  (table) => [index("idx_workflow_runs_workflow").on(table.workflow_id)],
+);
+
+export const harnessEvents = sqliteTable(
+  "harness_events",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: ["tool", "test", "approval", "automation", "error"] }).notNull(),
+    title: text("title").notNull(),
+    status: text("status", {
+      enum: ["queued", "running", "succeeded", "failed", "cancelled"],
+    }).notNull(),
+    detail_json: text("detail_json").notNull(),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [index("idx_harness_events_created").on(table.created_at)],
+);
+
+// ============================================================
+// Server、交互方式与同步状态
+// ============================================================
+
+export const serverNodes = sqliteTable(
+  "server_nodes",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    kind: text("kind", { enum: ["local", "cloud", "mcp", "sync"] }).notNull(),
+    url: text("url").notNull(),
+    status: text("status", { enum: ["online", "offline", "disabled"] }).notNull(),
+    capabilities_json: text("capabilities_json").notNull(),
+    last_seen_at: integer("last_seen_at"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [index("idx_server_nodes_kind").on(table.kind)],
+);
+
+export const interactionProfiles = sqliteTable("interaction_profiles", {
+  id: text("id").primaryKey(),
+  kind: text("kind", { enum: ["chat", "voice", "video", "mouse", "desktop_pet"] }).notNull(),
+  label: text("label").notNull(),
+  enabled: integer("enabled").notNull().default(0),
+  status: text("status", { enum: ["ready", "prototype", "blocked"] }).notNull(),
+  config_json: text("config_json").notNull(),
+  updated_at: integer("updated_at").notNull(),
+});
+
+export const syncState = sqliteTable("sync_state", {
+  id: text("id").primaryKey(),
+  mode: text("mode", { enum: ["local_only", "manual", "cloud"] }).notNull(),
+  endpoint: text("endpoint"),
+  device_id: text("device_id").notNull(),
+  encryption_enabled: integer("encryption_enabled").notNull().default(1),
+  conflict_strategy: text("conflict_strategy", {
+    enum: ["last_write_wins", "merge_with_review"],
+  }).notNull(),
+  status: text("status", { enum: ["idle", "syncing", "error"] }).notNull(),
+  last_synced_at: integer("last_synced_at"),
+  updated_at: integer("updated_at").notNull(),
+});
 
 // ============================================================
 // 应用设置表
@@ -77,18 +211,35 @@ export const apiKeys = sqliteTable("api_keys", {
   updated_at: integer("updated_at").notNull(),
 });
 
-/**
- * Schema 对象聚合，作为 drizzle 实例的 schema 参数与类型推断源。
- */
-export const schema = { conversations, messages, settings, apiKeys };
-
-// ============================================================
-// 类型导出（自动推断，供业务层使用）
-// ============================================================
+export const schema = {
+  conversations,
+  messages,
+  agents,
+  memories,
+  workflows,
+  workflowRuns,
+  harnessEvents,
+  serverNodes,
+  interactionProfiles,
+  syncState,
+  settings,
+  apiKeys,
+};
 
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type MessageRow = typeof messages.$inferSelect;
 export type NewMessageRow = typeof messages.$inferInsert;
+export type AgentProfile = typeof agents.$inferSelect;
+export type NewAgentProfile = typeof agents.$inferInsert;
+export type MemoryRecord = typeof memories.$inferSelect;
+export type NewMemoryRecord = typeof memories.$inferInsert;
+export type WorkflowDefinition = typeof workflows.$inferSelect;
+export type NewWorkflowDefinition = typeof workflows.$inferInsert;
+export type WorkflowRun = typeof workflowRuns.$inferSelect;
+export type HarnessEvent = typeof harnessEvents.$inferSelect;
+export type ServerNode = typeof serverNodes.$inferSelect;
+export type InteractionProfile = typeof interactionProfiles.$inferSelect;
+export type SyncState = typeof syncState.$inferSelect;
 export type Setting = typeof settings.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;

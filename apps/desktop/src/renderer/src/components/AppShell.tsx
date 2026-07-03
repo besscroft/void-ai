@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button } from "@heroui/react";
+import { Button, Chip } from "@heroui/react";
 import { api } from "../lib/api";
 import { useSettings } from "../lib/settings";
 import { useT } from "../lib/i18n";
@@ -11,45 +11,46 @@ import {
   IconMoon,
   IconMonitor,
   IconTrash,
+  IconCpu,
+  IconSliders,
+  IconDatabase,
+  IconLayout,
+  IconGlobe,
+  IconKey,
 } from "./icons";
 import type { Conversation } from "@shared/types";
 import type { ThemeMode } from "../lib/theme";
+import type { WorkspaceSection } from "./WorkspaceView";
+
+export type AppView = "chat" | WorkspaceSection;
 
 interface AppShellProps {
-  /** 当前激活的会话 ID */
+  activeView: AppView;
   activeConversationId: string | null;
-  /** 切换会话回调 */
+  onSelectView: (view: AppView) => void;
   onSelectConversation: (id: string) => void;
-  /** 新建会话回调 */
   onCreateConversation: () => void;
-  /** 删除会话回调 */
   onDeleteConversation: (id: string) => void;
-  /** 打开设置回调 */
   onOpenSettings: () => void;
-  /** 主区内容 */
   children: ReactNode;
 }
 
-/**
- * 应用外壳：左侧栏 + 主区
- *
- * 布局示意（ASCII）：
- * ┌──────────┬───────────────────────────────┐
- * │ + 新会话 │                               │
- * │──────────│          主区（聊天）          │
- * │ 会话1    │                               │
- * │ 会话2 ● │                               │
- * │ 会话3    │                               │
- * │──────────│                               │
- * │ 主题切换 │                               │
- * │ 设置     │                               │
- * └──────────┴───────────────────────────────┘
- *
- * 主题模式直接读写 useSettings，与设置弹窗共享同一数据源；
- * 文案经 i18n 本地化。
- */
+const primaryNav: { id: AppView; label: string; Icon: typeof IconMessage }[] = [
+  { id: "dashboard", label: "Void OS", Icon: IconLayout },
+  { id: "chat", label: "Chat", Icon: IconMessage },
+  { id: "agents", label: "Agents", Icon: IconCpu },
+  { id: "workflows", label: "Workflows", Icon: IconSliders },
+  { id: "memory", label: "Memory", Icon: IconDatabase },
+  { id: "harness", label: "Harness", Icon: IconKey },
+  { id: "server", label: "Server", Icon: IconGlobe },
+  { id: "interactions", label: "Interactions", Icon: IconMonitor },
+  { id: "sync", label: "Sync", Icon: IconSun },
+];
+
 export function AppShell({
+  activeView,
   activeConversationId,
+  onSelectView,
   onSelectConversation,
   onCreateConversation,
   onDeleteConversation,
@@ -59,7 +60,6 @@ export function AppShell({
   const { t } = useT();
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
-  // 加载会话列表
   const refresh = (): void => {
     void api.conversations.list().then(setConversations);
   };
@@ -68,7 +68,6 @@ export function AppShell({
     refresh();
   }, []);
 
-  // 当外部新建/删除会话后，刷新列表
   useEffect(() => {
     refresh();
   }, [activeConversationId]);
@@ -82,61 +81,95 @@ export function AppShell({
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      {/* 侧边栏 */}
-      <aside className="flex w-64 flex-col border-r border-foreground/10 bg-foreground/[0.02]">
-        {/* 新建会话 */}
-        <div className="p-3">
-          <Button
-            variant="primary"
-            className="w-full justify-start gap-2"
-            onPress={onCreateConversation}
-          >
-            <IconPlus className="size-4" />
-            {t("shell.newConversation")}
-          </Button>
+      <aside className="flex w-[280px] shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.025]">
+        <div className="border-b border-foreground/10 px-4 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">Void AI</p>
+              <p className="truncate text-xs text-foreground/45">Local-first agent desktop</p>
+            </div>
+            <Chip size="sm" color="success" variant="soft">
+              local
+            </Chip>
+          </div>
         </div>
 
-        {/* 会话列表 */}
-        <nav className="flex-1 overflow-y-auto px-2 pb-2">
-          {conversations.length === 0 ? (
-            <p className="whitespace-pre-line px-3 py-8 text-center text-sm text-foreground/50">
-              {t("shell.noConversation")}
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {conversations.map((conv) => {
-                const isActive = conv.id === activeConversationId;
-                return (
-                  <li key={conv.id}>
-                    <div
-                      className={[
-                        "group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm",
-                        isActive ? "bg-accent/15 text-accent" : "hover:bg-foreground/5",
-                      ].join(" ")}
-                      onClick={() => onSelectConversation(conv.id)}
-                    >
-                      <IconMessage className="size-4 shrink-0 opacity-60" />
-                      <span className="flex-1 truncate">{conv.title}</span>
-                      <button
-                        type="button"
-                        className="opacity-0 transition group-hover:opacity-100 hover:text-danger"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(conv.id);
-                        }}
-                        aria-label={`${t("common.delete")} ${conv.title}`}
-                      >
-                        <IconTrash className="size-3.5" />
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+        <nav className="space-y-1 px-2 py-3" aria-label="Workspace">
+          {primaryNav.map(({ id, label, Icon }) => {
+            const active = activeView === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                className={[
+                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition",
+                  active
+                    ? "bg-accent/10 text-accent"
+                    : "text-foreground/70 hover:bg-foreground/5 hover:text-foreground",
+                ].join(" ")}
+                onClick={() => onSelectView(id)}
+                aria-current={active ? "page" : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="truncate">{label}</span>
+              </button>
+            );
+          })}
         </nav>
 
-        {/* 底部：主题 + 设置 */}
+        <div className="flex min-h-0 flex-1 flex-col border-t border-foreground/10">
+          <div className="flex items-center justify-between gap-2 px-3 py-3">
+            <span className="text-xs font-medium uppercase tracking-normal text-foreground/45">
+              Conversations
+            </span>
+            <Button isIconOnly size="sm" variant="tertiary" onPress={onCreateConversation}>
+              <IconPlus className="size-4" />
+            </Button>
+          </div>
+
+          <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Conversations">
+            {conversations.length === 0 ? (
+              <p className="whitespace-pre-line px-3 py-8 text-center text-sm text-foreground/50">
+                {t("shell.noConversation")}
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {conversations.map((conv) => {
+                  const isActive = conv.id === activeConversationId && activeView === "chat";
+                  return (
+                    <li key={conv.id}>
+                      <div
+                        className={[
+                          "group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm transition",
+                          isActive ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
+                        ].join(" ")}
+                        onClick={() => {
+                          onSelectConversation(conv.id);
+                          onSelectView("chat");
+                        }}
+                      >
+                        <IconMessage className="size-4 shrink-0 opacity-60" />
+                        <span className="flex-1 truncate">{conv.title}</span>
+                        <button
+                          type="button"
+                          className="opacity-0 transition group-hover:opacity-100 hover:text-danger"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDelete(conv.id);
+                          }}
+                          aria-label={`${t("common.delete")} ${conv.title}`}
+                        >
+                          <IconTrash className="size-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </nav>
+        </div>
+
         <div className="border-t border-foreground/10 p-2">
           <ThemeSwitcher />
           <Button
@@ -150,17 +183,11 @@ export function AppShell({
         </div>
       </aside>
 
-      {/* 主区 */}
-      <main className="flex flex-1 flex-col overflow-hidden">{children}</main>
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
     </div>
   );
 }
 
-/**
- * 主题切换器：light / dark / system 三选一
- *
- * 直接读写 useSettings，与设置弹窗的主题 Tab 共享状态。
- */
 function ThemeSwitcher(): React.JSX.Element {
   const { t } = useT();
   const { settings, update } = useSettings();

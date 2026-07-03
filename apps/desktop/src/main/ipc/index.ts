@@ -14,10 +14,22 @@ import {
   listApiKeyProviders,
   setApiKey,
   deleteApiKey,
+  listAgents,
+  saveAgent,
+  listMemories,
+  saveMemory,
+  deleteMemory,
+  listWorkflows,
+  listWorkflowRuns,
+  listHarnessEvents,
+  listServerNodes,
+  listInteractionProfiles,
+  getSyncState,
+  getWorkspaceSnapshot,
 } from "../lib/db";
 import { listProviders } from "../lib/providers";
 import { getCacheStats, clearCache } from "../lib/cache";
-import type { Conversation, MessageRow } from "../../shared/types";
+import type { AgentProfile, Conversation, MemoryRecord, MessageRow } from "../../shared/types";
 
 /**
  * IPC handlers 注册
@@ -92,6 +104,28 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   });
   // 注意：不暴露 apikeys:get 明文接口，渲染层无需读取明文 key
 
+  // ---------- AI 工作台 ----------
+  ipcMain.handle("workspace:snapshot", () => getWorkspaceSnapshot());
+  ipcMain.handle("agents:list", () => listAgents());
+  ipcMain.handle("agents:save", (_e, agent: AgentProfile) => {
+    saveAgent(agent);
+    return true;
+  });
+  ipcMain.handle("memories:list", () => listMemories());
+  ipcMain.handle("memories:save", (_e, memory: MemoryRecord) => {
+    saveMemory(memory);
+    return true;
+  });
+  ipcMain.handle("memories:delete", (_e, id: string) => {
+    deleteMemory(id);
+    return true;
+  });
+  ipcMain.handle("workflows:list", () => listWorkflows());
+  ipcMain.handle("workflowRuns:list", () => listWorkflowRuns());
+  ipcMain.handle("harness:list", () => listHarnessEvents());
+  ipcMain.handle("serverNodes:list", () => listServerNodes());
+  ipcMain.handle("interactions:list", () => listInteractionProfiles());
+  ipcMain.handle("sync:get", () => getSyncState());
   // ---------- Provider 元信息 ----------
   ipcMain.handle("providers:list", () => {
     return listProviders().map((p) => ({

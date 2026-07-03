@@ -1,23 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { AppShell } from "./components/AppShell";
+import { AppShell, type AppView } from "./components/AppShell";
 import { ChatView } from "./components/ChatView";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { WorkspaceView } from "./components/WorkspaceView";
 import { api } from "./lib/api";
 import { SettingsProvider, useSettings } from "./lib/settings";
 import { AppI18nProvider, useT } from "./lib/i18n";
 import { SettingKey } from "@shared/types";
 
-/**
- * 应用根组件
- *
- * Provider 嵌套顺序：
- *   SettingsProvider（设置/外观/语言数据源）
- *     └─ AppRoot（读取语言 → 提供 i18n）
- *          └─ AppContent（持有会话状态，渲染主体）
- *
- * 语言切换由 settings 驱动，变更后 AppI18nProvider 重建 context，
- * 所有消费 useT 的组件自动重渲染。
- */
 function App(): React.JSX.Element {
   return (
     <SettingsProvider>
@@ -26,7 +16,6 @@ function App(): React.JSX.Element {
   );
 }
 
-/** 读取设置中的语言，向下提供 i18n */
 function AppRoot(): React.JSX.Element {
   const { settings } = useSettings();
   return (
@@ -36,20 +25,20 @@ function AppRoot(): React.JSX.Element {
   );
 }
 
-/**
- * 应用主体
- *
- * 职责：
- *  - 管理当前激活的会话 ID
- *  - 协调侧边栏、聊天视图、设置弹窗之间的交互
- *  - 启动时恢复上次会话
- */
 function AppContent(): React.JSX.Element {
   const { t } = useT();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<AppView>("dashboard");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // 启动时恢复上次会话；没有则自动创建一个
+  const createNewConversation = useCallback(async (): Promise<void> => {
+    const id = crypto.randomUUID();
+    const conv = await api.conversations.create(id, t("shell.newConversation"));
+    setActiveId(conv.id);
+    setActiveView("chat");
+    await api.settings.set(SettingKey.ActiveConversationId, conv.id);
+  }, [t]);
+
   useEffect(() => {
     void (async () => {
       const last = await api.settings.get(SettingKey.ActiveConversationId);
@@ -62,17 +51,9 @@ function AppContent(): React.JSX.Element {
         setActiveId(list[0].id);
         return;
       }
-      // 首次启动：自动新建一个会话
       await createNewConversation();
     })();
-  }, []);
-
-  const createNewConversation = useCallback(async (): Promise<void> => {
-    const id = crypto.randomUUID();
-    const conv = await api.conversations.create(id, t("shell.newConversation"));
-    setActiveId(conv.id);
-    await api.settings.set(SettingKey.ActiveConversationId, conv.id);
-  }, [t]);
+  }, [createNewConversation]);
 
   const handleSelect = useCallback((id: string): void => {
     setActiveId(id);
@@ -81,7 +62,6 @@ function AppContent(): React.JSX.Element {
 
   const handleDelete = useCallback(
     (id: string): void => {
-      // 删除后切换到第一个剩余会话；没有则新建
       setActiveId((current) => {
         if (current === id) {
           void api.conversations.list().then((list) => {
@@ -103,18 +83,24 @@ function AppContent(): React.JSX.Element {
   return (
     <>
       <AppShell
+        activeView={activeView}
         activeConversationId={activeId}
+        onSelectView={setActiveView}
         onSelectConversation={handleSelect}
         onCreateConversation={() => void createNewConversation()}
         onDeleteConversation={handleDelete}
         onOpenSettings={() => setSettingsOpen(true)}
       >
-        {activeId ? (
-          <ChatView key={activeId} conversationId={activeId} />
+        {activeView === "chat" ? (
+          activeId ? (
+            <ChatView key={activeId} conversationId={activeId} />
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-sm text-foreground/40">
+              {t("chat.initializing")}
+            </div>
+          )
         ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-foreground/40">
-            {t("chat.initializing")}
-          </div>
+          <WorkspaceView section={activeView} />
         )}
       </AppShell>
 

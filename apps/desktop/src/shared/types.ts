@@ -23,6 +23,114 @@ export interface MessageRow {
   created_at: number;
 }
 
+export type AgentStatus = "active" | "draft" | "archived";
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  role: string;
+  description: string;
+  personality: string;
+  soul_prompt: string;
+  avatar: string;
+  status: AgentStatus;
+  model_ref: string | null;
+  voice: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export type MemoryScope = "global" | "agent" | "conversation";
+export type MemoryKind = "fact" | "preference" | "episode" | "profile" | "skill";
+
+export interface MemoryRecord {
+  id: string;
+  scope: MemoryScope;
+  kind: MemoryKind;
+  title: string;
+  content: string;
+  agent_id: string | null;
+  conversation_id: string | null;
+  salience: number;
+  pinned: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export type WorkflowStatus = "enabled" | "paused" | "draft";
+
+export interface WorkflowStep {
+  id: string;
+  type: "prompt" | "tool" | "approval" | "memory" | "handoff";
+  title: string;
+  detail: string;
+}
+
+export interface WorkflowDefinition {
+  id: string;
+  name: string;
+  description: string;
+  status: WorkflowStatus;
+  steps_json: string;
+  trigger: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  status: RunStatus;
+  input_json: string | null;
+  output_json: string | null;
+  started_at: number;
+  finished_at: number | null;
+}
+
+export interface HarnessEvent {
+  id: string;
+  kind: "tool" | "test" | "approval" | "automation" | "error";
+  title: string;
+  status: RunStatus;
+  detail_json: string;
+  created_at: number;
+}
+
+export interface ServerNode {
+  id: string;
+  name: string;
+  kind: "local" | "cloud" | "mcp" | "sync";
+  url: string;
+  status: "online" | "offline" | "disabled";
+  capabilities_json: string;
+  last_seen_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface InteractionProfile {
+  id: string;
+  kind: "chat" | "voice" | "video" | "mouse" | "desktop_pet";
+  label: string;
+  enabled: number;
+  status: "ready" | "prototype" | "blocked";
+  config_json: string;
+  updated_at: number;
+}
+
+export interface SyncState {
+  id: string;
+  mode: "local_only" | "manual" | "cloud";
+  endpoint: string | null;
+  device_id: string;
+  encryption_enabled: number;
+  conflict_strategy: "last_write_wins" | "merge_with_review";
+  status: "idle" | "syncing" | "error";
+  last_synced_at: number | null;
+  updated_at: number;
+}
 /** Provider 元信息（不含 API key） */
 export interface ProviderInfo {
   id: string;
@@ -63,6 +171,8 @@ export const SettingKey = {
   // —— 其它 ——
   /** 当前会话 ID */
   ActiveConversationId: "active_conversation_id",
+  /** 当前智能体 ID */
+  ActiveAgentId: "active_agent_id",
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -164,6 +274,18 @@ export interface CacheStats {
   limitMb: number;
 }
 
+export interface WorkspaceSnapshot {
+  agents: AgentProfile[];
+  memories: MemoryRecord[];
+  workflows: WorkflowDefinition[];
+  workflowRuns: WorkflowRun[];
+  harnessEvents: HarnessEvent[];
+  serverNodes: ServerNode[];
+  interactionProfiles: InteractionProfile[];
+  syncState: SyncState;
+}
+
+export const DEFAULT_AGENT_ID = "agent-void";
 /**
  * 应用设置聚合（渲染层使用）
  *

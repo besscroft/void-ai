@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { streamText, convertToModelMessages, type UIMessage } from "ai";
 import { resolveModel, listProviders } from "../lib/providers";
+import { buildAgentSystemPrompt, upsertServerNode } from "../lib/db";
 
 /**
  * 仅监听 loopback（127.0.0.1）的本地 HTTP 服务
@@ -41,6 +42,8 @@ function createApp(): Hono {
       /** 形如 "openai/gpt-4o" 的模型引用 */
       model?: string;
       system?: string;
+      agentId?: string;
+      conversationId?: string;
       /** 采样温度 0~2 */
       temperature?: number;
       /** nucleus sampling 概率 0~1 */
@@ -60,7 +63,7 @@ function createApp(): Hono {
       const model = resolveModel(body.model);
       const result = streamText({
         model,
-        system: body.system ?? "你是一个有帮助的 AI 助手。请用简洁清晰的中文回答。",
+        system: body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
         messages: convertToModelMessages(body.messages),
         // 仅在有效范围内应用模型参数，避免无效值透传到 provider
         ...(typeof body.temperature === "number" && body.temperature >= 0 && body.temperature <= 2
@@ -111,6 +114,18 @@ export function startServer(): Promise<number> {
         const addr = instance.address();
         if (addr && typeof addr === "object" && "port" in addr) {
           assignedPort = addr.port;
+          const now = Date.now();
+          upsertServerNode({
+            id: "server-local-ai",
+            name: "Local AI Loopback",
+            kind: "local",
+            url: `http://127.0.0.1:${assignedPort}`,
+            status: "online",
+            capabilities_json: JSON.stringify(["chat-stream", "agent-context", "memory-injection"]),
+            last_seen_at: now,
+            created_at: now,
+            updated_at: now,
+          });
           console.log(`[server] 本地 AI 服务已启动: http://127.0.0.1:${assignedPort}`);
           resolve(assignedPort);
         }

@@ -1,5 +1,19 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
-import type { Conversation, MessageRow, ProviderInfo, CacheStats } from "../shared/types";
+import type {
+  AgentProfile,
+  CacheStats,
+  Conversation,
+  HarnessEvent,
+  InteractionProfile,
+  MemoryRecord,
+  MessageRow,
+  ProviderInfo,
+  ServerNode,
+  SyncState,
+  WorkflowDefinition,
+  WorkflowRun,
+  WorkspaceSnapshot,
+} from "../shared/types";
 
 /**
  * Void AI 暴露给渲染进程的 API
@@ -35,6 +49,34 @@ export interface VoidAIApi {
     list: () => Promise<string[]>;
     set: (provider: string, apiKey: string) => Promise<boolean>;
     delete: (provider: string) => Promise<boolean>;
+  };
+  workspace: {
+    snapshot: () => Promise<WorkspaceSnapshot>;
+  };
+  agents: {
+    list: () => Promise<AgentProfile[]>;
+    save: (agent: AgentProfile) => Promise<boolean>;
+  };
+  memories: {
+    list: () => Promise<MemoryRecord[]>;
+    save: (memory: MemoryRecord) => Promise<boolean>;
+    delete: (id: string) => Promise<boolean>;
+  };
+  workflows: {
+    list: () => Promise<WorkflowDefinition[]>;
+    runs: () => Promise<WorkflowRun[]>;
+  };
+  harness: {
+    list: () => Promise<HarnessEvent[]>;
+  };
+  serverNodes: {
+    list: () => Promise<ServerNode[]>;
+  };
+  interactions: {
+    list: () => Promise<InteractionProfile[]>;
+  };
+  sync: {
+    get: () => Promise<SyncState>;
   };
   // Provider 元信息
   providers: {

@@ -1,4 +1,18 @@
-import type { Conversation, MessageRow, ProviderInfo, CacheStats } from "@shared/types";
+import type {
+  AgentProfile,
+  CacheStats,
+  Conversation,
+  HarnessEvent,
+  InteractionProfile,
+  MemoryRecord,
+  MessageRow,
+  ProviderInfo,
+  ServerNode,
+  SyncState,
+  WorkflowDefinition,
+  WorkflowRun,
+  WorkspaceSnapshot,
+} from "@shared/types";
 
 /**
  * 渲染层对 window.api 的类型化封装
@@ -44,6 +58,34 @@ export const api = {
       assertApi().apikeys.set(provider, apiKey),
     delete: (provider: string): Promise<boolean> => assertApi().apikeys.delete(provider),
   },
+  workspace: {
+    snapshot: (): Promise<WorkspaceSnapshot> => assertApi().workspace.snapshot(),
+  },
+  agents: {
+    list: (): Promise<AgentProfile[]> => assertApi().agents.list(),
+    save: (agent: AgentProfile): Promise<boolean> => assertApi().agents.save(agent),
+  },
+  memories: {
+    list: (): Promise<MemoryRecord[]> => assertApi().memories.list(),
+    save: (memory: MemoryRecord): Promise<boolean> => assertApi().memories.save(memory),
+    delete: (id: string): Promise<boolean> => assertApi().memories.delete(id),
+  },
+  workflows: {
+    list: (): Promise<WorkflowDefinition[]> => assertApi().workflows.list(),
+    runs: (): Promise<WorkflowRun[]> => assertApi().workflows.runs(),
+  },
+  harness: {
+    list: (): Promise<HarnessEvent[]> => assertApi().harness.list(),
+  },
+  serverNodes: {
+    list: (): Promise<ServerNode[]> => assertApi().serverNodes.list(),
+  },
+  interactions: {
+    list: (): Promise<InteractionProfile[]> => assertApi().interactions.list(),
+  },
+  sync: {
+    get: (): Promise<SyncState> => assertApi().sync.get(),
+  },
   providers: {
     list: (): Promise<ProviderInfo[]> => assertApi().providers.list(),
   },
@@ -56,4 +98,17 @@ export const api = {
   },
 };
 
-export type { Conversation, MessageRow, ProviderInfo };
+export type {
+  AgentProfile,
+  Conversation,
+  HarnessEvent,
+  InteractionProfile,
+  MemoryRecord,
+  MessageRow,
+  ProviderInfo,
+  ServerNode,
+  SyncState,
+  WorkflowDefinition,
+  WorkflowRun,
+  WorkspaceSnapshot,
+};
