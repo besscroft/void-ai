@@ -2,14 +2,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Button, Chip } from "@heroui/react";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
-import { useSettings } from "../lib/settings";
 import { useT } from "../lib/i18n";
 import {
   IconMessage,
   IconPlus,
   IconSettings,
   IconSun,
-  IconMoon,
   IconMonitor,
   IconTrash,
   IconCpu,
@@ -20,7 +18,6 @@ import {
   IconKey,
 } from "./icons";
 import type { Conversation } from "@shared/types";
-import type { ThemeMode } from "../lib/theme";
 import type { WorkspaceSection } from "./WorkspaceView";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -184,12 +181,7 @@ export function AppShell({
         </div>
 
         <div className="border-t border-foreground/10 p-2">
-          <ThemeSwitcher />
-          <Button
-            variant="ghost"
-            className="mt-1 w-full justify-start gap-2"
-            onPress={onOpenSettings}
-          >
+          <Button variant="ghost" className="w-full justify-start gap-2" onPress={onOpenSettings}>
             <IconSettings className="size-4" />
             {t("shell.settings")}
           </Button>
@@ -207,40 +199,6 @@ export function AppShell({
         onConfirm={confirmDeleteConversation}
         onClose={() => setPendingDelete(null)}
       />
-    </div>
-  );
-}
-
-function ThemeSwitcher(): React.JSX.Element {
-  const { t } = useT();
-  const { settings, update } = useSettings();
-  const mode = settings.theme;
-
-  const options: { value: ThemeMode; label: string; Icon: typeof IconSun }[] = [
-    { value: "light", label: t("shell.theme.light"), Icon: IconSun },
-    { value: "dark", label: t("shell.theme.dark"), Icon: IconMoon },
-    { value: "system", label: t("shell.theme.system"), Icon: IconMonitor },
-  ];
-  return (
-    <div className="flex items-center gap-1 rounded-md bg-foreground/5 p-1">
-      {options.map(({ value, label, Icon }) => (
-        <button
-          key={value}
-          type="button"
-          className={[
-            "flex flex-1 items-center justify-center gap-1 rounded px-2 py-1.5 text-xs transition",
-            mode === value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-foreground/60 hover:text-foreground",
-          ].join(" ")}
-          onClick={() => void update({ theme: value })}
-          aria-label={label}
-          aria-pressed={mode === value}
-          title={label}
-        >
-          <Icon className="size-3.5" />
-        </button>
-      ))}
     </div>
   );
 }
