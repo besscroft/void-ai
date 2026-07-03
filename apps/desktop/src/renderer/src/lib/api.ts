@@ -2,6 +2,8 @@ import type {
   AgentProfile,
   CacheStats,
   Conversation,
+  CustomModelInput,
+  CustomProviderInput,
   HarnessEvent,
   InteractionProfile,
   MemoryRecord,
@@ -93,6 +95,14 @@ export const api = {
   },
   providers: {
     list: (): Promise<ProviderInfo[]> => assertApi().providers.list(),
+    upsertCustomProvider: (input: CustomProviderInput): Promise<ProviderInfo> =>
+      assertApi().providers.upsertCustomProvider(input),
+    deleteCustomProvider: (providerId: string): Promise<boolean> =>
+      assertApi().providers.deleteCustomProvider(providerId),
+    upsertCustomModel: (input: CustomModelInput): Promise<ProviderInfo> =>
+      assertApi().providers.upsertCustomModel(input),
+    deleteCustomModel: (providerId: string, modelId: string): Promise<boolean> =>
+      assertApi().providers.deleteCustomModel(providerId, modelId),
   },
   server: {
     port: (): Promise<number> => assertApi().server.port(),
@@ -106,6 +116,8 @@ export const api = {
 export type {
   AgentProfile,
   Conversation,
+  CustomModelInput,
+  CustomProviderInput,
   HarnessEvent,
   InteractionProfile,
   MemoryRecord,

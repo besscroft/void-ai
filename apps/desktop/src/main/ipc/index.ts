@@ -31,9 +31,22 @@ import {
   getSyncState,
   getWorkspaceSnapshot,
 } from "../lib/db";
-import { listProviders } from "../lib/providers";
+import {
+  deleteCustomModel,
+  deleteCustomProvider,
+  listProviders,
+  upsertCustomModel,
+  upsertCustomProvider,
+} from "../lib/providers";
 import { getCacheStats, clearCache } from "../lib/cache";
-import type { AgentProfile, Conversation, MemoryRecord, MessageRow } from "../../shared/types";
+import type {
+  AgentProfile,
+  Conversation,
+  CustomModelInput,
+  CustomProviderInput,
+  MemoryRecord,
+  MessageRow,
+} from "../../shared/types";
 
 /**
  * IPC handlers 注册
@@ -144,17 +157,28 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   ipcMain.handle("serverNodes:list", () => listServerNodes());
   ipcMain.handle("interactions:list", () => listInteractionProfiles());
   ipcMain.handle("sync:get", () => getSyncState());
-  // ---------- Provider 元信息 ----------
-  ipcMain.handle("providers:list", () => {
-    return listProviders().map((p) => ({
-      id: p.id,
-      label: p.label,
-      models: p.models,
-      helpUrl: p.helpUrl,
-    }));
+  // ---------- Provider metadata ----------
+  ipcMain.handle("providers:list", () => listProviders());
+
+  ipcMain.handle("providers:upsertCustomProvider", (_e, input: CustomProviderInput) =>
+    upsertCustomProvider(input),
+  );
+
+  ipcMain.handle("providers:deleteCustomProvider", (_e, providerId: string) => {
+    deleteCustomProvider(providerId);
+    return true;
   });
 
-  // ---------- 本地服务端口 ----------
+  ipcMain.handle("providers:upsertCustomModel", (_e, input: CustomModelInput) =>
+    upsertCustomModel(input),
+  );
+
+  ipcMain.handle("providers:deleteCustomModel", (_e, providerId: string, modelId: string) => {
+    deleteCustomModel(providerId, modelId);
+    return true;
+  });
+
+  // ---------- Local server port ----------
   ipcMain.handle("server:port", () => getServerPort());
 
   // ---------- 缓存管理 ----------

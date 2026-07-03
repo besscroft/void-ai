@@ -67,6 +67,13 @@ const api = {
   },
   providers: {
     list: () => ipcRenderer.invoke("providers:list"),
+    upsertCustomProvider: (input: unknown) =>
+      ipcRenderer.invoke("providers:upsertCustomProvider", input),
+    deleteCustomProvider: (providerId: string) =>
+      ipcRenderer.invoke("providers:deleteCustomProvider", providerId),
+    upsertCustomModel: (input: unknown) => ipcRenderer.invoke("providers:upsertCustomModel", input),
+    deleteCustomModel: (providerId: string, modelId: string) =>
+      ipcRenderer.invoke("providers:deleteCustomModel", providerId, modelId),
   },
   server: {
     port: () => ipcRenderer.invoke("server:port"),

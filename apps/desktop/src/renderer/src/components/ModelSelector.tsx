@@ -60,7 +60,9 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JS
   // 显示当前选中模型的友好名
   const selectedLabel = (): string => {
     if (!value) return t("chat.selectModel");
-    const [pid, mid] = value.split("/");
+    const slashIdx = value.indexOf("/");
+    const pid = slashIdx >= 0 ? value.slice(0, slashIdx) : value;
+    const mid = slashIdx >= 0 ? value.slice(slashIdx + 1) : "";
     const p = providers.find((x) => x.id === pid);
     const m = p?.models.find((x) => x.id === mid);
     return `${p?.label ?? pid} / ${m?.label ?? mid}`;
@@ -84,33 +86,35 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps): React.JS
           role="listbox"
           className="absolute right-0 top-full z-50 mt-1 max-h-80 w-64 overflow-y-auto rounded-md border border-foreground/15 bg-background shadow-lg"
         >
-          {providers.map((p) => (
-            <div key={p.id}>
-              <div className="border-b border-foreground/10 px-3 py-1.5 text-xs font-semibold text-foreground/50">
-                {p.label}
+          {providers
+            .filter((p) => p.models.length > 0)
+            .map((p) => (
+              <div key={p.id}>
+                <div className="border-b border-foreground/10 px-3 py-1.5 text-xs font-semibold text-foreground/50">
+                  {p.label}
+                </div>
+                {p.models.map((m) => {
+                  const ref = `${p.id}/${m.id}`;
+                  const selected = ref === value;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      className={[
+                        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition",
+                        selected ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
+                      ].join(" ")}
+                      onClick={() => handleChange(ref)}
+                    >
+                      <span className="flex-1">{m.label ?? m.id}</span>
+                      {selected && <IconCheck className="size-3.5" />}
+                    </button>
+                  );
+                })}
               </div>
-              {p.models.map((m) => {
-                const ref = `${p.id}/${m.id}`;
-                const selected = ref === value;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    className={[
-                      "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition",
-                      selected ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
-                    ].join(" ")}
-                    onClick={() => handleChange(ref)}
-                  >
-                    <span className="flex-1">{m.label ?? m.id}</span>
-                    {selected && <IconCheck className="size-3.5" />}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+            ))}
         </div>
       )}
     </div>

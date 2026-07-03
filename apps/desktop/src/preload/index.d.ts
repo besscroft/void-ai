@@ -3,6 +3,8 @@ import type {
   AgentProfile,
   CacheStats,
   Conversation,
+  CustomModelInput,
+  CustomProviderInput,
   HarnessEvent,
   InteractionProfile,
   MemoryRecord,
@@ -85,6 +87,10 @@ export interface VoidAIApi {
   // Provider 元信息
   providers: {
     list: () => Promise<ProviderInfo[]>;
+    upsertCustomProvider: (input: CustomProviderInput) => Promise<ProviderInfo>;
+    deleteCustomProvider: (providerId: string) => Promise<boolean>;
+    upsertCustomModel: (input: CustomModelInput) => Promise<ProviderInfo>;
+    deleteCustomModel: (providerId: string, modelId: string) => Promise<boolean>;
   };
   // 本地 AI 服务
   server: {

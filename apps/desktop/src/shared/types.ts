@@ -133,12 +133,56 @@ export interface SyncState {
   last_synced_at: number | null;
   updated_at: number;
 }
-/** Provider 元信息（不含 API key） */
+export type ModelProviderKind = "openai" | "openai-compatible" | "anthropic" | "google";
+export type ModelCatalogSource = "builtin" | "custom";
+
+export interface ModelOption {
+  id: string;
+  label?: string;
+  source: ModelCatalogSource;
+}
+
+/** Provider metadata without API keys. */
 export interface ProviderInfo {
   id: string;
   label: string;
-  models: { id: string; label?: string }[];
+  kind: ModelProviderKind;
+  source: ModelCatalogSource;
+  models: ModelOption[];
   helpUrl: string;
+  baseUrl?: string;
+}
+
+export interface CustomProviderInput {
+  id?: string;
+  label: string;
+  baseUrl: string;
+  helpUrl?: string;
+}
+
+export interface CustomModelInput {
+  providerId: string;
+  id: string;
+  label?: string;
+}
+
+export interface ModelCatalogSettings {
+  providers: Array<{
+    id: string;
+    label: string;
+    kind: "openai-compatible";
+    baseUrl: string;
+    helpUrl?: string;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+  models: Array<{
+    providerId: string;
+    id: string;
+    label?: string;
+    createdAt: number;
+    updatedAt: number;
+  }>;
 }
 
 /**
@@ -170,6 +214,8 @@ export const SettingKey = {
   ModelTopP: "model_top_p",
   /** 缓存上限（MB），默认 200 */
   CacheSizeMb: "cache_size_mb",
+  /** Custom provider and model catalog JSON. */
+  ModelCatalog: "model_catalog",
   // —— 其它 ——
   /** 当前会话 ID */
   ActiveConversationId: "active_conversation_id",
