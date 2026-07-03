@@ -78,6 +78,9 @@ const api = {
   server: {
     port: () => ipcRenderer.invoke("server:port"),
   },
+  system: {
+    locale: () => ipcRenderer.invoke("system:locale"),
+  },
   cache: {
     stats: () => ipcRenderer.invoke("cache:stats"),
     clear: () => ipcRenderer.invoke("cache:clear"),

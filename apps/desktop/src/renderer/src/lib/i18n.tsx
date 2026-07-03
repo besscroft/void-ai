@@ -9,11 +9,19 @@
  * 扩展方式：新增语言只需在 LOCALES 增加一项，并在 Translations 中补全。
  */
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
-import type { AppLanguage } from "@shared/types";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import type { AppLanguage, LanguageMode } from "@shared/types";
 
 /** 翻译键集合（由 zh-CN 字典推断，保证两种语言键一致） */
 type Dict = Record<string, string>;
+
+export function resolveLanguage(mode: LanguageMode, systemLocale?: string | null): AppLanguage {
+  if (mode !== "system") return mode;
+  const normalized = (systemLocale || "").toLowerCase();
+  if (normalized.startsWith("zh")) return "zh-CN";
+  if (normalized.startsWith("en")) return "en";
+  return "en";
+}
 
 const zhCN: Dict = {
   // —— 通用 ——
@@ -204,6 +212,24 @@ const zhCN: Dict = {
   "toast.model.modelDeleted": "模型已删除",
   "toast.model.modelDeleteFailed": "删除模型失败",
   "toast.chat.failed": "聊天请求失败",
+  "theme.bundle": "主题包",
+  "theme.bundle.desc": "切换 HeroUI 语义变量主题，与浅色/深色模式组合生效",
+  "theme.preset.default": "默认",
+  "theme.preset.ocean": "海洋",
+  "theme.preset.forest": "森林",
+  "theme.preset.rose": "玫瑰",
+  "theme.accent": "强调色",
+  "theme.accent.desc": "使用主题默认色或选择独立强调色",
+  "theme.accent.theme": "使用主题默认",
+  "theme.accent.indigo": "靛蓝",
+  "theme.accent.emerald": "翡翠",
+  "theme.accent.rose": "玫瑰",
+  "theme.accent.amber": "琉珀",
+  "theme.accent.sky": "天蓝",
+  "theme.accent.violet": "紫罗兰",
+  "system.language.system": "跟随系统",
+  "system.language.zhCN": "简体中文",
+  "system.language.en": "English",
 };
 
 const en: Dict = {
@@ -388,6 +414,24 @@ const en: Dict = {
   "toast.model.modelDeleted": "Model deleted",
   "toast.model.modelDeleteFailed": "Failed to delete model",
   "toast.chat.failed": "Chat request failed",
+  "theme.bundle": "Theme package",
+  "theme.bundle.desc": "Switch HeroUI semantic variable themes together with light or dark mode",
+  "theme.preset.default": "Default",
+  "theme.preset.ocean": "Ocean",
+  "theme.preset.forest": "Forest",
+  "theme.preset.rose": "Rose",
+  "theme.accent": "Accent color",
+  "theme.accent.desc": "Use the theme default color or choose an independent accent",
+  "theme.accent.theme": "Use theme default",
+  "theme.accent.indigo": "Indigo",
+  "theme.accent.emerald": "Emerald",
+  "theme.accent.rose": "Rose",
+  "theme.accent.amber": "Amber",
+  "theme.accent.sky": "Sky",
+  "theme.accent.violet": "Violet",
+  "system.language.system": "Follow system",
+  "system.language.zhCN": "Simplified Chinese",
+  "system.language.en": "English",
 };
 
 /** 语言字典映射 */
@@ -397,9 +441,10 @@ const LOCALES: Record<AppLanguage, Dict> = {
 };
 
 /** 支持的语言选项（用于 UI 选择） */
-export const LANGUAGE_OPTIONS: { value: AppLanguage; label: string }[] = [
-  { value: "zh-CN", label: "简体中文" },
-  { value: "en", label: "English" },
+export const LANGUAGE_OPTIONS: { value: LanguageMode; labelKey: string }[] = [
+  { value: "system", labelKey: "system.language.system" },
+  { value: "zh-CN", labelKey: "system.language.zhCN" },
+  { value: "en", labelKey: "system.language.en" },
 ];
 
 interface I18nContextValue {
@@ -425,6 +470,10 @@ export function AppI18nProvider({
   locale: AppLanguage;
   children: ReactNode;
 }): React.JSX.Element {
+  useEffect(() => {
+    if (typeof document !== "undefined") document.documentElement.lang = locale;
+  }, [locale]);
+
   const value = useMemo<I18nContextValue>(() => {
     const dict = LOCALES[locale] ?? zhCN;
     const t = (key: string, params?: Record<string, string | number>): string => {

@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Input, Label, TextField, Description } from "@heroui/react";
+import {
+  Button,
+  ColorSwatchPicker,
+  Description,
+  Input,
+  Label,
+  parseColor,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+} from "@heroui/react";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
 import { useSettings } from "../lib/settings";
@@ -23,15 +33,17 @@ import {
 import {
   ACCENT_PRESETS,
   FONT_SIZE_PX,
+  THEME_PRESETS,
   type Conversation,
   type CustomModelInput,
   type CustomProviderInput,
   type ModelOption,
   type ProviderInfo,
   type ThemeMode,
+  type ThemePresetId,
   type FontSizeLevel,
   type LayoutDensity,
-  type AppLanguage,
+  type LanguageMode,
 } from "@shared/types";
 
 interface SettingsDialogProps {
@@ -112,7 +124,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
       aria-labelledby="settings-title"
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
+        className="flex h-[calc(100vh-32px)] max-h-[672px] w-[calc(100vw-32px)] max-w-[768px] flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -131,7 +143,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
         </div>
 
         {/* 主体：导航 + 内容，窄屏纵向布局 */}
-        <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
           {/* 导航 */}
           <nav className="flex shrink-0 gap-1 border-b border-foreground/10 p-2 md:w-48 md:flex-col md:border-b-0 md:border-r">
             {tabs.map(({ id, label, Icon }) => {
@@ -167,7 +179,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
           </nav>
 
           {/* 内容 */}
-          <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             {tab === "theme" && <ThemeTab settings={settings} update={update} />}
             {tab === "system" && <SystemTab settings={settings} update={update} />}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
@@ -257,74 +269,113 @@ function ThemeTab({
     { value: "dark", label: t("shell.theme.dark"), Icon: IconMoon },
     { value: "system", label: t("shell.theme.system"), Icon: IconMonitor },
   ];
-
-  // 自定义颜色：若当前 accent 是预设则取其 swatch，否则原样作为 hex
   const preset = ACCENT_PRESETS.find((p) => p.id === settings.accentColor);
-  const customHex = preset ? preset.swatch : settings.accentColor;
+  const customHex = preset || settings.accentColor === "theme" ? "#4f46e5" : settings.accentColor;
+  const selectedAccent = preset ? parseColor(preset.swatch) : undefined;
 
   return (
     <section className="space-y-4">
       <h3 className="text-sm font-medium text-foreground/70">{t("theme.section.appearance")}</h3>
 
-      {/* 主题模式 */}
       <SettingRow title={t("theme.mode")} desc={t("theme.mode.desc")}>
-        <div className="flex gap-2">
-          {modes.map(({ value, label, Icon }) => {
-            const active = settings.theme === value;
+        <ToggleButtonGroup
+          selectionMode="single"
+          disallowEmptySelection
+          fullWidth
+          size="sm"
+          selectedKeys={[settings.theme]}
+          onSelectionChange={(keys) => {
+            const value = Array.from(keys)[0];
+            if (value === "light" || value === "dark" || value === "system") {
+              void update({ theme: value });
+            }
+          }}
+        >
+          {modes.map(({ value, label, Icon }, index) => (
+            <ToggleButton
+              key={value}
+              id={value}
+              className="flex flex-1 items-center justify-center gap-2"
+            >
+              {index > 0 && <ToggleButtonGroup.Separator />}
+              <Icon className="size-4" />
+              {label}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+      </SettingRow>
+
+      <SettingRow title={t("theme.bundle")} desc={t("theme.bundle.desc")}>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {THEME_PRESETS.map((p) => {
+            const active = settings.themePreset === p.id;
             return (
               <button
-                key={value}
+                key={p.id}
                 type="button"
                 className={[
-                  "flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition",
+                  "flex min-h-20 flex-col justify-between rounded-md border p-3 text-left text-sm transition",
                   active
                     ? "border-accent bg-accent/10 text-accent"
-                    : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
+                    : "border-foreground/15 text-foreground/75 hover:bg-foreground/5",
                 ].join(" ")}
-                onClick={() => void update({ theme: value })}
+                onClick={() => void update({ themePreset: p.id as ThemePresetId })}
                 aria-pressed={active}
               >
-                <Icon className="size-4" />
-                {label}
+                <span className="font-medium">{t(p.labelKey)}</span>
+                <span className="mt-3 flex gap-1">
+                  <span
+                    className="h-5 flex-1 rounded border border-foreground/10"
+                    style={{ backgroundColor: p.swatches.light }}
+                  />
+                  <span
+                    className="h-5 flex-1 rounded border border-foreground/10"
+                    style={{ backgroundColor: p.swatches.dark }}
+                  />
+                </span>
               </button>
             );
           })}
         </div>
       </SettingRow>
 
-      {/* 强调色预设 */}
-      <SettingRow title={t("theme.preset")} desc={t("theme.preset.desc")}>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {ACCENT_PRESETS.map((p) => {
-            const active = settings.accentColor === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                className={[
-                  "flex flex-col items-center gap-1.5 rounded-md border p-2 text-xs transition",
-                  active
-                    ? "border-accent bg-accent/10"
-                    : "border-foreground/15 hover:bg-foreground/5",
-                ].join(" ")}
-                onClick={() => void update({ accentColor: p.id })}
-                aria-pressed={active}
-                title={p.label}
-              >
-                <span
-                  className="size-6 rounded-full ring-2 ring-offset-2 ring-offset-background"
-                  style={{
-                    backgroundColor: p.swatch,
-                    boxShadow: active ? `0 0 0 2px ${p.swatch}` : undefined,
-                  }}
-                />
-                {p.label}
-              </button>
-            );
-          })}
+      <SettingRow title={t("theme.accent")} desc={t("theme.accent.desc")}>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={[
+              "rounded-md border px-3 py-2 text-sm transition",
+              settings.accentColor === "theme"
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
+            ].join(" ")}
+            onClick={() => void update({ accentColor: "theme" })}
+            aria-pressed={settings.accentColor === "theme"}
+          >
+            {t("theme.accent.theme")}
+          </button>
         </div>
 
-        {/* 自定义颜色 */}
+        <ColorSwatchPicker
+          value={selectedAccent}
+          onChange={(color) => {
+            const hex = color.toString("hex").toLowerCase();
+            const next = ACCENT_PRESETS.find((p) => p.swatch.toLowerCase() === hex);
+            if (next) void update({ accentColor: next.id });
+          }}
+          size="lg"
+          variant="circle"
+          className="gap-3"
+        >
+          {ACCENT_PRESETS.map((p) => (
+            <ColorSwatchPicker.Item key={p.id} color={p.swatch}>
+              <ColorSwatchPicker.Swatch />
+              <ColorSwatchPicker.Indicator />
+              <span className="sr-only">{t("theme.accent." + p.id)}</span>
+            </ColorSwatchPicker.Item>
+          ))}
+        </ColorSwatchPicker>
+
         <div className="mt-3 flex items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-foreground/60">
             <span>{t("theme.custom")}</span>
@@ -339,7 +390,6 @@ function ThemeTab({
         </div>
       </SettingRow>
 
-      {/* 实时预览 */}
       <SettingRow title={t("theme.preview")}>
         <div className="rounded-md border border-foreground/10 bg-background p-4">
           <div className="mb-3 flex items-center gap-2">
@@ -361,7 +411,7 @@ function ThemeTab({
 }
 
 // ============================================================
-// 系统 Tab
+// System Tab
 // ============================================================
 
 function SystemTab({
@@ -383,7 +433,6 @@ function SystemTab({
     <section className="space-y-4">
       <h3 className="text-sm font-medium text-foreground/70">{t("settings.tab.system")}</h3>
 
-      {/* 字体大小 */}
       <SettingRow title={t("system.fontSize")} desc={t("system.fontSize.desc")}>
         <div className="flex gap-2">
           {fontLevels.map((lv) => {
@@ -398,7 +447,7 @@ function SystemTab({
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
                 ].join(" ")}
-                style={{ fontSize: `${FONT_SIZE_PX[lv]}px` }}
+                style={{ fontSize: String(FONT_SIZE_PX[lv]) + "px" }}
                 onClick={() => void update({ fontSize: lv })}
                 aria-pressed={active}
               >
@@ -409,54 +458,50 @@ function SystemTab({
         </div>
       </SettingRow>
 
-      {/* 界面密度 */}
       <SettingRow title={t("system.density")} desc={t("system.density.desc")}>
-        <div className="flex gap-2">
-          {densities.map(({ value, label }) => {
-            const active = settings.density === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                className={[
-                  "flex-1 rounded-md border px-3 py-2 text-sm transition",
-                  active
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
-                ].join(" ")}
-                onClick={() => void update({ density: value })}
-                aria-pressed={active}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <ToggleButtonGroup
+          selectionMode="single"
+          disallowEmptySelection
+          fullWidth
+          size="sm"
+          selectedKeys={[settings.density]}
+          onSelectionChange={(keys) => {
+            const value = Array.from(keys)[0];
+            if (value === "compact" || value === "comfortable" || value === "loose") {
+              void update({ density: value });
+            }
+          }}
+        >
+          {densities.map(({ value, label }, index) => (
+            <ToggleButton key={value} id={value} className="flex flex-1 justify-center">
+              {index > 0 && <ToggleButtonGroup.Separator />}
+              {label}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
       </SettingRow>
 
-      {/* 语言 */}
       <SettingRow title={t("system.language")} desc={t("system.language.desc")}>
-        <div className="flex gap-2">
-          {LANGUAGE_OPTIONS.map((opt) => {
-            const active = settings.language === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                className={[
-                  "flex-1 rounded-md border px-3 py-2 text-sm transition",
-                  active
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
-                ].join(" ")}
-                onClick={() => void update({ language: opt.value as AppLanguage })}
-                aria-pressed={active}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+        <ToggleButtonGroup
+          selectionMode="single"
+          disallowEmptySelection
+          fullWidth
+          size="sm"
+          selectedKeys={[settings.language]}
+          onSelectionChange={(keys) => {
+            const value = Array.from(keys)[0];
+            if (value === "system" || value === "zh-CN" || value === "en") {
+              void update({ language: value as LanguageMode });
+            }
+          }}
+        >
+          {LANGUAGE_OPTIONS.map((opt, index) => (
+            <ToggleButton key={opt.value} id={opt.value} className="flex flex-1 justify-center">
+              {index > 0 && <ToggleButtonGroup.Separator />}
+              {t(opt.labelKey)}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
       </SettingRow>
     </section>
   );

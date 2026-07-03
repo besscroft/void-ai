@@ -195,6 +195,7 @@ export const SettingKey = {
   // —— 主题 / 外观 ——
   /** 主题模式：'light' | 'dark' | 'system' */
   Theme: "theme",
+  ThemePreset: "theme_preset",
   /** 强调色预设 id（见 AccentPreset），或自定义 oklch 字符串 */
   AccentColor: "accent_color",
   /** 字号级别：'xs' | 'sm' | 'base' | 'lg' | 'xl' */
@@ -232,6 +233,8 @@ export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
 /** 主题模式 */
 export type ThemeMode = "light" | "dark" | "system";
 
+export type ThemePresetId = "default" | "ocean" | "forest" | "rose";
+
 /** 字号级别 */
 export type FontSizeLevel = "xs" | "sm" | "base" | "lg" | "xl";
 
@@ -240,6 +243,40 @@ export type LayoutDensity = "compact" | "comfortable" | "loose";
 
 /** 支持的界面语言 */
 export type AppLanguage = "zh-CN" | "en";
+
+export type LanguageMode = "system" | AppLanguage;
+
+export interface ThemePreset {
+  id: ThemePresetId;
+  labelKey: string;
+  swatches: {
+    light: string;
+    dark: string;
+  };
+}
+
+export const THEME_PRESETS: ThemePreset[] = [
+  {
+    id: "default",
+    labelKey: "theme.preset.default",
+    swatches: { light: "#f7f7f8", dark: "#1f1f23" },
+  },
+  {
+    id: "ocean",
+    labelKey: "theme.preset.ocean",
+    swatches: { light: "#dff3fb", dark: "#0b2d3a" },
+  },
+  {
+    id: "forest",
+    labelKey: "theme.preset.forest",
+    swatches: { light: "#e7f4e6", dark: "#142a1d" },
+  },
+  {
+    id: "rose",
+    labelKey: "theme.preset.rose",
+    swatches: { light: "#fff0f4", dark: "#321820" },
+  },
+];
 
 /**
  * 强调色预设
@@ -341,10 +378,11 @@ export const DEFAULT_AGENT_ID = "agent-void";
  */
 export interface AppSettings {
   theme: ThemeMode;
+  themePreset: ThemePresetId;
   accentColor: string;
   fontSize: FontSizeLevel;
   density: LayoutDensity;
-  language: AppLanguage;
+  language: LanguageMode;
   selectedModel: string | null;
   modelTemperature: number;
   modelMaxTokens: number;
@@ -359,10 +397,11 @@ export interface AppSettings {
  */
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
-  accentColor: "indigo",
+  themePreset: "default",
+  accentColor: "theme",
   fontSize: "base",
   density: "comfortable",
-  language: "zh-CN",
+  language: "system",
   selectedModel: null,
   modelTemperature: 0.7,
   modelMaxTokens: 4096,
