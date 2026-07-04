@@ -19,6 +19,8 @@ const api = {
     delete: (id: string) => ipcRenderer.invoke("conversations:delete", id),
     restore: (id: string) => ipcRenderer.invoke("conversations:restore", id),
     permanentDelete: (id: string) => ipcRenderer.invoke("conversations:permanentDelete", id),
+    permanentDeleteBatch: (ids: string[]) =>
+      ipcRenderer.invoke("conversations:permanentDeleteBatch", ids),
     purgeExpired: () => ipcRenderer.invoke("conversations:purgeExpired"),
     touch: (id: string, title?: string) => ipcRenderer.invoke("conversations:touch", id, title),
   },

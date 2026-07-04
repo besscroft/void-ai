@@ -238,6 +238,22 @@ export function permanentlyDeleteConversation(id: string): void {
   getDb().delete(conversations).where(eq(conversations.id, id)).run();
 }
 
+/**
+ * 批量永久删除多个会话（事务）。
+ * 入参为 id 列表，返回实际删除的行数；空数组直接返回 0。
+ */
+export function permanentlyDeleteConversations(ids: string[]): number {
+  if (ids.length === 0) return 0;
+  const db = getDb();
+  return db.transaction((tx) => {
+    let changes = 0;
+    for (const id of ids) {
+      changes += tx.delete(conversations).where(eq(conversations.id, id)).run().changes;
+    }
+    return changes;
+  });
+}
+
 /** 永久删除已超过回收站保留期的会话 */
 export function purgeExpiredDeletedConversations(now = Date.now()): number {
   return getDb()

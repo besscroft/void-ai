@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
+  Checkbox,
   ColorSwatchPicker,
   Description,
   Input,
@@ -1699,6 +1700,9 @@ function TrashTab(): React.JSX.Element {
   const [items, setItems] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingPermanentDelete, setPendingPermanentDelete] = useState<Conversation | null>(null);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState<number | null>(null);
+  // 多选：使用 Set 便于 O(1) 判断；仅跟踪选中的 id
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const refresh = (): void => {
     setLoading(true);
@@ -1714,6 +1718,42 @@ function TrashTab(): React.JSX.Element {
   useEffect(() => {
     refresh();
   }, []);
+
+  // 列表变更（refresh / 单条删除 / 批量删除）后，清理已不存在的 id
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const alive = new Set(items.map((c) => c.id));
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (alive.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [items]);
+
+  // 全选 / 半选状态（基于当前 items）
+  const selectionState = useMemo<{ allSelected: boolean; indeterminate: boolean }>(() => {
+    if (items.length === 0) return { allSelected: false, indeterminate: false };
+    const allSelected = selectedIds.size === items.length;
+    const indeterminate = selectedIds.size > 0 && !allSelected;
+    return { allSelected, indeterminate };
+  }, [items.length, selectedIds.size]);
+
+  const toggleAll = (next: boolean): void => {
+    setSelectedIds(next ? new Set(items.map((c) => c.id)) : new Set());
+  };
+
+  const toggleOne = (id: string, next: boolean): void => {
+    setSelectedIds((prev) => {
+      const updated = new Set(prev);
+      if (next) updated.add(id);
+      else updated.delete(id);
+      return updated;
+    });
+  };
 
   const handleRestore = (conversation: Conversation): void => {
     void notify
@@ -1740,6 +1780,28 @@ function TrashTab(): React.JSX.Element {
     setPendingPermanentDelete(null);
   };
 
+  const handleBatchDelete = (): void => {
+    if (!pendingBatchDelete) return;
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      setPendingBatchDelete(null);
+      return;
+    }
+    void notify
+      .promise(api.conversations.permanentDeleteBatch(ids), {
+        loading: t("toast.conversation.permanentDeleting"),
+        success: t("toast.conversation.permanentDeletedBatch", { count: ids.length }),
+        error: t("toast.conversation.permanentDeleteFailed"),
+      })
+      .then(() => {
+        // 操作成功后清空选择 + 列表由 refresh 重建
+        setSelectedIds(new Set());
+        return refresh();
+      })
+      .catch(() => undefined);
+    setPendingBatchDelete(null);
+  };
+
   return (
     <section className="space-y-4">
       <div>
@@ -1755,38 +1817,95 @@ function TrashTab(): React.JSX.Element {
           {loading ? t("chat.loadingHistory") : t("trash.empty")}
         </div>
       ) : (
-        <div className="space-y-2">
-          {items.map((conversation) => (
-            <div key={conversation.id} className="rounded-md border border-foreground/10 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{conversation.title}</p>
-                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/50">
-                    <span>
-                      {t("trash.deletedAt")}: {formatDate(conversation.deleted_at)}
-                    </span>
-                    <span>
-                      {t("trash.purgeIn")}:{" "}
-                      {formatRemaining(conversation.purge_after_at, t("trash.expired"))}
-                    </span>
+        <>
+          {/* 批量操作工具栏：全选 + 计数 + 批量删除 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-foreground/10 bg-foreground/[0.02] px-3 py-2">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="trash-select-all"
+                isSelected={selectionState.allSelected}
+                isIndeterminate={selectionState.indeterminate}
+                onChange={toggleAll}
+              >
+                <Checkbox.Content>
+                  <Checkbox.Control>
+                    <Checkbox.Indicator />
+                  </Checkbox.Control>
+                  {selectionState.allSelected ? t("trash.deselectAll") : t("trash.selectAll")}
+                </Checkbox.Content>
+              </Checkbox>
+              {selectedIds.size > 0 && (
+                <span className="text-xs text-foreground/55">
+                  {t("trash.selectedCount", { count: selectedIds.size })}
+                </span>
+              )}
+            </div>
+            <Button
+              variant="danger"
+              size="sm"
+              isDisabled={selectedIds.size === 0}
+              onPress={() => setPendingBatchDelete(selectedIds.size)}
+            >
+              {t("trash.batchPermanent.button", { count: selectedIds.size })}
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            {items.map((conversation) => {
+              const checked = selectedIds.has(conversation.id);
+              return (
+                <div key={conversation.id} className="rounded-md border border-foreground/10 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <Checkbox
+                        id={`trash-item-${conversation.id}`}
+                        isSelected={checked}
+                        onChange={(next: boolean) => toggleOne(conversation.id, next)}
+                        className="pt-0.5"
+                      >
+                        <Checkbox.Content>
+                          <Checkbox.Control>
+                            <Checkbox.Indicator />
+                          </Checkbox.Control>
+                          {/* 纯视觉占位：可访问名通过 aria-label 提供 */}
+                          <span className="sr-only">{conversation.title}</span>
+                        </Checkbox.Content>
+                      </Checkbox>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{conversation.title}</p>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/50">
+                          <span>
+                            {t("trash.deletedAt")}: {formatDate(conversation.deleted_at)}
+                          </span>
+                          <span>
+                            {t("trash.purgeIn")}:{" "}
+                            {formatRemaining(conversation.purge_after_at, t("trash.expired"))}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onPress={() => handleRestore(conversation)}
+                      >
+                        {t("common.restore")}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onPress={() => setPendingPermanentDelete(conversation)}
+                      >
+                        {t("common.permanentDelete")}
+                      </Button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button variant="secondary" size="sm" onPress={() => handleRestore(conversation)}>
-                    {t("common.restore")}
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onPress={() => setPendingPermanentDelete(conversation)}
-                  >
-                    {t("common.permanentDelete")}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       <ConfirmDialog
@@ -1797,6 +1916,16 @@ function TrashTab(): React.JSX.Element {
         confirmLabel={t("common.permanentDelete")}
         onConfirm={handlePermanentDelete}
         onClose={() => setPendingPermanentDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingBatchDelete !== null}
+        title={t("trash.batchPermanent.title")}
+        message={t("trash.batchPermanent.confirm", { count: pendingBatchDelete ?? 0 })}
+        danger
+        confirmLabel={t("common.permanentDelete")}
+        onConfirm={handleBatchDelete}
+        onClose={() => setPendingBatchDelete(null)}
       />
     </section>
   );

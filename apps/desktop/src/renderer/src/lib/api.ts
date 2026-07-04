@@ -45,6 +45,8 @@ export const api = {
     restore: (id: string): Promise<boolean> => assertApi().conversations.restore(id),
     permanentDelete: (id: string): Promise<boolean> =>
       assertApi().conversations.permanentDelete(id),
+    permanentDeleteBatch: (ids: string[]): Promise<number> =>
+      assertApi().conversations.permanentDeleteBatch(ids),
     purgeExpired: (): Promise<number> => assertApi().conversations.purgeExpired(),
     touch: (id: string, title?: string): Promise<boolean> =>
       assertApi().conversations.touch(id, title),

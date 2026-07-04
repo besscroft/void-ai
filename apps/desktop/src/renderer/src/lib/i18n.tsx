@@ -265,6 +265,7 @@ const zhCN: Dict = {
   "toast.conversation.restoreFailed": "恢复会话失败",
   "toast.conversation.permanentDeleting": "正在永久删除...",
   "toast.conversation.permanentDeleted": "会话已永久删除",
+  "toast.conversation.permanentDeletedBatch": "已永久删除 {count} 个会话",
   "toast.conversation.permanentDeleteFailed": "永久删除失败",
   "toast.trash.loadFailed": "加载回收站失败",
   "toast.settings.resetting": "正在恢复默认设置...",
@@ -433,6 +434,13 @@ const en: Dict = {
   "trash.permanent.title": "Delete conversation forever",
   "trash.permanent.confirm":
     "Delete “{title}” forever? This also deletes its messages and cannot be undone.",
+  "trash.selectAll": "Select all",
+  "trash.deselectAll": "Clear selection",
+  "trash.selectedCount": "{count} selected",
+  "trash.batchPermanent.title": "Delete selected forever",
+  "trash.batchPermanent.confirm":
+    "Delete {count} conversations forever? This also deletes all their messages and cannot be undone.",
+  "trash.batchPermanent.button": "Delete selected ({count})",
 
   "theme.section.appearance": "Appearance",
   "theme.mode": "Theme mode",
@@ -582,6 +590,7 @@ const en: Dict = {
   "toast.conversation.restoreFailed": "Failed to restore conversation",
   "toast.conversation.permanentDeleting": "Deleting forever...",
   "toast.conversation.permanentDeleted": "Conversation deleted forever",
+  "toast.conversation.permanentDeletedBatch": "{count} conversations deleted forever",
   "toast.conversation.permanentDeleteFailed": "Failed to delete forever",
   "toast.trash.loadFailed": "Failed to load Trash",
   "toast.settings.resetting": "Resetting settings...",

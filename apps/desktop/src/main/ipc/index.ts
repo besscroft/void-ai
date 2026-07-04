@@ -8,6 +8,7 @@ import {
   deleteConversation,
   restoreConversation,
   permanentlyDeleteConversation,
+  permanentlyDeleteConversations,
   purgeExpiredDeletedConversations,
   touchConversation,
   listMessages,
@@ -94,6 +95,10 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   ipcMain.handle("conversations:permanentDelete", (_e, id: string) => {
     permanentlyDeleteConversation(id);
     return true;
+  });
+
+  ipcMain.handle("conversations:permanentDeleteBatch", (_e, ids: string[]) => {
+    return permanentlyDeleteConversations(ids);
   });
 
   ipcMain.handle("conversations:purgeExpired", () => purgeExpiredDeletedConversations());

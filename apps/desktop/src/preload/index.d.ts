@@ -37,6 +37,7 @@ export interface VoidAIApi {
     delete: (id: string) => Promise<boolean>;
     restore: (id: string) => Promise<boolean>;
     permanentDelete: (id: string) => Promise<boolean>;
+    permanentDeleteBatch: (ids: string[]) => Promise<number>;
     purgeExpired: () => Promise<number>;
     touch: (id: string, title?: string) => Promise<boolean>;
   };
