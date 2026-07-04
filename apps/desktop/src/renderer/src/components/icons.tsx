@@ -80,10 +80,80 @@ export function IconSend(props: IconProps): React.JSX.Element {
   );
 }
 
+/** 向上箭头（发送） */
 export function IconArrowUp(props: IconProps): React.JSX.Element {
   return (
     <svg {...base} {...props}>
       <path d="M12 19V5M5 12l7-7 7 7" />
+    </svg>
+  );
+}
+
+/** 向下箭头（跳到最新） */
+export function IconArrowDown(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 5v14M19 12l-7 7-7-7" />
+    </svg>
+  );
+}
+
+/** 圆形加载指示（thinking dots） */
+export function IconDots(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props} fill="currentColor" stroke="none">
+      <circle cx="6" cy="12" r="1.5" />
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="18" cy="12" r="1.5" />
+    </svg>
+  );
+}
+
+/** 工具/扳手（tool 部件） */
+export function IconWrench(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props}>
+      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5 2.5-2.5z" />
+    </svg>
+  );
+}
+
+/** 勾（完成状态） */
+export function IconCircleCheck(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
+/** 叉（错误/拒绝状态） */
+export function IconCircleX(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M15 9l-6 6M9 9l6 6" />
+    </svg>
+  );
+}
+
+/** 加载圆环（运行中状态） */
+export function IconCircleDashed(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="10" strokeDasharray="3 3" />
+    </svg>
+  );
+}
+
+/** 大脑/思考（reasoning 部件） */
+export function IconBrain(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 5a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V8a3 3 0 0 0-3-3z" />
+      <path d="M6 8a2 2 0 0 0-2 2v4a2 2 0 0 0 4 0v-4a2 2 0 0 0-2-2z" />
+      <path d="M18 8a2 2 0 0 1 2 2v4a2 2 0 0 1-4 0v-4a2 2 0 0 1 2-2z" />
     </svg>
   );
 }

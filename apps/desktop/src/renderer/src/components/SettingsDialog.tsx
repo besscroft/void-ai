@@ -603,7 +603,8 @@ function ModelTab({
       })
       .then(() => {
         if (settings.selectedModel === model.ref) void update({ selectedModel: null });
-        if (editorState?.mode === "edit" && editorState.model.ref === model.ref) setEditorState(null);
+        if (editorState?.mode === "edit" && editorState.model.ref === model.ref)
+          setEditorState(null);
         setModelToDelete(null);
         refreshModels();
       })
@@ -753,7 +754,8 @@ function ModelTab({
               <div
                 className="h-full rounded-full bg-accent transition-all"
                 style={{
-                  width: String(Math.min(100, (cacheBytes / (cacheLimit * 1024 * 1024)) * 100)) + "%",
+                  width:
+                    String(Math.min(100, (cacheBytes / (cacheLimit * 1024 * 1024)) * 100)) + "%",
                 }}
               />
             </div>
@@ -1037,7 +1039,9 @@ function ModelEditorDialog({
                     <select
                       className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
                       value={addMode}
-                      onChange={(e) => setAddMode(e.target.value === "custom" ? "custom" : "existing")}
+                      onChange={(e) =>
+                        setAddMode(e.target.value === "custom" ? "custom" : "existing")
+                      }
                     >
                       <option value="existing">{t("model.addToProvider")}</option>
                       <option value="custom">{t("model.addWithProvider")}</option>
@@ -1138,7 +1142,10 @@ function ModelEditorDialog({
                     placeholder={t("model.placeholder.modelId")}
                     disabled={isEditing}
                     onChange={(e) =>
-                      setModelForm((prev) => ({ ...prev, id: (e.target as HTMLInputElement).value }))
+                      setModelForm((prev) => ({
+                        ...prev,
+                        id: (e.target as HTMLInputElement).value,
+                      }))
                     }
                   />
                 </TextField>
@@ -1160,7 +1167,9 @@ function ModelEditorDialog({
                   <Input
                     type="password"
                     value={apiKey}
-                    placeholder={hasApiKey ? t("apikey.placeholder.replace") : t("model.placeholder.apiKey")}
+                    placeholder={
+                      hasApiKey ? t("apikey.placeholder.replace") : t("model.placeholder.apiKey")
+                    }
                     onChange={(e) => setApiKey((e.target as HTMLInputElement).value)}
                   />
                   {providerHelpUrl && (
@@ -1204,7 +1213,9 @@ function ModelEditorDialog({
                       className="w-full accent-[var(--color-accent)]"
                       aria-label={t("model.temperature")}
                     />
-                    <p className="mt-0.5 text-xs text-foreground/40">{t("model.temperature.hint")}</p>
+                    <p className="mt-0.5 text-xs text-foreground/40">
+                      {t("model.temperature.hint")}
+                    </p>
                   </div>
                   <div>
                     <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
@@ -1233,7 +1244,10 @@ function ModelEditorDialog({
                       value={String(modelForm.maxOutputTokens)}
                       onChange={(e) =>
                         updateModelNumber({
-                          maxOutputTokens: Math.max(1, Number((e.target as HTMLInputElement).value) || 1),
+                          maxOutputTokens: Math.max(
+                            1,
+                            Number((e.target as HTMLInputElement).value) || 1,
+                          ),
                         })
                       }
                     />

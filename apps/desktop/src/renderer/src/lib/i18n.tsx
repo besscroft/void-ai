@@ -60,6 +60,7 @@ const zhCN: Dict = {
   "input.generating": "Void 正在思考...",
   "input.noModel": "先选择一个模型即可开始对话",
   "input.send": "发送消息",
+  "input.stop": "停止生成",
   "input.params": "Temp {temperature} · Max {maxTokens}",
 
   // —— MessageList ——
@@ -275,6 +276,7 @@ const en: Dict = {
   "input.generating": "Void is thinking...",
   "input.noModel": "Choose a model to start chatting",
   "input.send": "Send message",
+  "input.stop": "Stop generating",
   "input.params": "Temp {temperature} · Max {maxTokens}",
 
   "msg.empty.title": "Start a new conversation",

@@ -31,6 +31,9 @@ function AppContent(): React.JSX.Element {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<AppView>("dashboard");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 服务端口：useChat 必须在首次渲染就拿到正确 transport，
+  // 因此端口就绪前不挂载 ChatView。
+  const [serverPort, setServerPort] = useState<number | null>(null);
 
   const createNewConversation = useCallback(async (): Promise<void> => {
     const id = crypto.randomUUID();
@@ -39,6 +42,11 @@ function AppContent(): React.JSX.Element {
     setActiveView("chat");
     await api.settings.set(SettingKey.ActiveConversationId, conv.id);
   }, [t]);
+
+  useEffect(() => {
+    // 提早拉取本地服务端口，避免 ChatView 内部 useEffect 抢跑
+    void api.server.port().then(setServerPort);
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -93,8 +101,8 @@ function AppContent(): React.JSX.Element {
         onOpenSettings={() => setSettingsOpen(true)}
       >
         {activeView === "chat" ? (
-          activeId ? (
-            <ChatView key={activeId} conversationId={activeId} />
+          activeId && serverPort !== null ? (
+            <ChatView key={activeId} conversationId={activeId} serverPort={serverPort} />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-foreground/40">
               {t("chat.initializing")}

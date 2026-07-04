@@ -86,10 +86,7 @@ const BUILTIN_PROVIDERS: ProviderConfig[] = [
   },
 ];
 
-function customModel(
-  model: ModelCatalogSettings["models"][number],
-  enabled: boolean,
-): ModelOption {
+function customModel(model: ModelCatalogSettings["models"][number], enabled: boolean): ModelOption {
   return {
     id: model.id,
     label: model.label,
@@ -296,7 +293,9 @@ function isSelectedModelValid(catalog: ModelCatalogSettings, selectedModel: stri
   const providerId = normalizeProviderId(selectedModel.slice(0, slashIdx));
   const modelId = selectedModel.slice(slashIdx + 1).trim();
   if (!modelId) return false;
-  const model = catalog.models.find((item) => item.providerId === providerId && item.id === modelId);
+  const model = catalog.models.find(
+    (item) => item.providerId === providerId && item.id === modelId,
+  );
   return !!model && isModelEnabled(catalog, providerId, modelId);
 }
 

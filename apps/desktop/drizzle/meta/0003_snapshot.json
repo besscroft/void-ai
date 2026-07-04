@@ -96,9 +96,7 @@
       "indexes": {
         "idx_agents_status": {
           "name": "idx_agents_status",
-          "columns": [
-            "status"
-          ],
+          "columns": ["status"],
           "isUnique": false
         }
       },
@@ -188,16 +186,12 @@
       "indexes": {
         "idx_conversations_deleted_at": {
           "name": "idx_conversations_deleted_at",
-          "columns": [
-            "deleted_at"
-          ],
+          "columns": ["deleted_at"],
           "isUnique": false
         },
         "idx_conversations_purge_after_at": {
           "name": "idx_conversations_purge_after_at",
-          "columns": [
-            "purge_after_at"
-          ],
+          "columns": ["purge_after_at"],
           "isUnique": false
         }
       },
@@ -255,9 +249,7 @@
       "indexes": {
         "idx_harness_events_created": {
           "name": "idx_harness_events_created",
-          "columns": [
-            "created_at"
-          ],
+          "columns": ["created_at"],
           "isUnique": false
         }
       },
@@ -412,23 +404,17 @@
       "indexes": {
         "idx_memories_agent": {
           "name": "idx_memories_agent",
-          "columns": [
-            "agent_id"
-          ],
+          "columns": ["agent_id"],
           "isUnique": false
         },
         "idx_memories_conversation": {
           "name": "idx_memories_conversation",
-          "columns": [
-            "conversation_id"
-          ],
+          "columns": ["conversation_id"],
           "isUnique": false
         },
         "idx_memories_salience": {
           "name": "idx_memories_salience",
-          "columns": [
-            "salience"
-          ],
+          "columns": ["salience"],
           "isUnique": false
         }
       },
@@ -437,12 +423,8 @@
           "name": "memories_agent_id_agents_id_fk",
           "tableFrom": "memories",
           "tableTo": "agents",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -450,12 +432,8 @@
           "name": "memories_conversation_id_conversations_id_fk",
           "tableFrom": "memories",
           "tableTo": "conversations",
-          "columnsFrom": [
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["conversation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -506,9 +484,7 @@
       "indexes": {
         "idx_messages_conv": {
           "name": "idx_messages_conv",
-          "columns": [
-            "conversation_id"
-          ],
+          "columns": ["conversation_id"],
           "isUnique": false
         }
       },
@@ -517,12 +493,8 @@
           "name": "messages_conversation_id_conversations_id_fk",
           "tableFrom": "messages",
           "tableTo": "conversations",
-          "columnsFrom": [
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["conversation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -601,9 +573,7 @@
       "indexes": {
         "idx_server_nodes_kind": {
           "name": "idx_server_nodes_kind",
-          "columns": [
-            "kind"
-          ],
+          "columns": ["kind"],
           "isUnique": false
         }
       },
@@ -766,9 +736,7 @@
       "indexes": {
         "idx_workflow_runs_workflow": {
           "name": "idx_workflow_runs_workflow",
-          "columns": [
-            "workflow_id"
-          ],
+          "columns": ["workflow_id"],
           "isUnique": false
         }
       },
@@ -777,12 +745,8 @@
           "name": "workflow_runs_workflow_id_workflows_id_fk",
           "tableFrom": "workflow_runs",
           "tableTo": "workflows",
-          "columnsFrom": [
-            "workflow_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -855,9 +819,7 @@
       "indexes": {
         "idx_workflows_status": {
           "name": "idx_workflows_status",
-          "columns": [
-            "status"
-          ],
+          "columns": ["status"],
           "isUnique": false
         }
       },
@@ -901,9 +863,7 @@
       "indexes": {
         "idx_model_api_keys_provider": {
           "name": "idx_model_api_keys_provider",
-          "columns": [
-            "provider_id"
-          ],
+          "columns": ["provider_id"],
           "isUnique": false
         }
       },
@@ -911,10 +871,7 @@
       "compositePrimaryKeys": {
         "model_api_keys_provider_id_model_id_pk": {
           "name": "model_api_keys_provider_id_model_id_pk",
-          "columns": [
-            "provider_id",
-            "model_id"
-          ]
+          "columns": ["provider_id", "model_id"]
         }
       },
       "uniqueConstraints": {},

@@ -11,18 +11,22 @@ import { DEFAULT_AGENT_ID, SettingKey } from "@shared/types";
 
 interface ChatViewProps {
   conversationId: string;
+  /**
+   * 本地 AI HTTP 服务端口。
+   * 必须在组件挂载前就绪：useChat 会在首次渲染时固化 transport，
+   * 之后再传新 transport 不会生效。
+   */
+  serverPort: number;
 }
 
-export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
+export function ChatView({ conversationId, serverPort }: ChatViewProps): React.JSX.Element {
   const { t } = useT();
   const { settings } = useSettings();
-  const [serverPort, setServerPort] = useState<number | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const savedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    void api.server.port().then(setServerPort);
     void api.settings.get(SettingKey.SelectedModel).then((model) => {
       if (model) setSelectedModel(model);
     });
@@ -35,22 +39,20 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
     setSelectedModel(settings.selectedModel);
   }, [settings.selectedModel]);
 
-  const transport = useMemo(() => {
-    if (!serverPort) return null;
-    return new DefaultChatTransport({
-      api: `http://127.0.0.1:${serverPort}/api/chat`,
-      body: {
-        model: selectedModel ?? undefined,
-        agentId: selectedAgentId ?? DEFAULT_AGENT_ID,
-        conversationId,
-      },
-    });
-  }, [
-    serverPort,
-    selectedModel,
-    selectedAgentId,
-    conversationId,
-  ]);
+  // transport 仅在 serverPort / 模型 / 会话变化时重建。
+  // useChat 内部会缓存首次 options 里的 transport，因此 ChatView 必须在 serverPort 就绪后才挂载。
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: `http://127.0.0.1:${serverPort}/api/chat`,
+        body: {
+          model: selectedModel ?? undefined,
+          agentId: selectedAgentId ?? DEFAULT_AGENT_ID,
+          conversationId,
+        },
+      }),
+    [serverPort, selectedModel, selectedAgentId, conversationId],
+  );
 
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -78,13 +80,27 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
   const chat = useChat({
     id: conversationId,
     messages: initialMessages,
-    transport: transport ?? undefined,
+    transport,
     onFinish: ({ messages: allMessages }) => {
       void persistMessages(conversationId, allMessages, savedRef.current);
       void api.conversations.touch(conversationId);
     },
     onError: (err) => {
+      // 打印完整错误对象（含 statusCode / responseBody / cause 等），方便排查
       console.error("[chat] streaming error:", err);
+      if (err instanceof Error) {
+        console.error("[chat] error.name:", err.name);
+        console.error("[chat] error.cause:", (err as Error & { cause?: unknown }).cause);
+        const anyErr = err as Error & {
+          statusCode?: number;
+          responseBody?: string;
+          url?: string;
+        };
+        if (anyErr.statusCode !== undefined) console.error("[chat] statusCode:", anyErr.statusCode);
+        if (anyErr.responseBody !== undefined)
+          console.error("[chat] responseBody:", anyErr.responseBody);
+        if (anyErr.url !== undefined) console.error("[chat] url:", anyErr.url);
+      }
       notify.error(t("toast.chat.failed"), err);
     },
   });
@@ -94,6 +110,14 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
   const handleSend = (text: string): void => {
     if (!selectedModel) return;
     void chat.sendMessage({ text });
+  };
+
+  /**
+   * 停止当前流式生成（AI SDK 5 useChat.stop 会 abort 底下的 fetch）
+   * 注意：已经生成的部分仍会保留在 messages 数组中
+   */
+  const handleStop = (): void => {
+    void chat.stop();
   };
 
   if (!historyLoaded) {
@@ -115,6 +139,7 @@ export function ChatView({ conversationId }: ChatViewProps): React.JSX.Element {
       <MessageInput
         isLoading={isLoading}
         onSend={handleSend}
+        onStop={handleStop}
         selectedModel={selectedModel}
         selectedAgentId={selectedAgentId}
         onModelChange={setSelectedModel}

@@ -96,19 +96,15 @@ export const api = {
   },
   providers: {
     list: (): Promise<ProviderInfo[]> => assertApi().providers.list(),
-    listManagedModels: (): Promise<ManagedModelInfo[]> =>
-      assertApi().providers.listManagedModels(),
+    listManagedModels: (): Promise<ManagedModelInfo[]> => assertApi().providers.listManagedModels(),
     upsertCustomProvider: (input: CustomProviderInput): Promise<ProviderInfo> =>
       assertApi().providers.upsertCustomProvider(input),
     deleteCustomProvider: (providerId: string): Promise<boolean> =>
       assertApi().providers.deleteCustomProvider(providerId),
     upsertCustomModel: (input: CustomModelInput): Promise<ProviderInfo> =>
       assertApi().providers.upsertCustomModel(input),
-    updateModelEnabled: (
-      providerId: string,
-      modelId: string,
-      enabled: boolean,
-    ): Promise<boolean> => assertApi().providers.updateModelEnabled(providerId, modelId, enabled),
+    updateModelEnabled: (providerId: string, modelId: string, enabled: boolean): Promise<boolean> =>
+      assertApi().providers.updateModelEnabled(providerId, modelId, enabled),
     setModelApiKey: (providerId: string, modelId: string, apiKey: string): Promise<boolean> =>
       assertApi().providers.setModelApiKey(providerId, modelId, apiKey),
     deleteModelApiKey: (providerId: string, modelId: string): Promise<boolean> =>
