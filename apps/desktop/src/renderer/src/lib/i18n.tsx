@@ -117,6 +117,13 @@ const zhCN: Dict = {
   "trash.expired": "等待自动清理",
   "trash.permanent.title": "永久删除会话",
   "trash.permanent.confirm": "确定要永久删除“{title}”吗？此操作会同时删除消息记录，且不可恢复。",
+  "trash.selectAll": "全选",
+  "trash.deselectAll": "取消选择",
+  "trash.selectedCount": "已选择 {count} 项",
+  "trash.batchPermanent.title": "永久删除所选会话",
+  "trash.batchPermanent.confirm":
+    "确定要永久删除所选的 {count} 个会话吗？此操作会同时删除它们的消息记录，且不可恢复。",
+  "trash.batchPermanent.button": "永久删除所选（{count}）",
 
   // 主题
   "theme.section.appearance": "外观",
