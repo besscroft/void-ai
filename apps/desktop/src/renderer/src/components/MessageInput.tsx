@@ -41,7 +41,9 @@ import {
   type PromptInputMessage,
   EmojiPicker,
   AttachmentChip,
+  ContextPopover,
   type AttachmentItem,
+  type ContextMetrics,
   type FilePartLike,
 } from "./ai-elements";
 import { useT } from "../lib/i18n";
@@ -67,6 +69,8 @@ interface MessageInputProps {
   maxFileSize?: number;
   /** 允许的 MIME 类型前缀（默认图片 + 文本 + pdf） */
   accept?: string;
+  /** 上下文用量（用于输入框旁的 ContextPopover） */
+  contextMetrics?: ContextMetrics;
 }
 
 /** 允许上传的 MIME 类型（默认比较宽松，覆盖图片/PDF/文本/办公文档） */
@@ -85,6 +89,7 @@ export function MessageInput({
   onAgentChange,
   maxFileSize = DEFAULT_MAX_SIZE,
   accept = DEFAULT_ACCEPT,
+  contextMetrics,
 }: MessageInputProps): React.JSX.Element {
   const { t } = useT();
   const [input, setInput] = useState("");
@@ -328,6 +333,10 @@ export function MessageInput({
 
                   <AgentSelector value={selectedAgentId} onChange={onAgentChange} placement="top" />
                   <ModelSelector value={selectedModel} onChange={onModelChange} placement="top" />
+
+                  {contextMetrics ? (
+                    <ContextPopover metrics={contextMetrics} trigger="hover" className="ml-1" />
+                  ) : null}
                 </div>
 
                 {isLoading && onStop ? (

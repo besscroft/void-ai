@@ -36,10 +36,16 @@ export function Message({ from, className, children, ...rest }: MessageProps): R
     <div
       data-slot="message"
       data-from={from}
-      className={cn("flex w-full", isUser ? "justify-end" : "justify-start", className)}
+      className={cn("group/msg flex w-full", isUser ? "justify-end" : "justify-start", className)}
       {...rest}
     >
-      <div className={cn("flex max-w-[80%] flex-col gap-2", isUser ? "items-end" : "items-start")}>
+      <div
+        className={cn(
+          // 气泡最大宽度：屏幕宽时给足空间，窄屏自适应收缩
+          "flex w-full min-w-0 max-w-[min(820px,96%)] flex-col gap-1.5",
+          isUser ? "items-end" : "items-start",
+        )}
+      >
         {children}
       </div>
     </div>

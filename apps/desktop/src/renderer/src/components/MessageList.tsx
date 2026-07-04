@@ -122,18 +122,15 @@ export function MessageList({
     <Conversation>
       <ConversationContent>
         {messages.map((message, index) => (
-          <Message key={message.id} from={message.role}>
-            <MessageContent data-from={message.role}>
-              <MessageParts
-                message={message}
-                isLastMessage={index === messages.length - 1}
-                isStreaming={isLoading}
-                onEdit={onEditMessage}
-                onResend={onResendMessage}
-                onDelete={onDeleteMessage}
-              />
-            </MessageContent>
-          </Message>
+          <MessageItem
+            key={message.id}
+            message={message}
+            isLastMessage={index === messages.length - 1}
+            isStreaming={isLoading}
+            onEdit={onEditMessage}
+            onResend={onResendMessage}
+            onDelete={onDeleteMessage}
+          />
         ))}
 
         {error && (
@@ -170,7 +167,7 @@ export function MessageList({
 
 /* ---------- 单条消息 ---------- */
 
-interface MessagePartsProps {
+interface MessageItemProps {
   message: UIMessage;
   isLastMessage: boolean;
   isStreaming: boolean;
@@ -179,14 +176,20 @@ interface MessagePartsProps {
   onDelete?: (messageId: string) => void;
 }
 
-function MessageParts({
+/**
+ * 单条消息容器
+ *  - 渲染 Message（外壳）+ MessageContent（气泡）+ MessageActions（操作条）
+ *  - 操作条放在气泡下方，hover 时浮现
+ *  - 编辑态：整个替换为 EditableMessage
+ */
+function MessageItem({
   message,
   isLastMessage,
   isStreaming,
   onEdit,
   onResend,
   onDelete,
-}: MessagePartsProps): React.JSX.Element {
+}: MessageItemProps): React.JSX.Element {
   const { t } = useT();
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const [editing, setEditing] = useState(false);
@@ -270,10 +273,10 @@ function MessageParts({
     onDelete(message.id);
   };
 
-  /* ---------- 编辑态：完全替换渲染 ---------- */
+  /* ---------- 编辑态：替换为 EditableMessage（无操作条） ---------- */
   if (editing && isUser) {
     return (
-      <div className="group/msg relative w-full">
+      <Message from={message.role}>
         <EditableMessage
           value={editValue}
           onChange={setEditValue}
@@ -281,117 +284,122 @@ function MessageParts({
           onCancel={cancelEdit}
           isSaving={saving}
         />
-      </div>
+      </Message>
     );
   }
 
   return (
-    <div className="group/msg relative w-full">
-      {/* 思维链：把 reasoning、搜索结果、图片整合到 ChainOfThought 中 */}
-      {(reasoningParts.length > 0 || sourceParts.length > 0 || imageParts.length > 0) && (
-        <ChainOfThought
-          defaultOpen={isReasoningStreaming}
-          title={isReasoningStreaming ? "Reasoning..." : "Reasoning"}
-        >
-          {reasoningParts.length > 0 ? (
-            <ChainOfThoughtStep
-              icon="think"
-              status={isReasoningStreaming ? "active" : "complete"}
-              label={isReasoningStreaming ? "Thinking..." : "Reasoned"}
-              description={reasoningText ? `${reasoningText.length} chars` : undefined}
-            />
-          ) : null}
-
-          {sourceParts.length > 0 ? (
-            <ChainOfThoughtStep
-              icon="search"
-              status="complete"
-              label={`Searched ${sourceParts.length} source${sourceParts.length > 1 ? "s" : ""}`}
-            >
-              <ChainOfThoughtSearchResults>
-                {sourceParts.map((source) => {
-                  const label =
-                    source.type === "source-url" ? source.title || source.url : source.title;
-                  const key = source.type + "-" + source.sourceId;
-                  return (
-                    <ChainOfThoughtSearchResult
-                      key={key}
-                      href={source.type === "source-url" ? source.url : undefined}
-                      title={label}
-                      description={source.type === "source-url" ? source.url : "Document"}
-                    />
-                  );
-                })}
-              </ChainOfThoughtSearchResults>
-            </ChainOfThoughtStep>
-          ) : null}
-
-          {imageParts.length > 0 ? (
-            <ChainOfThoughtStep
-              icon="image"
-              status="complete"
-              label={`Processed ${imageParts.length} image${imageParts.length > 1 ? "s" : ""}`}
-            >
-              <div className="grid grid-cols-2 gap-1.5">
-                {imageParts.map((p, i) => (
-                  <ChainOfThoughtImage
-                    key={i}
-                    src={p.url || p.data || ""}
-                    alt={p.filename || "image"}
-                  />
-                ))}
-              </div>
-            </ChainOfThoughtStep>
-          ) : null}
-        </ChainOfThought>
-      )}
-
-      {fileParts.length > 0 && <MessageAttachments parts={fileParts} />}
-
-      {parts.map((part, index) => {
-        const key = message.id + "-" + index;
-        if (
-          part.type === "reasoning" ||
-          part.type === "reasoning-file" ||
-          part.type === "source-url" ||
-          part.type === "source-document" ||
-          part.type === "step-start" ||
-          part.type === "custom" ||
-          part.type.startsWith("data-")
-        ) {
-          return <Fragment key={key} />;
-        }
-
-        if (part.type === "file") {
-          return <Fragment key={key} />;
-        }
-
-        if (part.type === "text") {
-          return <MessageResponse key={key}>{part.text}</MessageResponse>;
-        }
-
-        if (isToolPart(part)) {
-          const state = normalizeToolState(part.state);
-          return (
-            <Tool key={key} defaultOpen={state === "output-available" || state === "output-error"}>
-              <ToolHeader
-                type={part.type}
-                toolName={part.type === "dynamic-tool" ? part.toolName : undefined}
-                title={part.title}
-                state={state}
+    <Message from={message.role}>
+      {/* 气泡本体：思维链、附件、各类 part */}
+      <MessageContent data-from={message.role}>
+        {(reasoningParts.length > 0 || sourceParts.length > 0 || imageParts.length > 0) && (
+          <ChainOfThought
+            defaultOpen={isReasoningStreaming}
+            title={isReasoningStreaming ? "Reasoning..." : "Reasoning"}
+          >
+            {reasoningParts.length > 0 ? (
+              <ChainOfThoughtStep
+                icon="think"
+                status={isReasoningStreaming ? "active" : "complete"}
+                label={isReasoningStreaming ? "Thinking..." : "Reasoned"}
+                description={reasoningText ? `${reasoningText.length} chars` : undefined}
               />
-              <ToolContent>
-                <ToolInput input={part.input} />
-                <ToolOutput output={renderToolOutput(part.output)} errorText={part.errorText} />
-              </ToolContent>
-            </Tool>
-          );
-        }
+            ) : null}
 
-        return <Fragment key={key} />;
-      })}
+            {sourceParts.length > 0 ? (
+              <ChainOfThoughtStep
+                icon="search"
+                status="complete"
+                label={`Searched ${sourceParts.length} source${sourceParts.length > 1 ? "s" : ""}`}
+              >
+                <ChainOfThoughtSearchResults>
+                  {sourceParts.map((source) => {
+                    const label =
+                      source.type === "source-url" ? source.title || source.url : source.title;
+                    const key = source.type + "-" + source.sourceId;
+                    return (
+                      <ChainOfThoughtSearchResult
+                        key={key}
+                        href={source.type === "source-url" ? source.url : undefined}
+                        title={label}
+                        description={source.type === "source-url" ? source.url : "Document"}
+                      />
+                    );
+                  })}
+                </ChainOfThoughtSearchResults>
+              </ChainOfThoughtStep>
+            ) : null}
 
-      {/* hover 动作条 */}
+            {imageParts.length > 0 ? (
+              <ChainOfThoughtStep
+                icon="image"
+                status="complete"
+                label={`Processed ${imageParts.length} image${imageParts.length > 1 ? "s" : ""}`}
+              >
+                <div className="grid grid-cols-2 gap-1.5">
+                  {imageParts.map((p, i) => (
+                    <ChainOfThoughtImage
+                      key={i}
+                      src={p.url || p.data || ""}
+                      alt={p.filename || "image"}
+                    />
+                  ))}
+                </div>
+              </ChainOfThoughtStep>
+            ) : null}
+          </ChainOfThought>
+        )}
+
+        {fileParts.length > 0 && <MessageAttachments parts={fileParts} />}
+
+        {parts.map((part, index) => {
+          const key = message.id + "-" + index;
+          if (
+            part.type === "reasoning" ||
+            part.type === "reasoning-file" ||
+            part.type === "source-url" ||
+            part.type === "source-document" ||
+            part.type === "step-start" ||
+            part.type === "custom" ||
+            part.type.startsWith("data-")
+          ) {
+            return <Fragment key={key} />;
+          }
+
+          if (part.type === "file") {
+            return <Fragment key={key} />;
+          }
+
+          if (part.type === "text") {
+            return <MessageResponse key={key}>{part.text}</MessageResponse>;
+          }
+
+          if (isToolPart(part)) {
+            const state = normalizeToolState(part.state);
+            return (
+              <Tool
+                key={key}
+                defaultOpen={state === "output-available" || state === "output-error"}
+              >
+                <ToolHeader
+                  type={part.type}
+                  toolName={part.type === "dynamic-tool" ? part.toolName : undefined}
+                  title={part.title}
+                  state={state}
+                />
+                <ToolContent>
+                  <ToolInput input={part.input} />
+                  <ToolOutput output={renderToolOutput(part.output)} errorText={part.errorText} />
+                </ToolContent>
+              </Tool>
+            );
+          }
+
+          return <Fragment key={key} />;
+        })}
+      </MessageContent>
+
+      {/* 操作条：放在气泡下方，hover 时浮现（仅气泡外的小行） */}
       {actionsEnabled && fullText && (
         <MessageActions
           placement={isUser ? "left" : "right"}
@@ -418,7 +426,7 @@ function MessageParts({
           placement="top-right"
         />
       )}
-    </div>
+    </Message>
   );
 }
 

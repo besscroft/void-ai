@@ -57,7 +57,7 @@ export {
   type ChainStepIcon,
 } from "./chain-of-thought";
 
-export { Context, estimateTokens, type ContextMetrics } from "./context";
+export { Context, ContextPopover, estimateTokens, type ContextMetrics } from "./context";
 
 export { Queue, QueueSection, QueueList, QueueItem, type QueueItemStatus } from "./queue";
 

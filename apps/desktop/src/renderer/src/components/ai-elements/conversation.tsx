@@ -75,7 +75,8 @@ export function ConversationContent({
   return (
     <div
       data-slot="conversation-content"
-      className={cn("mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8", className)}
+      // max-w-4xl 代替 max-w-3xl；horizontal padding 略减以利用更多宽度
+      className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6", className)}
       {...rest}
     >
       {children}

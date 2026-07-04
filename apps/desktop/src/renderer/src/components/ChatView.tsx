@@ -28,7 +28,6 @@ import {
 import { notify } from "../lib/toast";
 import { useT } from "../lib/i18n";
 import {
-  Context,
   ConversationStatus,
   PromptSuggestions,
   type ConversationStatusKind,
@@ -392,7 +391,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ChatHeader status={statusKind} contextMetrics={contextMetrics} isLoading={isLoading} />
+      <ChatHeader status={statusKind} />
 
       {isEmpty ? (
         <EmptyState
@@ -425,6 +424,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         selectedAgentId={selectedAgentId}
         onModelChange={setSelectedModel}
         onAgentChange={setSelectedAgentId}
+        contextMetrics={contextMetrics}
       />
     </div>
   );
@@ -434,38 +434,28 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
 interface ChatHeaderProps {
   status: ConversationStatusKind;
-  contextMetrics: {
-    usedTokens: number;
-    maxTokens: number;
-    costUsd?: number;
-  };
-  isLoading: boolean;
 }
 
-function ChatHeader({ status, contextMetrics }: ChatHeaderProps): React.JSX.Element {
+/**
+ * 头部只展示"对话名 + 状态徽章"；上下文用量已迁至输入框的 ContextPopover。
+ */
+function ChatHeader({ status }: ChatHeaderProps): React.JSX.Element {
   return (
     <header
-      className="flex shrink-0 flex-col gap-2 border-b border-foreground/10 px-5 py-3"
+      className="flex shrink-0 items-center justify-between gap-3 border-b border-foreground/10 px-5 py-3"
       data-streaming={status === "streaming" || status === "submitted"}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="flex size-2 rounded-full bg-success/80 ring-2 ring-success/20"
-            aria-hidden
-          />
-          <h1 className="text-sm font-medium text-foreground/80">Conversation</h1>
-          <ConversationStatus status={status} />
-        </div>
-        <span className="text-[10.5px] uppercase tracking-wider text-foreground/40">
-          local · loopback
-        </span>
+      <div className="flex items-center gap-2.5">
+        <span
+          className="flex size-2 rounded-full bg-success/80 ring-2 ring-success/20"
+          aria-hidden
+        />
+        <h1 className="text-sm font-medium text-foreground/80">Conversation</h1>
+        <ConversationStatus status={status} />
       </div>
-      <Context
-        metrics={contextMetrics}
-        title="Context usage"
-        className="border-none bg-transparent px-0 py-0"
-      />
+      <span className="text-[10.5px] uppercase tracking-wider text-foreground/40">
+        local · loopback
+      </span>
     </header>
   );
 }
