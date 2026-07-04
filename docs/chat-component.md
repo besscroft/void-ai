@@ -30,14 +30,14 @@
 
 在保留核心聊天功能的基础上，融入**创新交互**与**视觉设计**，主要围绕六个方面：
 
-| 模块 | 基础能力 | 创意增强 |
-| --- | --- | --- |
-| 消息展示 | 文本 / 工具调用 / 推理 | 一键复制 · Hover 快捷反应 · 文件附件画廊 |
-| 输入框 | 文本输入 / 发送 | 自适应高度 · ⌘+Enter 强制发送 · 智能占位 |
-| 发送按钮 | 发送 / 停止 | 发送态切换动画 · 流式脉冲 |
-| 表情选择 | 文本 emoji | 6 分类网格 + 关键字搜索（中英文）· 光标精准插入 |
-| 文件上传 | 选择文件 | 拖拽 · 粘贴 · 缩略图 · 大小限制 |
-| 历史记录 | 列表显示 | 实时搜索 · 日期分组（今天/昨天/本周/更早）|
+| 模块     | 基础能力               | 创意增强                                        |
+| -------- | ---------------------- | ----------------------------------------------- |
+| 消息展示 | 文本 / 工具调用 / 推理 | 一键复制 · Hover 快捷反应 · 文件附件画廊        |
+| 输入框   | 文本输入 / 发送        | 自适应高度 · ⌘+Enter 强制发送 · 智能占位        |
+| 发送按钮 | 发送 / 停止            | 发送态切换动画 · 流式脉冲                       |
+| 表情选择 | 文本 emoji             | 6 分类网格 + 关键字搜索（中英文）· 光标精准插入 |
+| 文件上传 | 选择文件               | 拖拽 · 粘贴 · 缩略图 · 大小限制                 |
+| 历史记录 | 列表显示               | 实时搜索 · 日期分组（今天/昨天/本周/更早）      |
 
 ### 1.2 设计原则
 
@@ -104,12 +104,12 @@
 
 ### 2.1 模块分层
 
-| 层 | 关注点 | 文件 |
-| --- | --- | --- |
-| 路由 / 容器 | 加载历史、错误处理、发送控制 | `ChatView.tsx` |
-| 展示 | 消息渲染、composer、附件展示 | `MessageList.tsx`, `MessageInput.tsx` |
-| 原子组件 | emoji、chip、reaction、suggestion | `ai-elements/*.tsx` |
-| 持久化 | IPC / DB | `lib/api.ts`（preload 暴露） |
+| 层          | 关注点                            | 文件                                  |
+| ----------- | --------------------------------- | ------------------------------------- |
+| 路由 / 容器 | 加载历史、错误处理、发送控制      | `ChatView.tsx`                        |
+| 展示        | 消息渲染、composer、附件展示      | `MessageList.tsx`, `MessageInput.tsx` |
+| 原子组件    | emoji、chip、reaction、suggestion | `ai-elements/*.tsx`                   |
+| 持久化      | IPC / DB                          | `lib/api.ts`（preload 暴露）          |
 
 ### 2.2 不变式（重要约束）
 
@@ -241,14 +241,14 @@
 
 ### 3.3 动效规范
 
-| 元素 | 动效 | 时长 | 缓动 |
-| --- | --- | --- | --- |
-| Emoji Picker 出现 | fade + scale(0.95→1) + slideUp 4px | 150ms | ease-out |
-| Quick Reactions 出现 | scale(0.95→1) + fade | 150ms | ease-out |
-| Suggestion hover | translateY(-2px) + border 变 | 150ms | ease-out |
-| 附件 chip 出现 | fade | 200ms | ease-out |
-| 拖拽高亮 | border + ring 变 | 200ms | ease-out |
-| Drop overlay 出现 | fade | 100ms | ease-out |
+| 元素                 | 动效                               | 时长  | 缓动     |
+| -------------------- | ---------------------------------- | ----- | -------- |
+| Emoji Picker 出现    | fade + scale(0.95→1) + slideUp 4px | 150ms | ease-out |
+| Quick Reactions 出现 | scale(0.95→1) + fade               | 150ms | ease-out |
+| Suggestion hover     | translateY(-2px) + border 变       | 150ms | ease-out |
+| 附件 chip 出现       | fade                               | 200ms | ease-out |
+| 拖拽高亮             | border + ring 变                   | 200ms | ease-out |
+| Drop overlay 出现    | fade                               | 100ms | ease-out |
 
 ### 3.4 颜色对比度（无障碍）
 
@@ -266,7 +266,7 @@
 ```ts
 interface ChatViewProps {
   conversationId: string;
-  serverInfo: LocalServerInfo;   // 来自 main 进程（port + token）
+  serverInfo: LocalServerInfo; // 来自 main 进程（port + token）
 }
 ```
 
@@ -279,13 +279,13 @@ interface ChatViewProps {
 
 **状态**：
 
-| 状态 | 类型 | 用途 |
-| --- | --- | --- |
-| `selectedModel` | `string \| null` | 关联 SettingKey.SelectedModel |
+| 状态              | 类型             | 用途                          |
+| ----------------- | ---------------- | ----------------------------- |
+| `selectedModel`   | `string \| null` | 关联 SettingKey.SelectedModel |
 | `selectedAgentId` | `string \| null` | 关联 SettingKey.ActiveAgentId |
-| `initialMessages` | `UIMessage[]` | 从 DB 加载 |
-| `historyLoaded` | `boolean` | 控制 loading 态 |
-| `chatError` | `string \| null` | UI 错误展示 |
+| `initialMessages` | `UIMessage[]`    | 从 DB 加载                    |
+| `historyLoaded`   | `boolean`        | 控制 loading 态               |
+| `chatError`       | `string \| null` | UI 错误展示                   |
 
 **关键行为**：
 
@@ -294,7 +294,7 @@ interface ChatViewProps {
 useEffect(() => {
   void api.messages.list(conversationId).then((rows) => {
     // row.content 是 JSON 序列化的 UIMessage
-    const msgs = rows.map(row => JSON.parse(row.content));
+    const msgs = rows.map((row) => JSON.parse(row.content));
     setInitialMessages(msgs);
   });
 }, [conversationId]);
@@ -357,7 +357,7 @@ interface MessageInputProps {
 
 ```ts
 export interface PendingAttachment extends AttachmentItem {
-  file: File;  // 原始 File 引用
+  file: File; // 原始 File 引用
 }
 ```
 
@@ -405,11 +405,11 @@ interface MessageListProps {
 
 ```ts
 interface EmojiPickerProps {
-  open: boolean;                          // 受控
+  open: boolean; // 受控
   onOpenChange: (open: boolean) => void;
-  onSelect: (emoji: string) => void;      // 选中回调
+  onSelect: (emoji: string) => void; // 选中回调
   onCategoryChange?: (id: string) => void;
-  categories?: EmojiCategory[];           // 自定义分类
+  categories?: EmojiCategory[]; // 自定义分类
   placeholder?: string;
 }
 ```
@@ -453,8 +453,8 @@ interface AttachmentItem {
 
 interface AttachmentChipProps {
   item: AttachmentItem;
-  onRemove?: (id: string) => void;  // 不传则不显示移除按钮
-  compact?: boolean;                // 紧凑模式（消息中展示）
+  onRemove?: (id: string) => void; // 不传则不显示移除按钮
+  compact?: boolean; // 紧凑模式（消息中展示）
 }
 ```
 
@@ -462,8 +462,8 @@ interface AttachmentChipProps {
 
 ```tsx
 <AttachmentChip
-  item={{ id: '1', name: 'photo.png', mediaType: 'image/png', size: 12345, file }}
-  onRemove={(id) => setList(prev => prev.filter(x => x.id !== id))}
+  item={{ id: "1", name: "photo.png", mediaType: "image/png", size: 12345, file }}
+  onRemove={(id) => setList((prev) => prev.filter((x) => x.id !== id))}
 />
 ```
 
@@ -481,7 +481,7 @@ export const DEFAULT_REACTIONS: readonly string[] = ["👍", "❤️", "🎉", "
 
 interface QuickReactionsProps {
   onReact: (emoji: string) => void;
-  reactions?: readonly string[];                  // 自定义
+  reactions?: readonly string[]; // 自定义
   placement?: "top-right" | "top-left" | "bottom-right" | "bottom-left";
 }
 ```
@@ -506,8 +506,8 @@ export interface FilePartLike {
   type: string;
   mediaType?: string;
   filename?: string;
-  url?: string;       // ai-sdk 标准
-  data?: string;      // 兼容旧字段
+  url?: string; // ai-sdk 标准
+  data?: string; // 兼容旧字段
 }
 
 interface MessageAttachmentsProps {
@@ -524,8 +524,8 @@ interface MessageAttachmentsProps {
 **使用**：
 
 ```tsx
-const fileParts = message.parts.filter(p => p.type === 'file');
-<MessageAttachments parts={fileParts} />
+const fileParts = message.parts.filter((p) => p.type === "file");
+<MessageAttachments parts={fileParts} />;
 ```
 
 ---
@@ -595,18 +595,18 @@ interface PromptSuggestionsProps extends Omit<HTMLAttributes<HTMLDivElement>, "o
 
 ### 5.2 数据格式约定
 
-| 字段 | 类型 | 协议 |
-| --- | --- | --- |
-| `FileUIPart.url` | `string` | base64 dataURL（`data:image/png;base64,...`） |
-| `FileUIPart.mediaType` | `string` | IANA MIME |
-| `FileUIPart.filename` | `string \| undefined` | 文件名 |
+| 字段                   | 类型                  | 协议                                          |
+| ---------------------- | --------------------- | --------------------------------------------- |
+| `FileUIPart.url`       | `string`              | base64 dataURL（`data:image/png;base64,...`） |
+| `FileUIPart.mediaType` | `string`              | IANA MIME                                     |
+| `FileUIPart.filename`  | `string \| undefined` | 文件名                                        |
 
 **关键点**：ai-sdk v2+ 的 `FileUIPart` 用 `url` 字段承载 dataURL（不是 `data`）。本项目统一使用 `url`。
 
 ### 5.3 历史消息回填
 
 - DB 中 `messages.content` 是完整 UIMessage JSON 字符串
-- 包含所有 parts（text / file / tool-* / reasoning）
+- 包含所有 parts（text / file / tool-\* / reasoning）
 - 加载时直接 `JSON.parse` 后交给 `useChat` 作为 initialMessages
 
 ---
@@ -628,7 +628,7 @@ interface PromptSuggestionsProps extends Omit<HTMLAttributes<HTMLDivElement>, "o
 const groupedConversations = useMemo(() => {
   const q = searchQuery.trim().toLowerCase();
   const filtered = q
-    ? conversations.filter(c => c.title.toLowerCase().includes(q))
+    ? conversations.filter((c) => c.title.toLowerCase().includes(q))
     : conversations;
   // 按 updated_at 分组到 4 个固定 label
   // 顺序：今天 → 昨天 → 本周 → 更早
@@ -685,12 +685,7 @@ const groupedConversations = useMemo(() => {
 import { ChatView } from "@/components/ChatView";
 
 function App() {
-  return (
-    <ChatView
-      conversationId="conv-123"
-      serverInfo={{ port: 3939, token: "..." }}
-    />
-  );
+  return <ChatView conversationId="conv-123" serverInfo={{ port: 3939, token: "..." }} />;
 }
 ```
 
@@ -711,28 +706,15 @@ const myCategories: EmojiCategory[] = [
   },
 ];
 
-<EmojiPicker
-  open={open}
-  onOpenChange={setOpen}
-  onSelect={onSelect}
-  categories={myCategories}
-/>
+<EmojiPicker open={open} onOpenChange={setOpen} onSelect={onSelect} categories={myCategories} />;
 ```
 
 ### 8.3 自定义空态建议
 
 ```tsx
-const mySuggestions = [
-  "总结今天的会议",
-  "为新项目起个名字",
-  "解释 TypeScript 的类型系统",
-];
+const mySuggestions = ["总结今天的会议", "为新项目起个名字", "解释 TypeScript 的类型系统"];
 
-<PromptSuggestions
-  title="试试这些"
-  suggestions={mySuggestions}
-  onSelect={(s) => handleSend(s)}
-/>
+<PromptSuggestions title="试试这些" suggestions={mySuggestions} onSelect={(s) => handleSend(s)} />;
 ```
 
 ### 8.4 自定义文件大小限制
@@ -745,7 +727,7 @@ const mySuggestions = [
   selectedAgentId={agentId}
   onModelChange={setModel}
   onAgentChange={setAgentId}
-  maxFileSize={5 * 1024 * 1024}    // 5MB
+  maxFileSize={5 * 1024 * 1024} // 5MB
   accept="image/*,application/pdf"
 />
 ```
@@ -764,7 +746,7 @@ import {
 function CustomMessage({ message, onReact }) {
   return (
     <Message from={message.role} className="group/msg relative">
-      <MessageAttachments parts={message.parts.filter(p => p.type === "file")} />
+      <MessageAttachments parts={message.parts.filter((p) => p.type === "file")} />
       {message.parts.map((p, i) => {
         if (p.type === "text") return <MessageResponse key={i}>{p.text}</MessageResponse>;
         if (p.type === "reasoning") return <Reasoning key={i}>...</Reasoning>;
@@ -802,6 +784,7 @@ function CustomMessage({ message, onReact }) {
 ### 9.6 文件上传管线扩展
 
 `flushSubmit` 中可插入：
+
 - 客户端压缩（图片）
 - 上传到对象存储后用 URL 替代 dataURL
 - 病毒扫描钩子
@@ -820,22 +803,22 @@ function CustomMessage({ message, onReact }) {
 
 ## 附录 A：文件清单
 
-| 文件 | 状态 | 行数（约） | 用途 |
-| --- | --- | --- | --- |
-| `components/ChatView.tsx` | 重构 | 350 | 路由 + 发送控制 |
-| `components/MessageList.tsx` | 重构 | 240 | 消息渲染 |
-| `components/MessageInput.tsx` | 重构 | 415 | Composer |
-| `components/AppShell.tsx` | 增强 | 305 | 侧栏 + 历史分组 |
-| `components/ai-elements/emoji-picker.tsx` | **新增** | 360 | 表情选择 |
-| `components/ai-elements/attachment-chip.tsx` | **新增** | 145 | 附件 chip |
-| `components/ai-elements/quick-reactions.tsx` | **新增** | 70 | hover 反应 |
-| `components/ai-elements/message-attachments.tsx` | **新增** | 95 | 消息附件 |
-| `components/ai-elements/prompt-suggestions.tsx` | **新增** | 55 | 空态建议 |
-| `components/ai-elements/prompt-input.tsx` | 增强 | 230 | 暴露 ref |
-| `components/ai-elements/index.ts` | 更新 | — | 导出新组件 |
-| `components/icons.tsx` | 增强 | — | 新增 6 个 icon |
-| `lib/i18n.tsx` | 增强 | — | 新增 14 个键 |
-| `docs/chat-component.md` | **新增** | — | 本文档 |
+| 文件                                             | 状态     | 行数（约） | 用途            |
+| ------------------------------------------------ | -------- | ---------- | --------------- |
+| `components/ChatView.tsx`                        | 重构     | 350        | 路由 + 发送控制 |
+| `components/MessageList.tsx`                     | 重构     | 240        | 消息渲染        |
+| `components/MessageInput.tsx`                    | 重构     | 415        | Composer        |
+| `components/AppShell.tsx`                        | 增强     | 305        | 侧栏 + 历史分组 |
+| `components/ai-elements/emoji-picker.tsx`        | **新增** | 360        | 表情选择        |
+| `components/ai-elements/attachment-chip.tsx`     | **新增** | 145        | 附件 chip       |
+| `components/ai-elements/quick-reactions.tsx`     | **新增** | 70         | hover 反应      |
+| `components/ai-elements/message-attachments.tsx` | **新增** | 95         | 消息附件        |
+| `components/ai-elements/prompt-suggestions.tsx`  | **新增** | 55         | 空态建议        |
+| `components/ai-elements/prompt-input.tsx`        | 增强     | 230        | 暴露 ref        |
+| `components/ai-elements/index.ts`                | 更新     | —          | 导出新组件      |
+| `components/icons.tsx`                           | 增强     | —          | 新增 6 个 icon  |
+| `lib/i18n.tsx`                                   | 增强     | —          | 新增 14 个键    |
+| `docs/chat-component.md`                         | **新增** | —          | 本文档          |
 
 ## 附录 B：ASCII 界面总览
 
