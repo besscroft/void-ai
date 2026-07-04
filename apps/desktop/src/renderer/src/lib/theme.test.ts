@@ -1,5 +1,6 @@
 import { beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { DEFAULT_SETTINGS, type AppSettings } from "@shared/types";
 import { applyTheme } from "./theme";
 
 class FakeStyle {
@@ -54,6 +55,10 @@ class FakeDocumentElement {
   }
 }
 
+function themeSettings(overrides: Partial<AppSettings>): AppSettings {
+  return { ...DEFAULT_SETTINGS, ...overrides };
+}
+
 function installDom(matches: boolean): FakeDocumentElement {
   const documentElement = new FakeDocumentElement();
   const globals = globalThis as unknown as {
@@ -73,13 +78,15 @@ void describe("applyTheme", () => {
   });
 
   void it("syncs HeroUI theme attributes and app appearance settings", () => {
-    const resolved = applyTheme({
-      theme: "dark",
-      themePreset: "ocean",
-      accentColor: "theme",
-      fontSize: "lg",
-      density: "compact",
-    });
+    const resolved = applyTheme(
+      themeSettings({
+        theme: "dark",
+        themePreset: "ocean",
+        accentColor: "theme",
+        fontSize: "lg",
+        density: "compact",
+      }),
+    );
 
     assert.equal(resolved, "dark");
     assert.equal(root.dataset.theme, "dark");
@@ -93,22 +100,26 @@ void describe("applyTheme", () => {
   void it("resolves system theme and clears custom accent when using theme default", () => {
     root = installDom(true);
 
-    applyTheme({
-      theme: "light",
-      themePreset: "forest",
-      accentColor: "#123456",
-      fontSize: "base",
-      density: "comfortable",
-    });
+    applyTheme(
+      themeSettings({
+        theme: "light",
+        themePreset: "forest",
+        accentColor: "#123456",
+        fontSize: "base",
+        density: "comfortable",
+      }),
+    );
     assert.equal(root.style.getPropertyValue("--accent"), "#123456");
 
-    const resolved = applyTheme({
-      theme: "system",
-      themePreset: "forest",
-      accentColor: "theme",
-      fontSize: "base",
-      density: "comfortable",
-    });
+    const resolved = applyTheme(
+      themeSettings({
+        theme: "system",
+        themePreset: "forest",
+        accentColor: "theme",
+        fontSize: "base",
+        density: "comfortable",
+      }),
+    );
 
     assert.equal(resolved, "dark");
     assert.equal(root.style.getPropertyValue("--accent"), "");

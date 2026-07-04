@@ -1,6 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGoogle } from "@ai-sdk/google";
 import type { LanguageModel } from "ai";
 import {
   deleteApiKey,
@@ -559,6 +559,6 @@ function createLanguageModel(
     case "anthropic":
       return createAnthropic({ apiKey })(modelId);
     case "google":
-      return createGoogleGenerativeAI({ apiKey })(modelId);
+      return createGoogle({ apiKey })(modelId);
   }
 }

@@ -85,7 +85,6 @@ export function PromptInput({
   const handleSubmit = (e: FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
     const text = valueRef.current.trim();
-    if (!text) return;
     if (status === "streaming" || status === "submitted") return;
     onSubmit({ text, files: [] });
     setInternalValue("");

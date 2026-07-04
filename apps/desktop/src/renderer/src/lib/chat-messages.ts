@@ -1,0 +1,105 @@
+import type { FileUIPart, UIMessage } from "ai";
+import type { MessageRow } from "@shared/types";
+
+export interface FilePartInput {
+  type?: string;
+  mediaType?: string;
+  filename?: string;
+  url?: string;
+  data?: string;
+}
+
+export function toFileUIParts(files: FilePartInput[]): FileUIPart[] {
+  return files
+    .map((file, index) => ({
+      type: "file" as const,
+      mediaType: file.mediaType ?? "application/octet-stream",
+      filename: file.filename ?? `file-${index + 1}`,
+      url: file.url ?? file.data ?? "",
+    }))
+    .filter((file) => file.url.length > 0);
+}
+
+export function buildUserMessage({
+  id,
+  text,
+  files,
+}: {
+  id: string;
+  text: string;
+  files: FileUIPart[];
+}): UIMessage {
+  const trimmedText = text.trim();
+  const parts: UIMessage["parts"] = [];
+
+  if (trimmedText) {
+    parts.push({ type: "text", text: trimmedText });
+  }
+  parts.push(...files);
+
+  if (parts.length === 0) {
+    throw new Error("Cannot build an empty chat message");
+  }
+
+  return { id, role: "user", parts };
+}
+
+export function appendOrReplaceMessage(messages: UIMessage[], message: UIMessage): UIMessage[] {
+  const existingIndex = messages.findIndex((item) => item.id === message.id);
+  if (existingIndex === -1) return [...messages, message];
+  return messages.map((item, index) => (index === existingIndex ? message : item));
+}
+
+export function hydrateStoredMessage(row: MessageRow): UIMessage {
+  try {
+    const parsed = JSON.parse(row.content) as unknown;
+    if (isUIMessage(parsed)) return parsed;
+  } catch {
+    // Fall through to plain-text compatibility for legacy rows.
+  }
+
+  return {
+    id: row.id,
+    role: normalizeRole(row.role),
+    parts: [{ type: "text", text: row.content }],
+  };
+}
+
+export function buildMessageSnapshotRows({
+  conversationId,
+  messages,
+  createdAtById,
+  now = Date.now(),
+}: {
+  conversationId: string;
+  messages: UIMessage[];
+  createdAtById: ReadonlyMap<string, number>;
+  now?: number;
+}): MessageRow[] {
+  let newMessageIndex = 0;
+
+  return messages.map((message) => {
+    const createdAt = createdAtById.get(message.id) ?? now + newMessageIndex++;
+    return {
+      id: message.id,
+      conversation_id: conversationId,
+      role: message.role,
+      content: JSON.stringify(message),
+      created_at: createdAt,
+    };
+  });
+}
+
+function isUIMessage(value: unknown): value is UIMessage {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<UIMessage>;
+  return (
+    typeof candidate.id === "string" &&
+    normalizeRole(candidate.role) === candidate.role &&
+    Array.isArray(candidate.parts)
+  );
+}
+
+function normalizeRole(role: unknown): UIMessage["role"] {
+  return role === "system" || role === "assistant" || role === "user" ? role : "user";
+}

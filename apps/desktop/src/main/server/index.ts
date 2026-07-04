@@ -2,7 +2,14 @@ import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
-import { streamText, convertToModelMessages, type UIMessage } from "ai";
+import {
+  convertToModelMessages,
+  createUIMessageStreamResponse,
+  streamText,
+  toUIMessageStream,
+  type LanguageModel,
+  type UIMessage,
+} from "ai";
 import { CHAT_SESSION_HEADER, type LocalServerInfo } from "../../shared/types";
 
 const ALLOWED_ORIGIN_PATTERNS = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
@@ -14,6 +21,15 @@ const sessionToken = randomBytes(32).toString("hex");
 interface CreateAppOptions {
   sessionToken?: string;
   getAssignedPort?: () => number;
+  resolveModel?: (modelRef: string) => ResolvedChatModel;
+  buildAgentSystemPrompt?: (agentId?: string | null, conversationId?: string) => string;
+}
+
+interface ResolvedChatModel {
+  model: LanguageModel;
+  temperature: number;
+  topP: number;
+  maxOutputTokens: number;
 }
 
 function allowRendererOrigin(origin: string): string | null {
@@ -81,21 +97,32 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     }
 
     try {
-      const [{ resolveModel }, { buildAgentSystemPrompt }] = await Promise.all([
-        import("../lib/providers"),
-        import("../lib/db"),
-      ]);
+      const resolveModel = options.resolveModel ?? (await import("../lib/providers")).resolveModel;
+      const buildAgentSystemPrompt =
+        options.buildAgentSystemPrompt ?? (await import("../lib/db")).buildAgentSystemPrompt;
       const resolved = resolveModel(body.model);
       const result = streamText({
         model: resolved.model,
-        system: body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
-        messages: convertToModelMessages(body.messages),
+        instructions: body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
+        messages: await convertToModelMessages(body.messages),
         temperature: resolved.temperature,
         topP: resolved.topP,
         maxOutputTokens: resolved.maxOutputTokens,
       });
 
-      return result.toUIMessageStreamResponse();
+      return createUIMessageStreamResponse({
+        stream: toUIMessageStream({
+          stream: result.stream,
+          originalMessages: body.messages,
+          sendReasoning: true,
+          sendSources: true,
+          onError: (error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error("[server] /api/chat stream failed:", message);
+            return message || "Chat stream failed";
+          },
+        }),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[server] /api/chat failed:", message);

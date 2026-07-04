@@ -1,11 +1,12 @@
 import { Fragment, useState, type ReactNode } from "react";
-import type { UIMessage } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import {
   Conversation,
   ConversationContent,
   ConversationEmptyState,
   ConversationScrollButton,
   Message,
+  MessageContent,
   MessageResponse,
   Reasoning,
   ReasoningContent,
@@ -33,6 +34,20 @@ interface MessageListProps {
   onDismissError?: () => void;
 }
 
+type MessagePart = UIMessage["parts"][number];
+type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
+type SourcePart = Extract<MessagePart, { type: "source-url" | "source-document" }>;
+
+interface RenderableToolPart {
+  type: string;
+  toolName?: string;
+  title?: string;
+  state?: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+}
+
 export function MessageList({
   messages,
   isLoading,
@@ -41,7 +56,7 @@ export function MessageList({
   onRetry,
   onDismissError,
 }: MessageListProps): React.JSX.Element {
-  const { t, locale } = useT();
+  const { t } = useT();
 
   if (messages.length === 0 && !isLoading) {
     return (
@@ -58,12 +73,14 @@ export function MessageList({
       <ConversationContent>
         {messages.map((message, index) => (
           <Message key={message.id} from={message.role}>
-            <MessageParts
-              message={message}
-              isLastMessage={index === messages.length - 1}
-              isStreaming={isLoading}
-              onReact={(emoji) => handleReaction(emoji, locale)}
-            />
+            <MessageContent data-from={message.role}>
+              <MessageParts
+                message={message}
+                isLastMessage={index === messages.length - 1}
+                isStreaming={isLoading}
+                onReact={handleReaction}
+              />
+            </MessageContent>
           </Message>
         ))}
 
@@ -103,7 +120,6 @@ interface MessagePartsProps {
   message: UIMessage;
   isLastMessage: boolean;
   isStreaming: boolean;
-  /** 表情反应回调（由父组件统一处理，例如写入本地记忆） */
   onReact: (emoji: string) => void;
 }
 
@@ -115,24 +131,15 @@ function MessageParts({
 }: MessagePartsProps): React.JSX.Element {
   const { t } = useT();
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
-
-  const reasoningParts = message.parts.filter((part) => part.type === "reasoning") as Array<{
-    type: "reasoning";
-    text: string;
-    state?: "streaming" | "done";
-  }>;
-  const reasoningText = reasoningParts.map((p) => p.text).join("\n\n");
-  const hasReasoning = reasoningParts.length > 0;
-  const lastPart = message.parts.at(-1);
-  const isReasoningStreaming = isLastMessage && isStreaming && lastPart?.type === "reasoning";
-
-  // 收集 file 类型 part（用于 MessageAttachments 渲染）
-  const fileParts = message.parts.filter((p) => p.type === "file") as unknown as FilePartLike[];
-
-  // 收集纯文本（用于复制）
-  const textParts = message.parts
-    .filter((p) => p.type === "text")
-    .map((p) => (p as { type: "text"; text: string }).text);
+  const parts = message.parts ?? [];
+  const messageStreaming = isLastMessage && isStreaming;
+  const reasoningParts = parts.filter(isReasoningPart);
+  const reasoningText = reasoningParts.map((part) => part.text).join("\n\n");
+  const lastPart = parts.at(-1);
+  const isReasoningStreaming = messageStreaming && lastPart?.type === "reasoning";
+  const fileParts = parts.filter(isAttachmentPart) as unknown as FilePartLike[];
+  const sourceParts = parts.filter(isSourcePart);
+  const textParts = parts.filter(isTextPart).map((part) => part.text);
   const fullText = textParts.join("\n\n");
 
   const handleCopy = async (): Promise<void> => {
@@ -149,7 +156,7 @@ function MessageParts({
 
   return (
     <div className="group/msg relative w-full">
-      {hasReasoning && (
+      {reasoningParts.length > 0 && (
         <Reasoning isStreaming={isReasoningStreaming} defaultOpen={isReasoningStreaming}>
           <ReasoningTrigger />
           <ReasoningContent>{reasoningText}</ReasoningContent>
@@ -157,44 +164,49 @@ function MessageParts({
       )}
 
       {fileParts.length > 0 && <MessageAttachments parts={fileParts} />}
+      {sourceParts.length > 0 && <SourceList sources={sourceParts} />}
 
-      {message.parts.map((part, i) => {
-        if (part.type === "reasoning") return null;
-        if (part.type === "file") return null; // 已由 MessageAttachments 处理
-
-        if (part.type === "text") {
-          return <MessageResponse key={`${message.id}-${i}`}>{part.text}</MessageResponse>;
+      {parts.map((part, index) => {
+        const key = message.id + "-" + index;
+        if (
+          part.type === "reasoning" ||
+          part.type === "reasoning-file" ||
+          part.type === "file" ||
+          part.type === "source-url" ||
+          part.type === "source-document" ||
+          part.type === "step-start" ||
+          part.type === "custom" ||
+          part.type.startsWith("data-")
+        ) {
+          return <Fragment key={key} />;
         }
 
-        if (part.type.startsWith("tool-")) {
-          const tool = part as unknown as {
-            type: string;
-            state?: string;
-            input?: unknown;
-            output?: unknown;
-            errorText?: string;
-            toolCallId?: string;
-          };
-          const state = normalizeToolState(tool.state);
+        if (part.type === "text") {
+          return <MessageResponse key={key}>{part.text}</MessageResponse>;
+        }
+
+        if (isToolPart(part)) {
+          const state = normalizeToolState(part.state);
           return (
-            <Tool
-              key={`${message.id}-${i}`}
-              defaultOpen={state === "output-available" || state === "output-error"}
-            >
-              <ToolHeader type={tool.type} state={state} />
+            <Tool key={key} defaultOpen={state === "output-available" || state === "output-error"}>
+              <ToolHeader
+                type={part.type}
+                toolName={part.type === "dynamic-tool" ? part.toolName : undefined}
+                title={part.title}
+                state={state}
+              />
               <ToolContent>
-                <ToolInput input={tool.input} />
-                <ToolOutput output={tool.output as ReactNode} errorText={tool.errorText} />
+                <ToolInput input={part.input} />
+                <ToolOutput output={renderToolOutput(part.output)} errorText={part.errorText} />
               </ToolContent>
             </Tool>
           );
         }
 
-        return <Fragment key={`${message.id}-${i}`} />;
+        return <Fragment key={key} />;
       })}
 
-      {/* 创意交互：消息底部 hover 出现的复制 + 表情反应条 */}
-      {message.role === "assistant" && fullText && !isStreaming && (
+      {message.role === "assistant" && fullText && !messageStreaming && (
         <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover/msg:opacity-100 group-focus-within/msg:opacity-100">
           <button
             type="button"
@@ -211,12 +223,63 @@ function MessageParts({
         </div>
       )}
 
-      {/* QuickReactions 浮在气泡右上角，hover 时显示 */}
-      {message.role === "assistant" && !isStreaming && (
+      {message.role === "assistant" && !messageStreaming && (
         <QuickReactions onReact={onReact} placement="top-right" />
       )}
     </div>
   );
+}
+
+function SourceList({ sources }: { sources: SourcePart[] }): React.JSX.Element {
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5 text-xs">
+      {sources.map((source) => {
+        const label = source.type === "source-url" ? source.title || source.url : source.title;
+        const key = source.type + "-" + source.sourceId;
+        if (source.type === "source-url") {
+          return (
+            <a
+              key={key}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-foreground/70 underline-offset-2 hover:underline"
+            >
+              {label}
+            </a>
+          );
+        }
+        return (
+          <span
+            key={key}
+            className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-foreground/70"
+          >
+            {label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function isTextPart(part: MessagePart): part is Extract<MessagePart, { type: "text" }> {
+  return part.type === "text";
+}
+
+function isReasoningPart(part: MessagePart): part is ReasoningPart {
+  return part.type === "reasoning";
+}
+
+function isSourcePart(part: MessagePart): part is SourcePart {
+  return part.type === "source-url" || part.type === "source-document";
+}
+
+function isAttachmentPart(part: MessagePart): boolean {
+  return part.type === "file" || part.type === "reasoning-file";
+}
+
+function isToolPart(part: MessagePart): part is MessagePart & RenderableToolPart {
+  return part.type === "dynamic-tool" || part.type.startsWith("tool-");
 }
 
 function normalizeToolState(raw: string | undefined): ToolState {
@@ -232,9 +295,23 @@ function normalizeToolState(raw: string | undefined): ToolState {
   return known.includes(raw as ToolState) ? (raw as ToolState) : "input-available";
 }
 
-/** 默认的表情反应处理：写入本地存储 + toast 提示 */
-function handleReaction(emoji: string, _locale: string): void {
-  // 此处可扩展：写入 memories / 反馈信号等
+function renderToolOutput(output: unknown): ReactNode {
+  if (output === undefined || output === null) return undefined;
+  if (typeof output === "string" || typeof output === "number" || typeof output === "boolean") {
+    return String(output);
+  }
+  return <pre className="m-0 whitespace-pre-wrap font-mono">{safeJsonStringify(output)}</pre>;
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "[unserializable]";
+  }
+}
+
+function handleReaction(emoji: string): void {
   console.log("[chat] reaction:", emoji);
   notify.success(emoji);
 }

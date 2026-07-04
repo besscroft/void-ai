@@ -1,0 +1,134 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import type { UIMessage } from "ai";
+import type { MessageRow } from "@shared/types";
+import {
+  appendOrReplaceMessage,
+  buildMessageSnapshotRows,
+  buildUserMessage,
+  hydrateStoredMessage,
+  toFileUIParts,
+} from "./chat-messages";
+
+void describe("chat message helpers", () => {
+  void it("builds text-only user UI messages", () => {
+    const message = buildUserMessage({ id: "u1", text: "  Hello  ", files: [] });
+
+    assert.deepEqual(message, {
+      id: "u1",
+      role: "user",
+      parts: [{ type: "text", text: "Hello" }],
+    });
+  });
+
+  void it("builds attachment-only user UI messages with FileUIPart.url", () => {
+    const files = toFileUIParts([
+      {
+        mediaType: "image/png",
+        filename: "chart.png",
+        url: "data:image/png;base64,AA==",
+      },
+    ]);
+    const message = buildUserMessage({ id: "u2", text: "", files });
+
+    assert.deepEqual(message.parts, [
+      {
+        type: "file",
+        mediaType: "image/png",
+        filename: "chart.png",
+        url: "data:image/png;base64,AA==",
+      },
+    ]);
+  });
+
+  void it("builds text plus attachment messages", () => {
+    const files = toFileUIParts([
+      {
+        mediaType: "application/pdf",
+        filename: "spec.pdf",
+        data: "data:application/pdf;base64,AA==",
+      },
+    ]);
+    const message = buildUserMessage({ id: "u3", text: "Summarize", files });
+
+    assert.deepEqual(message.parts, [
+      { type: "text", text: "Summarize" },
+      {
+        type: "file",
+        mediaType: "application/pdf",
+        filename: "spec.pdf",
+        url: "data:application/pdf;base64,AA==",
+      },
+    ]);
+  });
+
+  void it("hydrates full UIMessage JSON and falls back to legacy plain text rows", () => {
+    const saved: UIMessage = {
+      id: "m1",
+      role: "assistant",
+      parts: [{ type: "text", text: "Saved" }],
+    };
+    const hydrated = hydrateStoredMessage({
+      id: "m1",
+      conversation_id: "c1",
+      role: "assistant",
+      content: JSON.stringify(saved),
+      created_at: 100,
+    });
+    const fallback = hydrateStoredMessage({
+      id: "m2",
+      conversation_id: "c1",
+      role: "user",
+      content: "legacy text",
+      created_at: 101,
+    });
+
+    assert.deepEqual(hydrated, saved);
+    assert.deepEqual(fallback, {
+      id: "m2",
+      role: "user",
+      parts: [{ type: "text", text: "legacy text" }],
+    });
+  });
+
+  void it("creates snapshot upsert rows while preserving existing created_at values", () => {
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Updated question" }] },
+      { id: "a1", role: "assistant", parts: [{ type: "text", text: "Updated answer" }] },
+      { id: "a2", role: "assistant", parts: [{ type: "text", text: "New answer" }] },
+    ];
+    const rows = buildMessageSnapshotRows({
+      conversationId: "c1",
+      messages,
+      createdAtById: new Map([
+        ["u1", 10],
+        ["a1", 11],
+      ]),
+      now: 100,
+    });
+
+    assert.deepEqual(
+      rows.map((row) => row.created_at),
+      [10, 11, 100],
+    );
+    assert.equal(JSON.parse(rows[1].content).parts[0].text, "Updated answer");
+  });
+
+  void it("replaces pending messages by id before snapshot persistence", () => {
+    const original: MessageRow[] = [];
+    assert.deepEqual(original, []);
+
+    const oldMessage: UIMessage = {
+      id: "u1",
+      role: "user",
+      parts: [{ type: "text", text: "old" }],
+    };
+    const newMessage: UIMessage = {
+      id: "u1",
+      role: "user",
+      parts: [{ type: "text", text: "new" }],
+    };
+
+    assert.deepEqual(appendOrReplaceMessage([oldMessage], newMessage), [newMessage]);
+  });
+});
