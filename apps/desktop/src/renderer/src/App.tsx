@@ -6,7 +6,7 @@ import { WorkspaceView } from "./components/WorkspaceView";
 import { api } from "./lib/api";
 import { SettingsProvider, useSettings } from "./lib/settings";
 import { AppI18nProvider, useT } from "./lib/i18n";
-import { SettingKey } from "@shared/types";
+import { SettingKey, type LocalServerInfo } from "@shared/types";
 import { Toaster } from "sonner";
 
 function App(): React.JSX.Element {
@@ -33,7 +33,7 @@ function AppContent(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 服务端口：useChat 必须在首次渲染就拿到正确 transport，
   // 因此端口就绪前不挂载 ChatView。
-  const [serverPort, setServerPort] = useState<number | null>(null);
+  const [serverInfo, setServerInfo] = useState<LocalServerInfo | null>(null);
 
   const createNewConversation = useCallback(async (): Promise<void> => {
     const id = crypto.randomUUID();
@@ -45,7 +45,7 @@ function AppContent(): React.JSX.Element {
 
   useEffect(() => {
     // 提早拉取本地服务端口，避免 ChatView 内部 useEffect 抢跑
-    void api.server.port().then(setServerPort);
+    void api.server.info().then(setServerInfo);
   }, []);
 
   useEffect(() => {
@@ -101,8 +101,8 @@ function AppContent(): React.JSX.Element {
         onOpenSettings={() => setSettingsOpen(true)}
       >
         {activeView === "chat" ? (
-          activeId && serverPort !== null ? (
-            <ChatView key={activeId} conversationId={activeId} serverPort={serverPort} />
+          activeId && serverInfo !== null ? (
+            <ChatView key={activeId} conversationId={activeId} serverInfo={serverInfo} />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-foreground/40">
               {t("chat.initializing")}

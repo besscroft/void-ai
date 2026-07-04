@@ -7,6 +7,7 @@ import type {
   CustomProviderInput,
   HarnessEvent,
   InteractionProfile,
+  LocalServerInfo,
   ManagedModelInfo,
   MemoryRecord,
   MessageRow,
@@ -100,6 +101,7 @@ export interface VoidAIApi {
   // 本地 AI 服务
   server: {
     port: () => Promise<number>;
+    info: () => Promise<LocalServerInfo>;
   };
   system: {
     locale: () => Promise<string>;

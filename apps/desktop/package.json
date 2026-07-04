@@ -24,7 +24,7 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "pnpm run rebuild:native && electron-vite build && electron-builder --mac",
     "build:linux": "pnpm run rebuild:native && electron-vite build && electron-builder --linux",
-    "test": "tsx --tsconfig tsconfig.web.json --test src/renderer/src/lib/i18n.test.ts src/renderer/src/lib/settings.test.ts src/renderer/src/lib/theme.test.ts"
+    "test": "tsx --tsconfig tsconfig.web.json --test src/renderer/src/lib/i18n.test.ts src/renderer/src/lib/settings.test.ts src/renderer/src/lib/theme.test.ts src/renderer/src/lib/errors.test.ts && tsx --tsconfig tsconfig.node.json --test src/main/server/index.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.4",
@@ -67,6 +67,7 @@
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "tailwindcss": "^4.3.1",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "vite": "^7.2.6"
   },

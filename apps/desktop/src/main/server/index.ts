@@ -1,31 +1,53 @@
+import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { streamText, convertToModelMessages, type UIMessage } from "ai";
-import { resolveModel, listProviders } from "../lib/providers";
-import { buildAgentSystemPrompt, upsertServerNode } from "../lib/db";
+import { CHAT_SESSION_HEADER, type LocalServerInfo } from "../../shared/types";
 
-/**
- * 仅监听 loopback（127.0.0.1）的本地 HTTP 服务
- *
- * 作用：作为 main 进程与 renderer 之间的桥梁，承载 AI SDK 的流式协议。
- * 选择 HTTP 而非纯 IPC 的原因：
- *  - useChat 原生支持 fetch，无需改造客户端
- *  - AI SDK 的 SSE/数据流协议天然适配 HTTP
- *  - 仅绑定 127.0.0.1，外部无法访问；密钥在 main 进程内闭环
- */
+const ALLOWED_ORIGIN_PATTERNS = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
 
 let server: ReturnType<typeof serve> | null = null;
 let assignedPort = 0;
+const sessionToken = randomBytes(32).toString("hex");
 
-/** 创建 Hono 应用并定义路由 */
-function createApp(): Hono {
+interface CreateAppOptions {
+  sessionToken?: string;
+  getAssignedPort?: () => number;
+}
+
+function allowRendererOrigin(origin: string): string | null {
+  if (origin === "null") return origin;
+  return ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin)) ? origin : null;
+}
+
+function isAuthorized(
+  c: { req: { header: (name: string) => string | undefined } },
+  token: string,
+): boolean {
+  return c.req.header(CHAT_SESSION_HEADER) === token;
+}
+
+/** Create the local loopback HTTP app used by the renderer chat transport. */
+export function createApp(options: CreateAppOptions = {}): Hono {
+  const token = options.sessionToken ?? sessionToken;
+  const getAssignedPort = options.getAssignedPort ?? (() => assignedPort);
   const app = new Hono();
 
-  // 健康检查
-  app.get("/api/health", (c) => c.json({ ok: true, port: assignedPort }));
+  app.use(
+    "/api/*",
+    cors({
+      origin: (origin) => allowRendererOrigin(origin),
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      allowHeaders: ["Content-Type", CHAT_SESSION_HEADER],
+      maxAge: 600,
+    }),
+  );
 
-  // 列出可用 provider 及其模型
-  app.get("/api/models", (c) => {
+  app.get("/api/health", (c) => c.json({ ok: true, port: getAssignedPort() }));
+
+  app.get("/api/models", async (c) => {
+    const { listProviders } = await import("../lib/providers");
     const providers = listProviders()
       .map((p) => ({
         id: p.id,
@@ -37,8 +59,11 @@ function createApp(): Hono {
     return c.json({ providers });
   });
 
-  // 聊天流式接口
   app.post("/api/chat", async (c) => {
+    if (!isAuthorized(c, token)) {
+      return c.json({ error: "Unauthorized chat session" }, 401);
+    }
+
     const body = (await c.req.json()) as {
       messages: UIMessage[];
       /** Formatted as "provider/model". */
@@ -49,13 +74,17 @@ function createApp(): Hono {
     };
 
     if (!body.messages?.length) {
-      return c.json({ error: "messages 不能为空" }, 400);
+      return c.json({ error: "messages cannot be empty" }, 400);
     }
     if (!body.model) {
-      return c.json({ error: "model 字段必填（provider/model 格式）" }, 400);
+      return c.json({ error: "model is required in provider/model format" }, 400);
     }
 
     try {
+      const [{ resolveModel }, { buildAgentSystemPrompt }] = await Promise.all([
+        import("../lib/providers"),
+        import("../lib/db"),
+      ]);
       const resolved = resolveModel(body.model);
       const result = streamText({
         model: resolved.model,
@@ -66,11 +95,10 @@ function createApp(): Hono {
         maxOutputTokens: resolved.maxOutputTokens,
       });
 
-      // 返回 AI SDK 的 UIMessage 流式响应（SSE 格式）
       return result.toUIMessageStreamResponse();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error("[server] /api/chat 失败:", message);
+      console.error("[server] /api/chat failed:", message);
       return c.json({ error: message }, 500);
     }
   });
@@ -78,10 +106,7 @@ function createApp(): Hono {
   return app;
 }
 
-/**
- * 启动本地 HTTP 服务，绑定到随机端口（127.0.0.1）。
- * @returns 实际分配的端口号
- */
+/** Start the local HTTP server bound to loopback on a random free port. */
 export function startServer(): Promise<number> {
   return new Promise((resolve, reject) => {
     if (server) {
@@ -92,9 +117,7 @@ export function startServer(): Promise<number> {
       const instance = serve({
         fetch: createApp().fetch,
         hostname: "127.0.0.1",
-        // 0 表示由系统分配空闲端口
         port: 0,
-        // 启动完成回调
         overrideGlobalObjects: false,
       });
       server = instance;
@@ -104,24 +127,34 @@ export function startServer(): Promise<number> {
         if (addr && typeof addr === "object" && "port" in addr) {
           assignedPort = addr.port;
           const now = Date.now();
-          upsertServerNode({
-            id: "server-local-ai",
-            name: "Local AI Loopback",
-            kind: "local",
-            url: `http://127.0.0.1:${assignedPort}`,
-            status: "online",
-            capabilities_json: JSON.stringify(["chat-stream", "agent-context", "memory-injection"]),
-            last_seen_at: now,
-            created_at: now,
-            updated_at: now,
-          });
-          console.log(`[server] 本地 AI 服务已启动: http://127.0.0.1:${assignedPort}`);
+          void import("../lib/db")
+            .then(({ upsertServerNode }) => {
+              upsertServerNode({
+                id: "server-local-ai",
+                name: "Local AI Loopback",
+                kind: "local",
+                url: "http://127.0.0.1:" + assignedPort,
+                status: "online",
+                capabilities_json: JSON.stringify([
+                  "chat-stream",
+                  "agent-context",
+                  "memory-injection",
+                ]),
+                last_seen_at: now,
+                created_at: now,
+                updated_at: now,
+              });
+            })
+            .catch((err) => {
+              console.error("[server] failed to persist local server node:", err);
+            });
+          console.log(`[server] Local AI server started: http://127.0.0.1:${assignedPort}`);
           resolve(assignedPort);
         }
       });
 
       instance.on?.("error", (err: NodeJS.ErrnoException) => {
-        console.error("[server] 启动失败:", err);
+        console.error("[server] failed to start:", err);
         reject(err);
       });
     } catch (err) {
@@ -130,7 +163,6 @@ export function startServer(): Promise<number> {
   });
 }
 
-/** 停止本地 HTTP 服务（应用退出时调用） */
 export function stopServer(): void {
   if (server) {
     server.close?.();
@@ -139,7 +171,10 @@ export function stopServer(): void {
   }
 }
 
-/** 获取当前服务端口（启动后可用） */
 export function getServerPort(): number {
   return assignedPort;
+}
+
+export function getServerInfo(): LocalServerInfo {
+  return { port: assignedPort, token: sessionToken };
 }

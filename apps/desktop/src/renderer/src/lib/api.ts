@@ -6,6 +6,7 @@ import type {
   CustomProviderInput,
   HarnessEvent,
   InteractionProfile,
+  LocalServerInfo,
   ManagedModelInfo,
   MemoryRecord,
   MessageRow,
@@ -114,6 +115,7 @@ export const api = {
   },
   server: {
     port: (): Promise<number> => assertApi().server.port(),
+    info: (): Promise<LocalServerInfo> => assertApi().server.info(),
   },
   system: {
     locale: (): Promise<string> => assertApi().system.locale(),
@@ -131,6 +133,7 @@ export type {
   CustomProviderInput,
   HarnessEvent,
   InteractionProfile,
+  LocalServerInfo,
   MemoryRecord,
   MessageRow,
   ProviderInfo,
