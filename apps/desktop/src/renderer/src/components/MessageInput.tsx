@@ -239,8 +239,8 @@ export function MessageInput({
   };
 
   return (
-    <div className="shrink-0 bg-background/70 px-4 pb-3 pt-2 backdrop-blur-xl">
-      <div className="mx-auto w-full max-w-4xl">
+    <div className="shrink-0 bg-background/70 px-3 pb-3 pt-2 backdrop-blur-xl sm:px-4">
+      <div className="mx-auto w-full max-w-[min(1400px,100%)]">
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}

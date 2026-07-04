@@ -41,9 +41,12 @@ export function Message({ from, className, children, ...rest }: MessageProps): R
     >
       <div
         className={cn(
-          // 气泡最大宽度：屏幕宽时给足空间，窄屏自适应收缩
-          "flex w-full min-w-0 max-w-[min(820px,96%)] flex-col gap-1.5",
-          isUser ? "items-end" : "items-start",
+          // 气泡最大宽度：宽屏下放大到 1050px 充分利用屏幕，user 消息靠 items-end
+          // 自然按内容宽度；assistant 单行长内容会更易读。
+          //  - assistant：右侧预留 1.5/2.5/4 rem，避免在非全屏宽窗口下贴到内容区右沿
+          //  - user：贴右，不额外加内边距
+          "flex w-full min-w-0 max-w-[min(1050px,100%)] flex-col gap-1.5",
+          isUser ? "items-end" : "items-start pr-6 sm:pr-10 lg:pr-16",
         )}
       >
         {children}

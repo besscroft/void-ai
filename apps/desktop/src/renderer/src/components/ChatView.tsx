@@ -442,7 +442,7 @@ interface ChatHeaderProps {
 function ChatHeader({ status }: ChatHeaderProps): React.JSX.Element {
   return (
     <header
-      className="flex shrink-0 items-center justify-between gap-3 border-b border-foreground/10 px-5 py-3"
+      className="flex shrink-0 items-center justify-between gap-3 border-b border-foreground/10 px-4 py-3 sm:px-6"
       data-streaming={status === "streaming" || status === "submitted"}
     >
       <div className="flex items-center gap-2.5">
@@ -510,13 +510,13 @@ function tryAutoTitle(
     })
     .then((title) => {
       if (!title) return;
-      return api.conversations.touch(conversationId, title);
+      return api.conversations.touch(conversationId, title).then(() => title);
     })
-    .then(() => {
-      // 通知侧栏刷新
+    .then((title) => {
+      // 通知侧栏刷新（携带最新 title，避免重新拉取整张列表）
       window.dispatchEvent(
         new CustomEvent("void-ai:conversation-renamed", {
-          detail: { id: conversationId },
+          detail: { id: conversationId, title },
         }),
       );
     })

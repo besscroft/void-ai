@@ -75,6 +75,23 @@ export function AppShell({
     refresh();
   }, [activeConversationId]);
 
+  // 监听自动/手动重命名：优先用事件携带的 title 直接更新本地 state；
+  // 若没有 title（例如来自其他渠道），则降级为全量 refresh。
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ id: string; title?: string }>).detail;
+      if (detail?.id && typeof detail.title === "string" && detail.title.length > 0) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === detail.id ? { ...c, title: detail.title as string } : c)),
+        );
+      } else {
+        refresh();
+      }
+    };
+    window.addEventListener("void-ai:conversation-renamed", handler);
+    return () => window.removeEventListener("void-ai:conversation-renamed", handler);
+  }, []);
+
   const confirmDeleteConversation = (): void => {
     if (!pendingDelete) return;
     const id = pendingDelete.id;
