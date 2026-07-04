@@ -10,6 +10,7 @@ import {
   hydrateStoredMessage,
   toFileUIParts,
 } from "./chat-messages";
+import { hasMeaningfulConversationTitle } from "./conversation-title";
 
 void describe("chat message helpers", () => {
   void it("builds text-only user UI messages", () => {
@@ -164,6 +165,19 @@ void describe("chat message helpers", () => {
     assert.equal(sentBatches.length, 1);
     assert.deepEqual(stripMetadata(sentBatches[0]), [message]);
     assert.deepEqual(stripMetadata(chat.messages), [message]);
+  });
+});
+
+void describe("conversation title helpers", () => {
+  void it("treats built-in placeholder titles as not yet summarized", () => {
+    assert.equal(hasMeaningfulConversationTitle("新会话"), false);
+    assert.equal(hasMeaningfulConversationTitle("新建会话"), false);
+    assert.equal(hasMeaningfulConversationTitle("New chat"), false);
+  });
+
+  void it("accepts real generated titles", () => {
+    assert.equal(hasMeaningfulConversationTitle("量子计算入门"), true);
+    assert.equal(hasMeaningfulConversationTitle("Debugging Electron IPC"), true);
   });
 });
 

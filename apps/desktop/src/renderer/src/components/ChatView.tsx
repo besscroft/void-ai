@@ -17,6 +17,7 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { api } from "../lib/api";
+import { hasMeaningfulConversationTitle } from "../lib/conversation-title";
 import { getChatErrorMessage } from "../lib/errors";
 import {
   appendOrReplaceMessage,
@@ -150,7 +151,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       setHistoryLoaded(true);
       // 如果历史中已经有标题（DB 已有），标记为已生成，避免再次触发
       void api.conversations.get(conversationId).then((conv) => {
-        if (conv?.title && conv.title.trim().length > 0) {
+        if (hasMeaningfulConversationTitle(conv?.title)) {
           titledRef.current.add(conversationId);
         }
       });
@@ -494,9 +495,6 @@ function tryAutoTitle(
   if (!first || !second) return;
   if (first.role !== "user" || second.role !== "assistant") return;
 
-  // 标记为"已触发"避免重复；标题存在则不再生成
-  titledRef.current.add(conversationId);
-
   // 取第一个 user + 第一个 assistant 的纯文本作为 prompt
   const excerpt: UIMessage[] = [first, second];
   void api.server
@@ -504,12 +502,16 @@ function tryAutoTitle(
     .then((info) => {
       // 若 DB 中已有标题则跳过 LLM 调用
       return api.conversations.get(conversationId).then((conv) => {
-        if (conv?.title && conv.title.trim().length > 0) return null;
+        if (hasMeaningfulConversationTitle(conv?.title)) {
+          titledRef.current.add(conversationId);
+          return null;
+        }
         return fetchTitle(info, excerpt);
       });
     })
     .then((title) => {
       if (!title) return;
+      titledRef.current.add(conversationId);
       return api.conversations.touch(conversationId, title).then(() => title);
     })
     .then((title) => {
