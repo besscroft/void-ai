@@ -17,10 +17,12 @@
  */
 import {
   createContext,
+  forwardRef,
   useContext,
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type FormHTMLAttributes,
   type KeyboardEvent,
@@ -115,66 +117,82 @@ interface PromptInputTextareaProps extends Omit<
 
 /**
  * 文本输入：自动随内容撑高（最大 152px），Enter 发送 / Shift+Enter 换行
+ *
+ * 通过 forwardRef 暴露底层 textarea，父组件可以：
+ *  - 读取光标位置（在 emoji 选区中精确插入）
+ *  - 主动聚焦 / 失焦
  */
-export function PromptInputTextarea({
-  value: controlledValue,
-  onChange: controlledOnChange,
-  className,
-  onKeyDown,
-  disabled,
-  ...rest
-}: PromptInputTextareaProps): React.JSX.Element {
-  const ctx = usePromptInputContext();
-  const ref = useRef<HTMLTextAreaElement | null>(null);
-  const value = controlledValue ?? ctx.value;
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
-    // 始终同步到 context，否则 PromptInput 的 submit 拿不到值（受控时 internalValue 不会被更新）
-    ctx.setValue(e.currentTarget.value);
-    controlledOnChange?.(e);
-  };
+export const PromptInputTextarea = forwardRef<HTMLTextAreaElement, PromptInputTextareaProps>(
+  function PromptInputTextarea(
+    {
+      value: controlledValue,
+      onChange: controlledOnChange,
+      className,
+      onKeyDown,
+      disabled,
+      ...rest
+    },
+    forwardedRef,
+  ): React.JSX.Element {
+    const ctx = usePromptInputContext();
+    const ref = useRef<HTMLTextAreaElement | null>(null);
+    const value = controlledValue ?? ctx.value;
+    const handleChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
+      // 始终同步到 context，否则 PromptInput 的 submit 拿不到值（受控时 internalValue 不会被更新）
+      ctx.setValue(e.currentTarget.value);
+      controlledOnChange?.(e);
+    };
 
-  // 自动撑高
-  useEffect(() => {
-    const textarea = ref.current;
-    if (!textarea) return;
-    textarea.style.height = "0px";
-    const maxHeight = 152;
-    const next = Math.min(textarea.scrollHeight, maxHeight);
-    textarea.style.height = `${Math.max(next, 64)}px`;
-    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
-  }, [value]);
+    // 自动撑高
+    useEffect(() => {
+      const textarea = ref.current;
+      if (!textarea) return;
+      textarea.style.height = "0px";
+      const maxHeight = 152;
+      const next = Math.min(textarea.scrollHeight, maxHeight);
+      textarea.style.height = `${Math.max(next, 64)}px`;
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+    }, [value]);
 
-  const isGenerating = ctx.status === "streaming" || ctx.status === "submitted";
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    onKeyDown?.(e);
-    if (e.defaultPrevented) return;
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      // 触发 form 提交：模拟 form.requestSubmit
-      (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
-    }
-  };
+    const isGenerating = ctx.status === "streaming" || ctx.status === "submitted";
+    const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+      onKeyDown?.(e);
+      if (e.defaultPrevented) return;
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        // 触发 form 提交：模拟 form.requestSubmit
+        (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
+      }
+    };
 
-  return (
-    <textarea
-      ref={ref}
-      data-slot="prompt-input-textarea"
-      value={value}
-      onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      disabled={disabled ?? isGenerating}
-      rows={1}
-      className={cn(
-        "block w-full max-h-[152px] min-h-16 resize-none overflow-hidden bg-transparent",
-        "text-[15px] leading-6 text-foreground outline-none",
-        "placeholder:text-foreground/35",
-        "disabled:cursor-not-allowed disabled:opacity-70",
-        className,
-      )}
-      {...rest}
-    />
-  );
-}
+    // 合并 forwardedRef 与本地 ref
+    const setRefs = (node: HTMLTextAreaElement | null): void => {
+      ref.current = node;
+      if (typeof forwardedRef === "function") forwardedRef(node);
+      else if (forwardedRef) forwardedRef.current = node;
+    };
+
+    return (
+      <textarea
+        ref={setRefs}
+        data-slot="prompt-input-textarea"
+        value={value}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        disabled={disabled ?? isGenerating}
+        rows={1}
+        className={cn(
+          "block w-full max-h-[152px] min-h-16 resize-none overflow-hidden bg-transparent",
+          "text-[15px] leading-6 text-foreground outline-none",
+          "placeholder:text-foreground/35",
+          "disabled:cursor-not-allowed disabled:opacity-70",
+          className,
+        )}
+        {...rest}
+      />
+    );
+  },
+);
 
 interface PromptInputSubmitProps extends Omit<
   React.ButtonHTMLAttributes<HTMLButtonElement>,

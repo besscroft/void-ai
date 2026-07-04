@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Chip } from "@heroui/react";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
@@ -16,6 +16,8 @@ import {
   IconLayout,
   IconGlobe,
   IconKey,
+  IconSearch,
+  IconClose,
 } from "./icons";
 import type { Conversation } from "@shared/types";
 import type { WorkspaceSection } from "./WorkspaceView";
@@ -59,6 +61,7 @@ export function AppShell({
   const { t } = useT();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const refresh = (): void => {
     void api.conversations.list().then(setConversations);
@@ -88,6 +91,53 @@ export function AppShell({
       .catch(() => undefined);
     setPendingDelete(null);
   };
+
+  /**
+   * 过滤 + 分组（按 updated_at 倒序）
+   *
+   * 分组策略：
+   *  - 今天：updated_at 与今天在同一天
+   *  - 昨天：相差 1 天且跨日
+   *  - 本周：7 天内
+   *  - 更早：其他
+   */
+  const groupedConversations = useMemo<Array<{ label: string; items: Conversation[] }>>(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = q
+      ? conversations.filter((c) => c.title.toLowerCase().includes(q))
+      : conversations;
+    if (filtered.length === 0) return [];
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const oneDay = 24 * 60 * 60 * 1000;
+    const startOfYesterday = startOfToday - oneDay;
+    const startOfWeek = startOfToday - 7 * oneDay;
+
+    const groups: Record<string, Conversation[]> = {};
+    const labelFor = (ts: number): string => {
+      if (ts >= startOfToday) return t("shell.group.today");
+      if (ts >= startOfYesterday) return t("shell.group.yesterday");
+      if (ts >= startOfWeek) return t("shell.group.thisWeek");
+      return t("shell.group.earlier");
+    };
+    for (const c of filtered) {
+      const ts = c.updated_at ?? c.created_at ?? 0;
+      const label = labelFor(ts);
+      (groups[label] ??= []).push(c);
+    }
+
+    // 固定分组顺序：今天 → 昨天 → 本周 → 更早
+    const order = [
+      t("shell.group.today"),
+      t("shell.group.yesterday"),
+      t("shell.group.thisWeek"),
+      t("shell.group.earlier"),
+    ];
+    return order
+      .filter((label) => groups[label]?.length)
+      .map((label) => ({ label, items: groups[label] }));
+  }, [conversations, searchQuery, t]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -130,51 +180,91 @@ export function AppShell({
         <div className="flex min-h-0 flex-1 flex-col border-t border-foreground/10">
           <div className="flex items-center justify-between gap-2 px-3 py-3">
             <span className="text-xs font-medium uppercase tracking-normal text-foreground/45">
-              Conversations
+              {t("shell.conversations")}
             </span>
-            <Button isIconOnly size="sm" variant="tertiary" onPress={onCreateConversation}>
+            <Button
+              isIconOnly
+              size="sm"
+              variant="tertiary"
+              onPress={onCreateConversation}
+              aria-label={t("shell.newConversation")}
+            >
               <IconPlus className="size-4" />
             </Button>
           </div>
 
+          {/* 创意：搜索框（仅在有会话时显示） */}
+          {conversations.length > 0 && (
+            <div className="relative px-3 pb-2">
+              <IconSearch className="pointer-events-none absolute left-6 top-1/2 size-3.5 -translate-y-1/2 text-foreground/40" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                placeholder={t("shell.searchPlaceholder")}
+                aria-label={t("shell.searchPlaceholder")}
+                className="h-7 w-full rounded-md border border-foreground/10 bg-background/60 pl-7 pr-7 text-xs text-foreground/80 outline-none transition placeholder:text-foreground/35 focus:border-accent/45 focus:ring-2 focus:ring-accent/15"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label={t("common.close")}
+                  className="absolute right-5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-foreground/40 transition hover:text-foreground"
+                >
+                  <IconClose className="size-3" />
+                </button>
+              )}
+            </div>
+          )}
+
           <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Conversations">
-            {conversations.length === 0 ? (
+            {groupedConversations.length === 0 ? (
               <p className="whitespace-pre-line px-3 py-8 text-center text-sm text-foreground/50">
-                {t("shell.noConversation")}
+                {searchQuery ? t("shell.noSearchResult") : t("shell.noConversation")}
               </p>
             ) : (
-              <ul className="space-y-1">
-                {conversations.map((conv) => {
-                  const isActive = conv.id === activeConversationId && activeView === "chat";
-                  return (
-                    <li key={conv.id}>
-                      <div
-                        className={[
-                          "group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm transition",
-                          isActive ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
-                        ].join(" ")}
-                        onClick={() => {
-                          onSelectConversation(conv.id);
-                          onSelectView("chat");
-                        }}
-                      >
-                        <IconMessage className="size-4 shrink-0 opacity-60" />
-                        <span className="flex-1 truncate">{conv.title}</span>
-                        <button
-                          type="button"
-                          className="opacity-0 transition group-hover:opacity-100 hover:text-danger"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setPendingDelete(conv);
-                          }}
-                          aria-label={`${t("common.delete")} ${conv.title}`}
-                        >
-                          <IconTrash className="size-3.5" />
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
+              <ul className="space-y-3">
+                {groupedConversations.map((group) => (
+                  <li key={group.label}>
+                    <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/35">
+                      {group.label}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {group.items.map((conv) => {
+                        const isActive = conv.id === activeConversationId && activeView === "chat";
+                        return (
+                          <li key={conv.id}>
+                            <div
+                              className={[
+                                "group/conv flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm transition",
+                                isActive ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
+                              ].join(" ")}
+                              onClick={() => {
+                                onSelectConversation(conv.id);
+                                onSelectView("chat");
+                              }}
+                            >
+                              <IconMessage className="size-3.5 shrink-0 opacity-60" />
+                              <span className="flex-1 truncate text-xs">{conv.title}</span>
+                              <button
+                                type="button"
+                                className="opacity-0 transition group-hover/conv:opacity-100 hover:text-danger"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setPendingDelete(conv);
+                                }}
+                                aria-label={`${t("common.delete")} ${conv.title}`}
+                              >
+                                <IconTrash className="size-3" />
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                ))}
               </ul>
             )}
           </nav>

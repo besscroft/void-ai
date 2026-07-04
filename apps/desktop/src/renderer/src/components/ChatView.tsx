@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat, type UIMessage } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, type FileUIPart } from "ai";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { api } from "../lib/api";
@@ -8,17 +8,27 @@ import { getChatErrorMessage } from "../lib/errors";
 import { notify } from "../lib/toast";
 import { useSettings } from "../lib/settings";
 import { useT } from "../lib/i18n";
+import { PromptSuggestions } from "./ai-elements";
 import {
   CHAT_SESSION_HEADER,
   DEFAULT_AGENT_ID,
   SettingKey,
   type LocalServerInfo,
 } from "@shared/types";
+import type { FilePartLike } from "./ai-elements";
 
 interface ChatViewProps {
   conversationId: string;
   serverInfo: LocalServerInfo;
 }
+
+/** 空态建议（用户可点击直接发送） */
+const EMPTY_STATE_SUGGESTIONS: string[] = [
+  "用一句话解释量子计算",
+  "帮我把这段代码改成 TypeScript",
+  "为团队周会写一份议程",
+  "推荐 3 本关于系统设计的好书",
+];
 
 export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.JSX.Element {
   const { t, locale } = useT();
@@ -121,16 +131,51 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
   const isLoading = chat.status === "submitted" || chat.status === "streaming";
 
-  const handleSend = (text: string): void => {
+  /**
+   * 发送消息（支持附件）
+   *
+   * 流程：
+   *  1. MessageInput 已把每个 File 读成 base64 dataURL，组装为 FileUIPart
+   *  2. 预保存用户消息到 DB（UIMessage 全量序列化，含 file parts）
+   *  3. 调用 chat.sendMessage 触发流式响应
+   */
+  const handleSend = async ({
+    text,
+    files,
+  }: {
+    text: string;
+    files: FilePartLike[];
+  }): Promise<void> => {
     if (!selectedModel) return;
     const messageId = crypto.randomUUID();
+
+    // 构造 ai-sdk FileUIPart（url 已经是 base64 dataURL，由 MessageInput 完成）
+    const finalFiles: FileUIPart[] = files.map((f, i) => ({
+      type: "file",
+      mediaType: f.mediaType ?? "application/octet-stream",
+      filename: f.filename ?? `file-${i}`,
+      url: f.url ?? f.data ?? "",
+    }));
+
     const userMessage: UIMessage = {
       id: messageId,
       role: "user",
-      parts: [{ type: "text", text }],
-    } as UIMessage;
+      // 当用户只发了文件时，parts 至少含一个空文本占位（ai-sdk 要求）
+      parts: [
+        ...(text ? [{ type: "text" as const, text }] : [{ type: "text" as const, text: "" }]),
+        ...finalFiles.map((f) => ({
+          type: "file" as const,
+          mediaType: f.mediaType,
+          filename: f.filename,
+          url: f.url,
+        })),
+      ],
+    } as unknown as UIMessage;
+
     setChatError(null);
     chat.clearError();
+
+    // 预保存到 DB（UIMessage 全量序列化，保留 file parts 便于渲染历史）
     void api.messages
       .save({
         id: messageId,
@@ -145,8 +190,15 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       .catch((err) => {
         console.error("[chat] failed to pre-save user message:", err);
       });
+
     void api.conversations.touch(conversationId);
-    void chat.sendMessage({ text, messageId });
+
+    // 触发流式响应
+    void chat.sendMessage({
+      text: text || "(附件消息)",
+      files: finalFiles,
+      messageId,
+    });
   };
 
   const handleStop = (): void => {
@@ -164,6 +216,19 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     chat.clearError();
   };
 
+  /**
+   * 处理空态建议：直接把建议文本通过 MessageInput 触发表单
+   * 这里我们只把建议文本回填到 MessageInput 的 input state
+   * 简化：把建议直接发送（更直观）
+   */
+  const handleSuggestion = (suggestion: string): void => {
+    if (!selectedModel) {
+      notify.error(t("input.noModel"));
+      return;
+    }
+    void handleSend({ text: suggestion, files: [] });
+  };
+
   if (!historyLoaded) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-foreground/40">
@@ -172,20 +237,31 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     );
   }
 
+  const isEmpty = chat.messages.length === 0 && !isLoading;
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <header className="flex shrink-0 items-center border-b border-foreground/10 px-5 py-3">
         <h1 className="text-sm font-medium text-foreground/70">{t("chat.title")}</h1>
       </header>
 
-      <MessageList
-        messages={chat.messages}
-        isLoading={isLoading}
-        error={chat.error}
-        errorDetail={chatError}
-        onRetry={handleRetry}
-        onDismissError={handleDismissError}
-      />
+      {isEmpty ? (
+        <EmptyState
+          title={t("chat.empty.title")}
+          subtitle={t("chat.empty.subtitle")}
+          suggestions={EMPTY_STATE_SUGGESTIONS}
+          onSuggestion={handleSuggestion}
+        />
+      ) : (
+        <MessageList
+          messages={chat.messages}
+          isLoading={isLoading}
+          error={chat.error}
+          errorDetail={chatError}
+          onRetry={handleRetry}
+          onDismissError={handleDismissError}
+        />
+      )}
 
       <MessageInput
         isLoading={isLoading}
@@ -218,4 +294,45 @@ async function persistMessages(
   }));
   await api.messages.saveBatch(rows);
   for (const message of toSave) savedSet.add(message.id);
+}
+
+/**
+ * 空态：欢迎语 + 智能建议
+ *
+ * 创意：在没有历史消息时，把 Composer 上方露出一段引导文案 + 建议气泡。
+ * 建议点击后直接发送，降低首次使用门槛。
+ */
+function EmptyState({
+  title,
+  subtitle,
+  suggestions,
+  onSuggestion,
+}: {
+  title: string;
+  subtitle: string;
+  suggestions: string[];
+  onSuggestion: (s: string) => void;
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-1 items-center justify-center overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-6 py-10 text-center">
+        <div
+          className="flex size-14 items-center justify-center rounded-2xl bg-accent/10 text-2xl"
+          aria-hidden
+        >
+          ✨
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold text-foreground/85">{title}</h2>
+          <p className="mx-auto max-w-md text-sm leading-relaxed text-foreground/55">{subtitle}</p>
+        </div>
+        <PromptSuggestions
+          title="试试这些问题"
+          suggestions={suggestions}
+          onSelect={onSuggestion}
+          className="mt-2"
+        />
+      </div>
+    </div>
+  );
 }

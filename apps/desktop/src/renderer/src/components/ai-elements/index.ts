@@ -27,3 +27,20 @@ export {
 export { Reasoning, ReasoningTrigger, ReasoningContent, useReasoning } from "./reasoning";
 
 export { Tool, ToolHeader, ToolContent, ToolInput, ToolOutput, type ToolState } from "./tool";
+
+/* ----- v2 创意扩展组件 ----- */
+
+export {
+  EmojiPicker,
+  DEFAULT_EMOJI_CATEGORIES,
+  type EmojiEntry,
+  type EmojiCategory,
+} from "./emoji-picker";
+
+export { AttachmentChip, type AttachmentItem } from "./attachment-chip";
+
+export { QuickReactions, DEFAULT_REACTIONS } from "./quick-reactions";
+
+export { MessageAttachments, type FilePartLike } from "./message-attachments";
+
+export { PromptSuggestions } from "./prompt-suggestions";
