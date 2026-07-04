@@ -80,6 +80,8 @@ const zhCN: Dict = {
   "settings.reset.title": "恢复默认设置",
   "settings.reset.confirm": "确定要将所有设置恢复为默认值吗？此操作不可撤销。",
   "settings.reset.done": "已恢复默认设置",
+  "settings.reset.scopeTitle": "恢复{scope}默认设置",
+  "settings.reset.scopeConfirm": "确定要将{scope}设置恢复为默认值吗？此操作不可撤销。",
 
   "conversation.delete.title": "删除会话",
   "conversation.delete.confirm":
@@ -201,6 +203,9 @@ const zhCN: Dict = {
   "toast.settings.resetting": "正在恢复默认设置...",
   "toast.settings.reset": "已恢复默认设置",
   "toast.settings.resetFailed": "恢复默认设置失败",
+  "toast.settings.resettingScope": "正在恢复{scope}默认设置...",
+  "toast.settings.resetScope": "已恢复{scope}默认设置",
+  "toast.settings.resetScopeFailed": "恢复{scope}默认设置失败",
   "toast.cache.clearing": "正在清理缓存...",
   "toast.cache.cleared": "缓存已清理",
   "toast.cache.clearFailed": "清理缓存失败",
@@ -294,6 +299,8 @@ const en: Dict = {
   "settings.reset.title": "Reset to defaults",
   "settings.reset.confirm": "Reset all settings to defaults? This cannot be undone.",
   "settings.reset.done": "Settings reset to defaults",
+  "settings.reset.scopeTitle": "Reset {scope} defaults",
+  "settings.reset.scopeConfirm": "Reset {scope} settings to defaults? This cannot be undone.",
 
   "conversation.delete.title": "Delete conversation",
   "conversation.delete.confirm":
@@ -413,6 +420,9 @@ const en: Dict = {
   "toast.settings.resetting": "Resetting settings...",
   "toast.settings.reset": "Settings reset",
   "toast.settings.resetFailed": "Failed to reset settings",
+  "toast.settings.resettingScope": "Resetting {scope} settings...",
+  "toast.settings.resetScope": "{scope} settings reset",
+  "toast.settings.resetScopeFailed": "Failed to reset {scope} settings",
   "toast.cache.clearing": "Clearing cache...",
   "toast.cache.cleared": "Cache cleared",
   "toast.cache.clearFailed": "Failed to clear cache",

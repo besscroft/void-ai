@@ -14,7 +14,7 @@ import {
 } from "@heroui/react";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
-import { useSettings } from "../lib/settings";
+import { useSettings, type SettingsResetScope } from "../lib/settings";
 import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
@@ -68,8 +68,6 @@ type TabId = "theme" | "system" | "model" | "trash";
  * │ ⚙️ 系统    │      <当前 Tab 内容>            │
  * │ 🤖 模型    │                                 │
  * │ 🔑 API Key │                                 │
- * │────────────│                                 │
- * │ ↺ 恢复默认  │                                 │
  * └────────────┴─────────────────────────────────┘
  *
  * 所有外观/模型设置即时应用并持久化（实时预览）；
@@ -79,8 +77,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   const { t } = useT();
   const { settings, update, reset } = useSettings();
   const [tab, setTab] = useState<TabId>("theme");
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [resetDone, setResetDone] = useState(false);
+  const [confirmResetScope, setConfirmResetScope] = useState<SettingsResetScope | null>(null);
+  const [resetDoneScope, setResetDoneScope] = useState<SettingsResetScope | null>(null);
 
   // ESC 关闭
   useEffect(() => {
@@ -94,16 +92,22 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
 
   if (!open) return null;
 
-  const handleReset = (): void => {
+  const resetScopeLabel = (scope: SettingsResetScope): string =>
+    scope === "theme" ? t("settings.tab.theme") : t("settings.tab.system");
+
+  const handleReset = (scope: SettingsResetScope): void => {
+    const scopeLabel = resetScopeLabel(scope);
     void notify
-      .promise(reset(), {
-        loading: t("toast.settings.resetting"),
-        success: t("toast.settings.reset"),
-        error: t("toast.settings.resetFailed"),
+      .promise(reset(scope), {
+        loading: t("toast.settings.resettingScope", { scope: scopeLabel }),
+        success: t("toast.settings.resetScope", { scope: scopeLabel }),
+        error: t("toast.settings.resetScopeFailed", { scope: scopeLabel }),
       })
       .then(() => {
-        setResetDone(true);
-        setTimeout(() => setResetDone(false), 2000);
+        setResetDoneScope(scope);
+        window.setTimeout(() => {
+          setResetDoneScope((current) => (current === scope ? null : current));
+        }, 2000);
       })
       .catch(() => undefined);
   };
@@ -166,41 +170,34 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
                 </button>
               );
             })}
-
-            {/* 恢复默认：仅侧栏模式下贴底 */}
-            <button
-              type="button"
-              className="mt-auto hidden items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground/60 transition hover:bg-danger/10 hover:text-danger md:flex"
-              onClick={() => setConfirmReset(true)}
-            >
-              <IconRotateCcw className="size-4 shrink-0" />
-              {t("settings.reset.title")}
-            </button>
           </nav>
 
           {/* 内容 */}
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            {tab === "theme" && <ThemeTab settings={settings} update={update} />}
-            {tab === "system" && <SystemTab settings={settings} update={update} />}
+            {tab === "theme" && (
+              <ThemeTab
+                settings={settings}
+                update={update}
+                onResetDefaults={() => setConfirmResetScope("theme")}
+                resetDone={resetDoneScope === "theme"}
+              />
+            )}
+            {tab === "system" && (
+              <SystemTab
+                settings={settings}
+                update={update}
+                onResetDefaults={() => setConfirmResetScope("system")}
+                resetDone={resetDoneScope === "system"}
+              />
+            )}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
             {tab === "trash" && <TrashTab />}
-
-            {/* 窄屏下的恢复默认按钮 */}
-            <div className="mt-6 border-t border-foreground/10 pt-4 md:hidden">
-              <Button variant="tertiary" size="sm" onPress={() => setConfirmReset(true)}>
-                <IconRotateCcw className="mr-1 size-3.5" />
-                {t("settings.reset.title")}
-              </Button>
-              {resetDone && (
-                <span className="ml-3 text-xs text-success">{t("settings.reset.done")}</span>
-              )}
-            </div>
           </div>
         </div>
 
         {/* 底部 */}
         <div className="flex items-center justify-between border-t border-foreground/10 px-6 py-3">
-          <span className="text-xs text-success">{resetDone ? t("settings.reset.done") : ""}</span>
+          <span aria-hidden="true" />
           <Button variant="secondary" onPress={onClose}>
             {t("common.done")}
           </Button>
@@ -209,16 +206,26 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
 
       {/* 恢复默认确认 */}
       <ConfirmDialog
-        open={confirmReset}
-        title={t("settings.reset.title")}
-        message={t("settings.reset.confirm")}
+        open={!!confirmResetScope}
+        title={
+          confirmResetScope
+            ? t("settings.reset.scopeTitle", { scope: resetScopeLabel(confirmResetScope) })
+            : t("settings.reset.title")
+        }
+        message={
+          confirmResetScope
+            ? t("settings.reset.scopeConfirm", { scope: resetScopeLabel(confirmResetScope) })
+            : ""
+        }
         danger
         confirmLabel={t("common.reset")}
         onConfirm={() => {
-          setConfirmReset(false);
-          handleReset();
+          const scope = confirmResetScope;
+          if (!scope) return;
+          setConfirmResetScope(null);
+          handleReset(scope);
         }}
-        onClose={() => setConfirmReset(false)}
+        onClose={() => setConfirmResetScope(null)}
       />
     </div>
   );
@@ -250,7 +257,30 @@ function SettingRow({
     </div>
   );
 }
+function ResettableTabHeader({
+  title,
+  onResetDefaults,
+  resetDone,
+}: {
+  title: string;
+  onResetDefaults: () => void;
+  resetDone: boolean;
+}): React.JSX.Element {
+  const { t } = useT();
 
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h3 className="text-sm font-medium text-foreground/70">{title}</h3>
+      <div className="flex items-center gap-2">
+        <Button variant="tertiary" size="sm" onPress={onResetDefaults}>
+          <IconRotateCcw className="mr-1 size-3.5" />
+          {t("settings.reset.title")}
+        </Button>
+        {resetDone && <span className="text-xs text-success">{t("settings.reset.done")}</span>}
+      </div>
+    </div>
+  );
+}
 // ============================================================
 // 主题 Tab
 // ============================================================
@@ -258,9 +288,13 @@ function SettingRow({
 function ThemeTab({
   settings,
   update,
+  onResetDefaults,
+  resetDone,
 }: {
   settings: import("@shared/types").AppSettings;
   update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
+  onResetDefaults: () => void;
+  resetDone: boolean;
 }): React.JSX.Element {
   const { t } = useT();
   const modes: { value: ThemeMode; label: string; Icon: typeof IconSun }[] = [
@@ -274,7 +308,11 @@ function ThemeTab({
 
   return (
     <section className="space-y-4">
-      <h3 className="text-sm font-medium text-foreground/70">{t("theme.section.appearance")}</h3>
+      <ResettableTabHeader
+        title={t("theme.section.appearance")}
+        onResetDefaults={onResetDefaults}
+        resetDone={resetDone}
+      />
 
       <SettingRow title={t("theme.mode")} desc={t("theme.mode.desc")}>
         <ToggleButtonGroup
@@ -416,9 +454,13 @@ function ThemeTab({
 function SystemTab({
   settings,
   update,
+  onResetDefaults,
+  resetDone,
 }: {
   settings: import("@shared/types").AppSettings;
   update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
+  onResetDefaults: () => void;
+  resetDone: boolean;
 }): React.JSX.Element {
   const { t } = useT();
   const fontLevels: FontSizeLevel[] = ["xs", "sm", "base", "lg", "xl"];
@@ -430,7 +472,11 @@ function SystemTab({
 
   return (
     <section className="space-y-4">
-      <h3 className="text-sm font-medium text-foreground/70">{t("settings.tab.system")}</h3>
+      <ResettableTabHeader
+        title={t("settings.tab.system")}
+        onResetDefaults={onResetDefaults}
+        resetDone={resetDone}
+      />
 
       <SettingRow title={t("system.fontSize")} desc={t("system.fontSize.desc")}>
         <div className="flex gap-2">

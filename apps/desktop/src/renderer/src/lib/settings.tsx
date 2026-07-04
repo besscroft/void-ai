@@ -23,7 +23,7 @@ import {
 } from "@shared/types";
 import { applyTheme, resolveSystemTheme, type ResolvedTheme } from "./theme";
 
-const RESETTABLE_KEYS: string[] = [
+const APP_SETTING_KEYS: string[] = [
   SettingKey.Theme,
   SettingKey.ThemePreset,
   SettingKey.AccentColor,
@@ -37,7 +37,22 @@ const RESETTABLE_KEYS: string[] = [
   SettingKey.CacheSizeMb,
 ];
 
-const ALL_KEYS = [...RESETTABLE_KEYS, SettingKey.ActiveConversationId];
+const ALL_KEYS = [...APP_SETTING_KEYS, SettingKey.ActiveConversationId];
+
+export type SettingsResetScope = "theme" | "system";
+
+const RESET_PATCHES: Record<SettingsResetScope, Partial<AppSettings>> = {
+  theme: {
+    theme: DEFAULT_SETTINGS.theme,
+    themePreset: DEFAULT_SETTINGS.themePreset,
+    accentColor: DEFAULT_SETTINGS.accentColor,
+  },
+  system: {
+    fontSize: DEFAULT_SETTINGS.fontSize,
+    density: DEFAULT_SETTINGS.density,
+    language: DEFAULT_SETTINGS.language,
+  },
+};
 
 function parseEnum<T extends string>(raw: string | null, allowed: readonly T[], fallback: T): T {
   return raw && (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback;
@@ -121,7 +136,7 @@ interface SettingsContextValue {
   resolvedLanguage: AppLanguage;
   resolvedTheme: ResolvedTheme;
   update: (patch: Partial<AppSettings>) => Promise<void>;
-  reset: () => Promise<void>;
+  reset: (scope: SettingsResetScope) => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -208,26 +223,14 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
     [persist],
   );
 
-  const reset = useCallback(async (): Promise<void> => {
-    const resetPatch: AppSettings = {
-      ...DEFAULT_SETTINGS,
-      selectedModel: settings.selectedModel,
-    };
-    setSettings(resetPatch);
-    const defaults: Record<string, string> = {
-      [SettingKey.Theme]: DEFAULT_SETTINGS.theme,
-      [SettingKey.ThemePreset]: DEFAULT_SETTINGS.themePreset,
-      [SettingKey.AccentColor]: DEFAULT_SETTINGS.accentColor,
-      [SettingKey.FontSize]: DEFAULT_SETTINGS.fontSize,
-      [SettingKey.LayoutDensity]: DEFAULT_SETTINGS.density,
-      [SettingKey.Language]: DEFAULT_SETTINGS.language,
-      [SettingKey.ModelTemperature]: String(DEFAULT_SETTINGS.modelTemperature),
-      [SettingKey.ModelMaxTokens]: String(DEFAULT_SETTINGS.modelMaxTokens),
-      [SettingKey.ModelTopP]: String(DEFAULT_SETTINGS.modelTopP),
-      [SettingKey.CacheSizeMb]: String(DEFAULT_SETTINGS.cacheSizeMb),
-    };
-    await Promise.all(Object.entries(defaults).map(([k, v]) => api.settings.set(k, v)));
-  }, [settings.selectedModel]);
+  const reset = useCallback(
+    async (scope: SettingsResetScope): Promise<void> => {
+      const patch = RESET_PATCHES[scope];
+      setSettings((prev) => ({ ...prev, ...patch }));
+      await persist(patch);
+    },
+    [persist],
+  );
 
   const value = useMemo<SettingsContextValue>(
     () => ({
