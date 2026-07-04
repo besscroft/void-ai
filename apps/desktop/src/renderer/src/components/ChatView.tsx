@@ -103,8 +103,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     id: conversationId,
     messages: initialMessages,
     transport,
-    onFinish: ({ messages }) => {
-      setChatError(null);
+    onFinish: ({ messages, isError }) => {
+      if (!isError) setChatError(null);
       void persistMessagesSnapshot(conversationId, messages, createdAtRef.current);
       void api.conversations.touch(conversationId);
     },
@@ -158,14 +158,14 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     );
     void api.conversations.touch(conversationId);
 
-    const trimmedText = text.trim();
-    void (trimmedText
-      ? chat.sendMessage({
-          text: trimmedText,
-          files: finalFiles.length > 0 ? finalFiles : undefined,
-          messageId,
-        })
-      : chat.sendMessage({ files: finalFiles, messageId }));
+    void chat.sendMessage(userMessage).catch((err) => {
+      const detail = getChatErrorMessage(err, locale);
+      setChatError(detail);
+      console.error("[chat] failed to send message:", err);
+      void persistMessagesSnapshot(conversationId, pendingMessages, createdAtRef.current);
+      void api.conversations.touch(conversationId);
+      notify.error(t("toast.chat.failed"), detail);
+    });
   };
 
   const handleStop = (): void => {

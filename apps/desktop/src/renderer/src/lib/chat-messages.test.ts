@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { UIMessage } from "ai";
+import { Chat } from "@ai-sdk/react";
+import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import type { MessageRow } from "@shared/types";
 import {
   appendOrReplaceMessage,
@@ -131,4 +132,62 @@ void describe("chat message helpers", () => {
 
     assert.deepEqual(appendOrReplaceMessage([oldMessage], newMessage), [newMessage]);
   });
+
+  void it("documents that AI SDK messageId replaces an existing user message", async () => {
+    let sendCalled = false;
+    const chat = new Chat<UIMessage>({
+      transport: {
+        sendMessages: async () => {
+          sendCalled = true;
+          return createFinishedStream();
+        },
+        reconnectToStream: async () => null,
+      },
+    });
+
+    await assert.rejects(
+      () => chat.sendMessage({ text: "Hello", messageId: "u-new" }),
+      /message with id u-new not found/,
+    );
+    assert.equal(sendCalled, false);
+  });
+
+  void it("sends fixed-id UIMessage instances as new user messages", async () => {
+    const sentBatches: UIMessage[][] = [];
+    const chat = new Chat<UIMessage>({
+      transport: createCapturingTransport((messages) => sentBatches.push(messages)),
+    });
+    const message = buildUserMessage({ id: "u-fixed", text: "  Hello  ", files: [] });
+
+    await chat.sendMessage(message);
+
+    assert.equal(sentBatches.length, 1);
+    assert.deepEqual(stripMetadata(sentBatches[0]), [message]);
+    assert.deepEqual(stripMetadata(chat.messages), [message]);
+  });
 });
+
+function stripMetadata(messages: UIMessage[]): UIMessage[] {
+  return messages.map(({ metadata: _metadata, ...message }) => message);
+}
+
+function createCapturingTransport(
+  onSend: (messages: UIMessage[]) => void,
+): ChatTransport<UIMessage> {
+  return {
+    sendMessages: async ({ messages }) => {
+      onSend(messages);
+      return createFinishedStream();
+    },
+    reconnectToStream: async () => null,
+  };
+}
+
+function createFinishedStream(): ReadableStream<UIMessageChunk> {
+  return new ReadableStream<UIMessageChunk>({
+    start(controller) {
+      controller.enqueue({ type: "finish", finishReason: "stop" });
+      controller.close();
+    },
+  });
+}
