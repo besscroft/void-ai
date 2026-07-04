@@ -428,18 +428,34 @@ export interface FontPreset {
 }
 
 export const FONT_PRESETS: FontPreset[] = [
-  { id: "system", label: "System UI", value: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" },
-  { id: "sans", label: "Inter / 思源黑体", value: "'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif" },
+  {
+    id: "system",
+    label: "System UI",
+    value: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+  },
+  {
+    id: "sans",
+    label: "Inter / 思源黑体",
+    value: "'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+  },
   { id: "rounded", label: "Rounded", value: "'Nunito', 'Quicksand', system-ui, sans-serif" },
   { id: "serif", label: "Serif", value: "'Source Serif Pro', 'Noto Serif SC', Georgia, serif" },
   { id: "mono", label: "Mono", value: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace" },
 ];
 
 export const MONO_FONT_PRESETS: FontPreset[] = [
-  { id: "system-mono", label: "System Mono", value: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace" },
+  {
+    id: "system-mono",
+    label: "System Mono",
+    value: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+  },
   { id: "jetbrains", label: "JetBrains Mono", value: "'JetBrains Mono', ui-monospace, monospace" },
   { id: "fira", label: "Fira Code", value: "'Fira Code', ui-monospace, monospace" },
-  { id: "cascadia", label: "Cascadia Code", value: "'Cascadia Code', 'Cascadia Mono', ui-monospace, monospace" },
+  {
+    id: "cascadia",
+    label: "Cascadia Code",
+    value: "'Cascadia Code', 'Cascadia Mono', ui-monospace, monospace",
+  },
   { id: "menlo", label: "Menlo / Consolas", value: "Menlo, Consolas, 'Courier New', monospace" },
 ];
 

@@ -349,27 +349,18 @@ function ThemeModePreviewCard({
       ].join(" ")}
     >
       <div className="flex h-20 w-full overflow-hidden rounded-md border border-foreground/10">
-        <div
-          className="flex-1 p-2"
-          style={{ backgroundColor: swatchLight }}
-          aria-hidden="true"
-        >
+        <div className="flex-1 p-2" style={{ backgroundColor: swatchLight }} aria-hidden="true">
           <PreviewSkeleton tone="light" />
         </div>
-        <div
-          className="flex-1 p-2"
-          style={{ backgroundColor: swatchDark }}
-          aria-hidden="true"
-        >
+        <div className="flex-1 p-2" style={{ backgroundColor: swatchDark }} aria-hidden="true">
           <PreviewSkeleton tone="dark" />
         </div>
       </div>
       <div className="flex items-center justify-between px-1 pb-1">
         <span
-          className={[
-            "text-sm font-medium",
-            active ? "text-accent" : "text-foreground/80",
-          ].join(" ")}
+          className={["text-sm font-medium", active ? "text-accent" : "text-foreground/80"].join(
+            " ",
+          )}
         >
           {label}
         </span>
@@ -548,9 +539,7 @@ function AppearanceTab({
               aria-label={t("appearance.accent.custom")}
             />
             <span className="font-mono text-xs text-foreground/40">
-              {settings.accentColor === "theme"
-                ? t("appearance.accent.theme")
-                : customAccentHex}
+              {settings.accentColor === "theme" ? t("appearance.accent.theme") : customAccentHex}
             </span>
           </div>
         </SettingSection>
@@ -624,13 +613,7 @@ function AppearanceTab({
               selectedKeys={[settings.fontSize]}
               onSelectionChange={(keys) => {
                 const v = Array.from(keys)[0];
-                if (
-                  v === "xs" ||
-                  v === "sm" ||
-                  v === "base" ||
-                  v === "lg" ||
-                  v === "xl"
-                ) {
+                if (v === "xs" || v === "sm" || v === "base" || v === "lg" || v === "xl") {
                   void update({ fontSize: v });
                 }
               }}
@@ -916,10 +899,7 @@ function FontFieldRow({
       />
       {value && (
         <div className="flex items-center justify-between text-xs text-foreground/50">
-          <span
-            className="truncate"
-            style={{ fontFamily: value, fontSize: "14px" }}
-          >
+          <span className="truncate" style={{ fontFamily: value, fontSize: "14px" }}>
             The quick brown fox jumps over the lazy dog · 敏捷的棕色狐狸
           </span>
           <button

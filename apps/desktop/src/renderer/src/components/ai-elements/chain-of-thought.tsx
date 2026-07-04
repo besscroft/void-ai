@@ -1,0 +1,321 @@
+/**
+ * AI Elements - ChainOfThought 组件
+ *
+ * 源码参考：https://elements.ai-sdk.dev/components/chain-of-thought
+ *
+ * 设计目标：
+ *  - 思维链容器：用于展示 AI 推理的多个步骤
+ *  - 步骤（Step）：每个步骤可展示标题、状态、内容
+ *  - 搜索结果（SearchResult）：引用外部信息时的搜索条目
+ *  - 图片（Image）：推理过程中引用的图片
+ *  - 自动默认展开但可折叠，整体风格与项目一致
+ *
+ * 用法：
+ *   <ChainOfThought>
+ *     <ChainOfThoughtStep
+ *       icon="search" | "image" | "think" | "default"
+ *       label="搜索资料"
+ *       status="complete" | "active" | "pending"
+ *     >
+ *       <ChainOfThoughtSearchResults>
+ *         <ChainOfThoughtSearchResult>...</ChainOfThoughtSearchResult>
+ *       </ChainOfThoughtSearchResults>
+ *     </ChainOfThoughtStep>
+ *   </ChainOfThought>
+ */
+import { type DetailsHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { cn } from "../../lib/utils";
+import {
+  IconBrain,
+  IconChevronDown,
+  IconCircleCheck,
+  IconCircleDashed,
+  IconImage,
+  IconLink,
+  IconSearch,
+  IconSparkles,
+  IconWrench,
+} from "../icons";
+
+/* ---------- 类型定义 ---------- */
+
+/** 步骤状态 */
+export type ChainStepStatus = "complete" | "active" | "pending";
+
+/** 步骤图标类别 */
+export type ChainStepIcon = "default" | "search" | "image" | "think" | "tool" | "sparkles";
+
+/* ---------- 容器 ChainOfThought ---------- */
+
+interface ChainOfThoughtProps extends Omit<DetailsHTMLAttributes<HTMLDetailsElement>, "title"> {
+  /** 容器标题 */
+  title?: ReactNode;
+  /** 默认是否展开 */
+  defaultOpen?: boolean;
+  /** 受控展开 */
+  open?: boolean;
+  children?: ReactNode;
+}
+
+/**
+ * 思维链容器
+ *  - 视觉：圆角边框 + 浅色背景，左侧带图标
+ *  - 交互：details/summary 原生折叠
+ *  - 步骤用 <ol> 渲染，自带序号
+ */
+export function ChainOfThought({
+  title = "Chain of Thought",
+  defaultOpen = true,
+  open,
+  className,
+  children,
+  ...rest
+}: ChainOfThoughtProps): React.JSX.Element {
+  return (
+    <details
+      data-slot="chain-of-thought"
+      open={open ?? defaultOpen}
+      className={cn(
+        "group/cot rounded-2xl border border-foreground/10 bg-foreground/[0.025]",
+        "overflow-hidden",
+        className,
+      )}
+      {...rest}
+    >
+      <summary
+        data-slot="chain-of-thought-trigger"
+        className={cn(
+          "flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-xs font-medium",
+          "[&::-webkit-details-marker]:hidden",
+          "hover:bg-foreground/[0.04]",
+        )}
+      >
+        <span className="flex size-6 items-center justify-center rounded-md bg-accent/12 text-accent">
+          <IconBrain className="size-3.5" />
+        </span>
+        <span className="flex-1 truncate text-foreground/80">{title}</span>
+        <IconChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-foreground/45 transition-transform",
+            "group-open/cot:rotate-180",
+          )}
+        />
+      </summary>
+      <ol
+        data-slot="chain-of-thought-content"
+        className="relative space-y-1.5 border-t border-foreground/10 px-2 py-2.5 text-xs"
+      >
+        {children}
+      </ol>
+    </details>
+  );
+}
+
+/* ---------- 步骤 ChainOfThoughtStep ---------- */
+
+interface ChainOfThoughtStepProps extends Omit<HTMLAttributes<HTMLLIElement>, "title"> {
+  icon?: ChainStepIcon;
+  label: ReactNode;
+  description?: ReactNode;
+  status?: ChainStepStatus;
+  children?: ReactNode;
+}
+
+const ICON_MAP: Record<ChainStepIcon, typeof IconBrain> = {
+  default: IconCircleDashed,
+  search: IconSearch,
+  image: IconImage,
+  think: IconBrain,
+  tool: IconWrench,
+  sparkles: IconSparkles,
+};
+
+/**
+ * 思维链单个步骤
+ *  - 视觉：左侧图标 + 序号（圆点），中间标签/描述
+ *  - 状态：complete 绿色勾，active 蓝色旋转，pending 灰色虚线
+ */
+export function ChainOfThoughtStep({
+  icon = "default",
+  label,
+  description,
+  status = "complete",
+  className,
+  children,
+  ...rest
+}: ChainOfThoughtStepProps): React.JSX.Element {
+  const Icon = ICON_MAP[icon];
+
+  return (
+    <li
+      data-slot="chain-of-thought-step"
+      data-status={status}
+      className={cn(
+        "group/step relative flex flex-col gap-1.5 rounded-lg px-2 py-1.5 transition",
+        "hover:bg-foreground/[0.035]",
+        className,
+      )}
+      {...rest}
+    >
+      <div className="flex items-start gap-2">
+        <div
+          className={cn(
+            "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border",
+            status === "complete" && "border-success/30 bg-success/10 text-success",
+            status === "active" && "border-accent/40 bg-accent/12 text-accent",
+            status === "pending" && "border-foreground/15 bg-foreground/[0.05] text-foreground/45",
+          )}
+        >
+          {status === "complete" ? (
+            <IconCircleCheck className="size-3" />
+          ) : status === "active" ? (
+            <Icon className="size-3 animate-pulse" />
+          ) : (
+            <Icon className="size-3" />
+          )}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <p className="truncate text-[12px] font-medium text-foreground/85">{label}</p>
+          {description ? (
+            <p className="text-[11px] leading-relaxed text-foreground/55">{description}</p>
+          ) : null}
+        </div>
+      </div>
+      {children ? <div className="ml-7 mt-0.5 space-y-1.5">{children}</div> : null}
+    </li>
+  );
+}
+
+/* ---------- 搜索结果容器 ---------- */
+
+interface ChainOfThoughtSearchResultsProps extends HTMLAttributes<HTMLDivElement> {
+  children?: ReactNode;
+}
+
+/** 搜索结果列表容器 */
+export function ChainOfThoughtSearchResults({
+  className,
+  children,
+  ...rest
+}: ChainOfThoughtSearchResultsProps): React.JSX.Element {
+  return (
+    <div
+      data-slot="chain-of-thought-search-results"
+      className={cn("flex flex-col gap-1", className)}
+      {...rest}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* ---------- 单个搜索结果 ---------- */
+
+interface ChainOfThoughtSearchResultProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+  /** 搜索结果 URL（可选；不传则为纯文本） */
+  href?: string;
+  /** 结果标题 */
+  title?: ReactNode;
+  /** 结果描述/摘要 */
+  description?: ReactNode;
+  children?: ReactNode;
+}
+
+/** 搜索结果条目（带链接图标的卡片） */
+export function ChainOfThoughtSearchResult({
+  href,
+  title,
+  description,
+  className,
+  children,
+  ...rest
+}: ChainOfThoughtSearchResultProps): React.JSX.Element {
+  const content = (
+    <>
+      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md bg-foreground/[0.06] text-foreground/55">
+        <IconLink className="size-3" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        {title ? (
+          <p className="truncate text-[12px] font-medium text-foreground/80">{title}</p>
+        ) : null}
+        {description ? (
+          <p className="line-clamp-2 text-[11px] leading-relaxed text-foreground/50">
+            {description}
+          </p>
+        ) : null}
+        {children}
+      </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <a
+        data-slot="chain-of-thought-search-result"
+        href={href}
+        target="_blank"
+        rel="noreferrer noopener"
+        className={cn(
+          "flex items-start gap-2 rounded-md border border-foreground/10 bg-background/60 px-2 py-1.5",
+          "transition hover:border-accent/35 hover:bg-accent/5",
+          className,
+        )}
+      >
+        {content}
+      </a>
+    );
+  }
+  return (
+    <div
+      data-slot="chain-of-thought-search-result"
+      className={cn(
+        "flex items-start gap-2 rounded-md border border-foreground/10 bg-background/60 px-2 py-1.5",
+        className,
+      )}
+      {...rest}
+    >
+      {content}
+    </div>
+  );
+}
+
+/* ---------- 图片 ChainOfThoughtImage ---------- */
+
+interface ChainOfThoughtImageProps extends HTMLAttributes<HTMLDivElement> {
+  src: string;
+  alt?: string;
+  caption?: ReactNode;
+}
+
+/** 推理过程中引用的图片（带说明文字） */
+export function ChainOfThoughtImage({
+  src,
+  alt,
+  caption,
+  className,
+  ...rest
+}: ChainOfThoughtImageProps): React.JSX.Element {
+  return (
+    <figure
+      data-slot="chain-of-thought-image"
+      className={cn(
+        "overflow-hidden rounded-md border border-foreground/10 bg-background/60",
+        className,
+      )}
+      {...rest}
+    >
+      <img
+        src={src}
+        alt={alt ?? ""}
+        loading="lazy"
+        className="block max-h-48 w-full object-cover"
+      />
+      {caption ? (
+        <figcaption className="border-t border-foreground/10 px-2 py-1 text-[10.5px] text-foreground/55">
+          {caption}
+        </figcaption>
+      ) : null}
+    </figure>
+  );
+}

@@ -44,3 +44,26 @@ export { QuickReactions, DEFAULT_REACTIONS } from "./quick-reactions";
 export { MessageAttachments, type FilePartLike } from "./message-attachments";
 
 export { PromptSuggestions } from "./prompt-suggestions";
+
+/* ----- v3 新增：对话操作与高级组件 ----- */
+
+export {
+  ChainOfThought,
+  ChainOfThoughtStep,
+  ChainOfThoughtSearchResults,
+  ChainOfThoughtSearchResult,
+  ChainOfThoughtImage,
+  type ChainStepStatus,
+  type ChainStepIcon,
+} from "./chain-of-thought";
+
+export { Context, estimateTokens, type ContextMetrics } from "./context";
+
+export { Queue, QueueSection, QueueList, QueueItem, type QueueItemStatus } from "./queue";
+
+export { Task, TaskTrigger, TaskContent, TaskItem, TaskSection, type TaskItemStatus } from "./task";
+
+export { ConversationStatus, type ConversationStatusKind } from "./conversation-status";
+
+export { MessageActions } from "./message-actions";
+export { EditableMessage } from "./editable-message";

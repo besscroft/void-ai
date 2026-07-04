@@ -128,8 +128,14 @@ export function parseSettings(map: Record<string, string | null>): AppSettings {
       accentRaw.startsWith("#"))
       ? accentRaw
       : DEFAULT_SETTINGS.accentColor;
-  const backgroundColor = isValidColor(map[SettingKey.BackgroundColor], DEFAULT_SETTINGS.backgroundColor);
-  const foregroundColor = isValidColor(map[SettingKey.ForegroundColor], DEFAULT_SETTINGS.foregroundColor);
+  const backgroundColor = isValidColor(
+    map[SettingKey.BackgroundColor],
+    DEFAULT_SETTINGS.backgroundColor,
+  );
+  const foregroundColor = isValidColor(
+    map[SettingKey.ForegroundColor],
+    DEFAULT_SETTINGS.foregroundColor,
+  );
   const fontFamily = (map[SettingKey.FontFamily] ?? "").slice(0, 500);
   const monoFontFamily = (map[SettingKey.MonoFontFamily] ?? "").slice(0, 500);
   const translucentSidebar = parseBool(
@@ -283,7 +289,9 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
     if (patch.monoFontFamily !== undefined)
       writes.push(api.settings.set(SettingKey.MonoFontFamily, patch.monoFontFamily));
     if (patch.translucentSidebar !== undefined)
-      writes.push(api.settings.set(SettingKey.TranslucentSidebar, String(patch.translucentSidebar)));
+      writes.push(
+        api.settings.set(SettingKey.TranslucentSidebar, String(patch.translucentSidebar)),
+      );
     if (patch.contrast !== undefined)
       writes.push(api.settings.set(SettingKey.Contrast, String(patch.contrast)));
     if (patch.usePointerCursor !== undefined)

@@ -5,6 +5,7 @@ import { serve } from "@hono/node-server";
 import {
   convertToModelMessages,
   createUIMessageStreamResponse,
+  generateText,
   streamText,
   toUIMessageStream,
   type LanguageModel,
@@ -130,6 +131,74 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     }
   });
 
+  /**
+   * POST /api/title
+   *
+   * 用 LLM 给一段对话起一个简短的标题
+   *  - 入参：{ model, messages: UIMessage[] }
+   *  - 出参：{ title: string }
+   *
+   * 使用非流式 generateText，温度 0.4 偏向稳定。
+   * 标题清洗：去除前后空白、引号、换行，长度上限 40 字。
+   */
+  app.post("/api/title", async (c) => {
+    if (!isAuthorized(c, token)) {
+      return c.json({ error: "Unauthorized chat session" }, 401);
+    }
+
+    const body = (await c.req.json()) as {
+      messages?: UIMessage[];
+      model?: string;
+    };
+
+    if (!body.messages?.length) {
+      return c.json({ error: "messages cannot be empty" }, 400);
+    }
+    if (!body.model) {
+      return c.json({ error: "model is required in provider/model format" }, 400);
+    }
+
+    try {
+      const resolveModel = options.resolveModel ?? (await import("../lib/providers")).resolveModel;
+      const resolved = resolveModel(body.model);
+
+      // 取前 2 轮（user + assistant）作为标题生成上下文，避免长对话打爆 prompt
+      const excerpt = body.messages.slice(0, 4);
+      const promptText = excerpt
+        .map((m) => {
+          const text = (m.parts ?? [])
+            .filter((p) => p.type === "text")
+            .map((p) => (p as { text: string }).text)
+            .join(" ")
+            .trim();
+          return `${m.role === "user" ? "用户" : "助手"}：${text}`;
+        })
+        .filter((line) => line.length > 2)
+        .join("\n");
+
+      const result = await generateText({
+        model: resolved.model,
+        system:
+          "你是一名对话标题生成助手。根据用户与助手的一两轮对话，生成一个不超过 20 个汉字（或 8 个英文单词）的简洁标题。" +
+          "要求：1) 直接给出标题文本，不要加引号、不要加前缀；2) 反映对话核心主题；3) 使用对话使用的语言；" +
+          "4) 只输出标题本身，不要解释。",
+        prompt: promptText,
+        temperature: 0.4,
+        maxOutputTokens: 64,
+      });
+
+      const title = sanitizeTitle(result.text);
+      if (!title) {
+        return c.json({ error: "Empty title from model" }, 500);
+      }
+      return c.json({ title });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[server] /api/title failed:", message);
+      return c.json({ error: message }, 500);
+    }
+  });
+
   return app;
 }
 
@@ -204,4 +273,22 @@ export function getServerPort(): number {
 
 export function getServerInfo(): LocalServerInfo {
   return { port: assignedPort, token: sessionToken };
+}
+
+/**
+ * 清洗模型返回的标题：
+ *  - 去除前后空白
+ *  - 去掉成对引号 / 书名号 / 反引号
+ *  - 折叠换行
+ *  - 截断到 40 字
+ */
+function sanitizeTitle(raw: string): string {
+  let text = raw.trim();
+  // 去掉成对包裹的引号
+  text = text.replace(/^["'`"「」『』《》]+|["'`"「」『』《》]+$/g, "");
+  // 折叠多行
+  text = text.replace(/\s*\n+\s*/g, " ");
+  // 截断到 40 字
+  if (text.length > 40) text = text.slice(0, 40);
+  return text.trim();
 }

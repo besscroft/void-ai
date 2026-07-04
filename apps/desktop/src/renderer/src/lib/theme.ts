@@ -55,11 +55,7 @@ export function applyAccent(accent: string): void {
 }
 
 /** 应用自定义背景/前景色；空字符串清除自定义值 */
-export function applyCustomColors(
-  background: string,
-  foreground: string,
-  contrast: number,
-): void {
+export function applyCustomColors(background: string, foreground: string, contrast: number): void {
   const root = document.documentElement;
   // 对比度 0~100 映射到强调色明度微调
   // 50 = 不变；>50 提亮；<50 压暗

@@ -1,25 +1,46 @@
+/**
+ * 消息列表
+ *
+ * 负责：
+ *  - 渲染消息气泡、reasoning（思维链）、tool、source、附件
+ *  - 提供每条消息的 hover 动作条：复制 / 编辑 / 重新发送 / 删除
+ *  - 编辑态：把消息气泡替换为 EditableMessage
+ *  - 错误展示与重试
+ *
+ * 与 ChatView 的契约：
+ *  - onEditMessage(messageId, newText)  把指定 user 消息改为 newText，
+ *    并触发后续 assistant 的重新生成
+ *  - onResendMessage(messageId)  从该 user 消息开始重新生成
+ *  - onDeleteMessage(messageId)  删除该消息；如果删的是 user 消息，
+ *    紧跟其后的 assistant 消息也会被一并删除（保持角色交替）
+ */
 import { Fragment, useState, type ReactNode } from "react";
 import type { UIMessage } from "ai";
 import {
+  ChainOfThought,
+  ChainOfThoughtImage,
+  ChainOfThoughtSearchResult,
+  ChainOfThoughtSearchResults,
+  ChainOfThoughtStep,
   Conversation,
   ConversationContent,
   ConversationEmptyState,
   ConversationScrollButton,
+  EditableMessage,
   Message,
+  MessageActions,
+  MessageAttachments,
   MessageContent,
   MessageResponse,
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
+  PromptSuggestions,
+  QuickReactions,
   Tool,
   ToolContent,
   ToolHeader,
   ToolInput,
   ToolOutput,
-  type ToolState,
-  QuickReactions,
-  MessageAttachments,
   type FilePartLike,
+  type ToolState,
 } from "./ai-elements";
 import { useT } from "../lib/i18n";
 import { notify } from "../lib/toast";
@@ -30,8 +51,18 @@ interface MessageListProps {
   isLoading: boolean;
   error?: Error;
   errorDetail?: string | null;
+  /** 后备建议（empty 状态） */
+  emptySuggestions?: string[];
   onRetry?: () => void;
   onDismissError?: () => void;
+  /** 用户消息编辑回调：编辑后重新发送 */
+  onEditMessage?: (messageId: string, newText: string) => Promise<void> | void;
+  /** 用户消息重新发送回调 */
+  onResendMessage?: (messageId: string) => Promise<void> | void;
+  /** 消息删除回调 */
+  onDeleteMessage?: (messageId: string) => void;
+  /** 建议被点击时 */
+  onSuggestion?: (prompt: string) => void;
 }
 
 type MessagePart = UIMessage["parts"][number];
@@ -53,8 +84,13 @@ export function MessageList({
   isLoading,
   error,
   errorDetail,
+  emptySuggestions,
   onRetry,
   onDismissError,
+  onEditMessage,
+  onResendMessage,
+  onDeleteMessage,
+  onSuggestion,
 }: MessageListProps): React.JSX.Element {
   const { t } = useT();
 
@@ -62,7 +98,21 @@ export function MessageList({
     return (
       <Conversation>
         <ConversationContent>
-          <ConversationEmptyState title={t("msg.empty.title")} description={t("msg.empty.desc")} />
+          {emptySuggestions && emptySuggestions.length > 0 && onSuggestion ? (
+            <ConversationEmptyState title={t("msg.empty.title")} description={t("msg.empty.desc")}>
+              <PromptSuggestions
+                title="Try one of these"
+                suggestions={emptySuggestions}
+                onSelect={onSuggestion}
+                className="mt-4 w-full"
+              />
+            </ConversationEmptyState>
+          ) : (
+            <ConversationEmptyState
+              title={t("msg.empty.title")}
+              description={t("msg.empty.desc")}
+            />
+          )}
         </ConversationContent>
       </Conversation>
     );
@@ -78,7 +128,9 @@ export function MessageList({
                 message={message}
                 isLastMessage={index === messages.length - 1}
                 isStreaming={isLoading}
-                onReact={handleReaction}
+                onEdit={onEditMessage}
+                onResend={onResendMessage}
+                onDelete={onDeleteMessage}
               />
             </MessageContent>
           </Message>
@@ -116,21 +168,31 @@ export function MessageList({
   );
 }
 
+/* ---------- 单条消息 ---------- */
+
 interface MessagePartsProps {
   message: UIMessage;
   isLastMessage: boolean;
   isStreaming: boolean;
-  onReact: (emoji: string) => void;
+  onEdit?: (messageId: string, newText: string) => Promise<void> | void;
+  onResend?: (messageId: string) => Promise<void> | void;
+  onDelete?: (messageId: string) => void;
 }
 
 function MessageParts({
   message,
   isLastMessage,
   isStreaming,
-  onReact,
+  onEdit,
+  onResend,
+  onDelete,
 }: MessagePartsProps): React.JSX.Element {
   const { t } = useT();
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
   const parts = message.parts ?? [];
   const messageStreaming = isLastMessage && isStreaming;
   const reasoningParts = parts.filter(isReasoningPart);
@@ -139,9 +201,14 @@ function MessageParts({
   const isReasoningStreaming = messageStreaming && lastPart?.type === "reasoning";
   const fileParts = parts.filter(isAttachmentPart) as unknown as FilePartLike[];
   const sourceParts = parts.filter(isSourcePart);
+  const imageParts = fileParts.filter((p) => (p.mediaType ?? "").startsWith("image/"));
   const textParts = parts.filter(isTextPart).map((part) => part.text);
   const fullText = textParts.join("\n\n");
+  const isUser = message.role === "user";
+  // 是否允许 hover 动作（仅在非流式中）
+  const actionsEnabled = !messageStreaming;
 
+  /* ---------- 复制 ---------- */
   const handleCopy = async (): Promise<void> => {
     if (!fullText) return;
     try {
@@ -154,30 +221,148 @@ function MessageParts({
     }
   };
 
+  /* ---------- 进入编辑态 ---------- */
+  const startEdit = (): void => {
+    if (isUser) {
+      setEditValue(fullText);
+      setEditing(true);
+    }
+  };
+
+  const cancelEdit = (): void => {
+    setEditing(false);
+    setEditValue("");
+  };
+
+  /* ---------- 保存编辑：调用 onEdit 回调 ---------- */
+  const handleEditSave = async (): Promise<void> => {
+    if (!onEdit) return;
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed === fullText) {
+      cancelEdit();
+      return;
+    }
+    setSaving(true);
+    try {
+      await onEdit(message.id, trimmed);
+      setEditing(false);
+      setEditValue("");
+    } catch (err) {
+      console.error("[chat] edit failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /* ---------- 重新发送：仅 user 消息 ---------- */
+  const handleResend = async (): Promise<void> => {
+    if (!onResend || !isUser) return;
+    try {
+      await onResend(message.id);
+    } catch (err) {
+      console.error("[chat] resend failed:", err);
+    }
+  };
+
+  /* ---------- 删除：user 同时删除紧跟其后的 assistant ---------- */
+  const handleDelete = (): void => {
+    if (!onDelete) return;
+    onDelete(message.id);
+  };
+
+  /* ---------- 编辑态：完全替换渲染 ---------- */
+  if (editing && isUser) {
+    return (
+      <div className="group/msg relative w-full">
+        <EditableMessage
+          value={editValue}
+          onChange={setEditValue}
+          onSave={handleEditSave}
+          onCancel={cancelEdit}
+          isSaving={saving}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="group/msg relative w-full">
-      {reasoningParts.length > 0 && (
-        <Reasoning isStreaming={isReasoningStreaming} defaultOpen={isReasoningStreaming}>
-          <ReasoningTrigger />
-          <ReasoningContent>{reasoningText}</ReasoningContent>
-        </Reasoning>
+      {/* 思维链：把 reasoning、搜索结果、图片整合到 ChainOfThought 中 */}
+      {(reasoningParts.length > 0 || sourceParts.length > 0 || imageParts.length > 0) && (
+        <ChainOfThought
+          defaultOpen={isReasoningStreaming}
+          title={isReasoningStreaming ? "Reasoning..." : "Reasoning"}
+        >
+          {reasoningParts.length > 0 ? (
+            <ChainOfThoughtStep
+              icon="think"
+              status={isReasoningStreaming ? "active" : "complete"}
+              label={isReasoningStreaming ? "Thinking..." : "Reasoned"}
+              description={reasoningText ? `${reasoningText.length} chars` : undefined}
+            />
+          ) : null}
+
+          {sourceParts.length > 0 ? (
+            <ChainOfThoughtStep
+              icon="search"
+              status="complete"
+              label={`Searched ${sourceParts.length} source${sourceParts.length > 1 ? "s" : ""}`}
+            >
+              <ChainOfThoughtSearchResults>
+                {sourceParts.map((source) => {
+                  const label =
+                    source.type === "source-url" ? source.title || source.url : source.title;
+                  const key = source.type + "-" + source.sourceId;
+                  return (
+                    <ChainOfThoughtSearchResult
+                      key={key}
+                      href={source.type === "source-url" ? source.url : undefined}
+                      title={label}
+                      description={source.type === "source-url" ? source.url : "Document"}
+                    />
+                  );
+                })}
+              </ChainOfThoughtSearchResults>
+            </ChainOfThoughtStep>
+          ) : null}
+
+          {imageParts.length > 0 ? (
+            <ChainOfThoughtStep
+              icon="image"
+              status="complete"
+              label={`Processed ${imageParts.length} image${imageParts.length > 1 ? "s" : ""}`}
+            >
+              <div className="grid grid-cols-2 gap-1.5">
+                {imageParts.map((p, i) => (
+                  <ChainOfThoughtImage
+                    key={i}
+                    src={p.url || p.data || ""}
+                    alt={p.filename || "image"}
+                  />
+                ))}
+              </div>
+            </ChainOfThoughtStep>
+          ) : null}
+        </ChainOfThought>
       )}
 
       {fileParts.length > 0 && <MessageAttachments parts={fileParts} />}
-      {sourceParts.length > 0 && <SourceList sources={sourceParts} />}
 
       {parts.map((part, index) => {
         const key = message.id + "-" + index;
         if (
           part.type === "reasoning" ||
           part.type === "reasoning-file" ||
-          part.type === "file" ||
           part.type === "source-url" ||
           part.type === "source-document" ||
           part.type === "step-start" ||
           part.type === "custom" ||
           part.type.startsWith("data-")
         ) {
+          return <Fragment key={key} />;
+        }
+
+        if (part.type === "file") {
           return <Fragment key={key} />;
         }
 
@@ -206,61 +391,38 @@ function MessageParts({
         return <Fragment key={key} />;
       })}
 
-      {message.role === "assistant" && fullText && !messageStreaming && (
-        <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover/msg:opacity-100 group-focus-within/msg:opacity-100">
-          <button
-            type="button"
-            onClick={handleCopy}
-            aria-label={t("msg.copy")}
-            title={t("msg.copy")}
-            className="flex size-6 items-center justify-center rounded text-foreground/40 transition hover:bg-foreground/10 hover:text-foreground"
-          >
-            <IconCopy className="size-3" />
-          </button>
-          {copyState === "copied" && (
-            <span className="text-[10px] text-success">{t("msg.copied")}</span>
-          )}
-        </div>
+      {/* hover 动作条 */}
+      {actionsEnabled && fullText && (
+        <MessageActions
+          placement={isUser ? "left" : "right"}
+          onCopy={handleCopy}
+          onEdit={isUser && onEdit ? startEdit : undefined}
+          onResend={isUser && onResend ? handleResend : undefined}
+          onDelete={onDelete ? handleDelete : undefined}
+        />
+      )}
+
+      {message.role === "assistant" && !messageStreaming && copyState === "copied" && (
+        <span className="mt-1 inline-flex items-center gap-1 text-[10px] text-success">
+          <IconCopy className="size-2.5" />
+          {t("msg.copied")}
+        </span>
       )}
 
       {message.role === "assistant" && !messageStreaming && (
-        <QuickReactions onReact={onReact} placement="top-right" />
+        <QuickReactions
+          onReact={(emoji) => {
+            console.log("[chat] reaction:", emoji);
+            notify.success(emoji);
+          }}
+          placement="top-right"
+        />
       )}
     </div>
   );
 }
 
-function SourceList({ sources }: { sources: SourcePart[] }): React.JSX.Element {
-  return (
-    <div className="mb-2 flex flex-wrap gap-1.5 text-xs">
-      {sources.map((source) => {
-        const label = source.type === "source-url" ? source.title || source.url : source.title;
-        const key = source.type + "-" + source.sourceId;
-        if (source.type === "source-url") {
-          return (
-            <a
-              key={key}
-              href={source.url}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-foreground/70 underline-offset-2 hover:underline"
-            >
-              {label}
-            </a>
-          );
-        }
-        return (
-          <span
-            key={key}
-            className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-foreground/70"
-          >
-            {label}
-          </span>
-        );
-      })}
-    </div>
-  );
-}
+/* ---------- 类型守卫 ---------- */
 
 function isTextPart(part: MessagePart): part is Extract<MessagePart, { type: "text" }> {
   return part.type === "text";
@@ -309,9 +471,4 @@ function safeJsonStringify(value: unknown): string {
   } catch {
     return "[unserializable]";
   }
-}
-
-function handleReaction(emoji: string): void {
-  console.log("[chat] reaction:", emoji);
-  notify.success(emoji);
 }

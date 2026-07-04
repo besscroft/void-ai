@@ -372,6 +372,36 @@ const en: Dict = {
   "msg.avatar.you": "Me",
   "msg.copy": "Copy",
   "msg.copied": "Copied",
+  "msg.action.edit": "Edit message",
+  "msg.action.resend": "Resend",
+  "msg.action.delete": "Delete message",
+  "msg.delete.confirm": "Delete this message?",
+  "msg.edit.save": "Save & send",
+  "msg.edit.cancel": "Cancel",
+  "msg.edit.placeholder": "Edit your message…",
+  "msg.cot.title": "Chain of Thought",
+  "msg.cot.thinking": "Thinking...",
+  "msg.cot.reasoned": "Reasoned",
+  "msg.cot.search": "Searched {count} source(s)",
+  "msg.cot.image": "Processed {count} image(s)",
+
+  // —— Conversation status ——
+  "chat.status.ready": "Ready",
+  "chat.status.streaming": "Generating",
+  "chat.status.submitted": "Connecting",
+  "chat.status.stopped": "Stopped",
+  "chat.status.error": "Error",
+  "chat.context.title": "Context usage",
+  "chat.context.max": "Max",
+  "chat.context.input": "Input",
+  "chat.context.output": "Output",
+  "chat.context.cost": "Cost",
+  "chat.context.estimated": "Estimated",
+
+  // —— Title generation ——
+  "chat.title.generating": "Generating title…",
+  "chat.title.generated": "Title generated",
+  "chat.title.failed": "Failed to generate title",
 
   // 设置弹窗
   "settings.title": "Settings",
@@ -423,7 +453,8 @@ const en: Dict = {
   "appearance.bundle": "Theme pack",
   "appearance.bundle.desc": "Switch HeroUI semantic variable themes and stack with light/dark mode",
   "appearance.accent": "Accent color",
-  "appearance.accent.desc": "Use the theme default accent or pick an independent one with live preview",
+  "appearance.accent.desc":
+    "Use the theme default accent or pick an independent one with live preview",
   "appearance.accent.theme": "Use theme default",
   "appearance.accent.custom": "Custom color",
   "appearance.colors": "Colors",

@@ -127,3 +127,68 @@ void describe("local chat server", () => {
     assert.match(body, / from mock/);
   });
 });
+
+void describe("local chat server /api/title", () => {
+  void it("rejects title posts without the active session token", async () => {
+    const app = createApp({ sessionToken: token });
+
+    const response = await app.request("/api/title", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: validMessages, model: "mock/chat" }),
+    });
+
+    assert.equal(response.status, 401);
+  });
+
+  void it("rejects title posts without a model reference", async () => {
+    const app = createApp({ sessionToken: token });
+
+    const response = await app.request("/api/title", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({ messages: validMessages }),
+    });
+
+    assert.equal(response.status, 400);
+  });
+
+  void it("generates a sanitized title from the model", async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: {
+        content: [{ type: "text" as const, text: '  "量子计算入门"  ' }],
+        finishReason: { unified: "stop" as const, raw: undefined },
+        usage: {
+          inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 3, text: 3, reasoning: undefined },
+        },
+        warnings: [],
+      },
+    });
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: (modelRef) => {
+        assert.equal(modelRef, "mock/chat");
+        return { model, temperature: 0.4, topP: 1, maxOutputTokens: 64 };
+      },
+      buildAgentSystemPrompt: () => "",
+    });
+
+    const response = await app.request("/api/title", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({ messages: validMessages, model: "mock/chat" }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { title: string };
+    // 清洗：去引号 + 去首尾空白
+    assert.equal(body.title, "量子计算入门");
+  });
+});
