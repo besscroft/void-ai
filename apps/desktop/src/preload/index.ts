@@ -84,6 +84,7 @@ const api = {
   },
   server: {
     port: () => ipcRenderer.invoke("server:port"),
+    info: () => ipcRenderer.invoke("server:info"),
   },
   system: {
     locale: () => ipcRenderer.invoke("system:locale"),

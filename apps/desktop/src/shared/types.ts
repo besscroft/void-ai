@@ -111,6 +111,12 @@ export interface ServerNode {
   created_at: number;
   updated_at: number;
 }
+export const CHAT_SESSION_HEADER = "x-void-ai-session";
+
+export interface LocalServerInfo {
+  port: number;
+  token: string;
+}
 
 export interface InteractionProfile {
   id: string;

@@ -1,5 +1,5 @@
 import { app, ipcMain, type BrowserWindow } from "electron";
-import { getServerPort } from "../server";
+import { getServerInfo, getServerPort } from "../server";
 import {
   listConversations,
   listDeletedConversations,
@@ -207,6 +207,7 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
 
   // ---------- Local server port ----------
   ipcMain.handle("server:port", () => getServerPort());
+  ipcMain.handle("server:info", () => getServerInfo());
 
   // ---------- System information ----------
   ipcMain.handle("system:locale", () => app.getLocale());
