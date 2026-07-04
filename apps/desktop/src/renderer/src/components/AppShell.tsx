@@ -141,7 +141,7 @@ export function AppShell({
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      <aside className="flex w-[280px] shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.025]">
+      <aside className="app-sidebar flex w-[280px] shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.025]">
         <div className="border-b border-foreground/10 px-4 py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">

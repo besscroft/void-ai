@@ -192,5 +192,52 @@ code {
   padding: 2px 4px;
   border-radius: 4px;
   background-color: color-mix(in oklch, var(--color-foreground) 8%, transparent);
-  font-size: 0.875em;
+  font-size: var(--code-font-size, 0.875em);
+}
+
+/* ============================================================
+   外观设置（运行时数据属性驱动）
+   ============================================================ */
+
+/* 半透明侧边栏（data-translucent-sidebar="true"） */
+[data-translucent-sidebar="true"] aside.app-sidebar {
+  background-color: color-mix(in oklch, var(--color-background) 65%, transparent);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+/* 减少动态效果（data-reduce-motion="on"） */
+[data-reduce-motion="on"] *,
+[data-reduce-motion="on"] *::before,
+[data-reduce-motion="on"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* 指针光标（data-pointer-cursor="true"） */
+[data-pointer-cursor="true"] button:not(:disabled),
+[data-pointer-cursor="true"] [role="button"]:not([aria-disabled="true"]),
+[data-pointer-cursor="true"] a,
+[data-pointer-cursor="true"] label[for],
+[data-pointer-cursor="true"] select,
+[data-pointer-cursor="true"] summary {
+  cursor: pointer;
+}
+
+/* 差异标记：symbol 模式（data-diff-mark="symbol"） */
+[data-diff-mark="symbol"] .diff-add::before {
+  content: "+ ";
+  color: var(--color-success, #16a34a);
+  font-weight: 700;
+}
+[data-diff-mark="symbol"] .diff-remove::before {
+  content: "- ";
+  color: var(--color-danger, #dc2626);
+  font-weight: 700;
+}
+[data-diff-mark="color"] .diff-add::before,
+[data-diff-mark="color"] .diff-remove::before {
+  content: "";
 }

@@ -240,8 +240,28 @@ export const SettingKey = {
   ThemePreset: "theme_preset",
   /** 强调色预设 id（见 AccentPreset），或自定义 oklch 字符串 */
   AccentColor: "accent_color",
+  /** 自定义背景色（hex / oklch 字符串；空字符串表示沿用主题默认） */
+  BackgroundColor: "background_color",
+  /** 自定义前景/文字色；空字符串表示沿用主题默认 */
+  ForegroundColor: "foreground_color",
+  /** UI 字体 CSS font-family；空字符串表示沿用主题默认 */
+  FontFamily: "font_family",
+  /** 等宽字体 CSS font-family；空字符串表示沿用主题默认 */
+  MonoFontFamily: "mono_font_family",
+  /** 半透明侧边栏：是否使用 backdrop-blur */
+  TranslucentSidebar: "translucent_sidebar",
+  /** 对比度 0~100，用于微调强调色与文字色的明暗对比 */
+  Contrast: "contrast",
+  /** 交互元素使用指针光标 */
+  UsePointerCursor: "use_pointer_cursor",
+  /** 减少动态效果：'system' | 'on' | 'off' */
+  ReduceMotion: "reduce_motion",
   /** 字号级别：'xs' | 'sm' | 'base' | 'lg' | 'xl' */
   FontSize: "font_size",
+  /** 代码字体大小（px） */
+  CodeFontSizePx: "code_font_size_px",
+  /** 差异标记：'color' | 'symbol' */
+  DiffMark: "diff_mark",
   /** 界面密度：'compact' | 'comfortable' | 'loose' */
   LayoutDensity: "layout_density",
   /** 界面语言：'zh-CN' | 'en' */
@@ -282,6 +302,12 @@ export type FontSizeLevel = "xs" | "sm" | "base" | "lg" | "xl";
 
 /** 界面密度 */
 export type LayoutDensity = "compact" | "comfortable" | "loose";
+
+/** 减少动态效果偏好 */
+export type ReduceMotion = "system" | "on" | "off";
+
+/** 差异标记方式 */
+export type DiffMark = "color" | "symbol";
 
 /** 支持的界面语言 */
 export type AppLanguage = "zh-CN" | "en";
@@ -393,6 +419,30 @@ export const FONT_SIZE_PX: Record<FontSizeLevel, number> = {
   xl: 18,
 };
 
+/** UI 字体预设 */
+export interface FontPreset {
+  id: string;
+  label: string;
+  /** CSS font-family 字符串 */
+  value: string;
+}
+
+export const FONT_PRESETS: FontPreset[] = [
+  { id: "system", label: "System UI", value: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" },
+  { id: "sans", label: "Inter / 思源黑体", value: "'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif" },
+  { id: "rounded", label: "Rounded", value: "'Nunito', 'Quicksand', system-ui, sans-serif" },
+  { id: "serif", label: "Serif", value: "'Source Serif Pro', 'Noto Serif SC', Georgia, serif" },
+  { id: "mono", label: "Mono", value: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace" },
+];
+
+export const MONO_FONT_PRESETS: FontPreset[] = [
+  { id: "system-mono", label: "System Mono", value: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace" },
+  { id: "jetbrains", label: "JetBrains Mono", value: "'JetBrains Mono', ui-monospace, monospace" },
+  { id: "fira", label: "Fira Code", value: "'Fira Code', ui-monospace, monospace" },
+  { id: "cascadia", label: "Cascadia Code", value: "'Cascadia Code', 'Cascadia Mono', ui-monospace, monospace" },
+  { id: "menlo", label: "Menlo / Consolas", value: "Menlo, Consolas, 'Courier New', monospace" },
+];
+
 /** 缓存统计信息 */
 export interface CacheStats {
   /** 当前缓存占用字节数 */
@@ -422,7 +472,17 @@ export interface AppSettings {
   theme: ThemeMode;
   themePreset: ThemePresetId;
   accentColor: string;
+  backgroundColor: string;
+  foregroundColor: string;
+  fontFamily: string;
+  monoFontFamily: string;
+  translucentSidebar: boolean;
+  contrast: number;
+  usePointerCursor: boolean;
+  reduceMotion: ReduceMotion;
   fontSize: FontSizeLevel;
+  codeFontSizePx: number;
+  diffMark: DiffMark;
   density: LayoutDensity;
   language: LanguageMode;
   selectedModel: string | null;
@@ -441,7 +501,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
   themePreset: "default",
   accentColor: "theme",
+  backgroundColor: "",
+  foregroundColor: "",
+  fontFamily: "",
+  monoFontFamily: "",
+  translucentSidebar: true,
+  contrast: 50,
+  usePointerCursor: false,
+  reduceMotion: "system",
   fontSize: "base",
+  codeFontSizePx: 13,
+  diffMark: "color",
   density: "comfortable",
   language: "system",
   selectedModel: null,

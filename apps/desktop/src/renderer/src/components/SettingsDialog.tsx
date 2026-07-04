@@ -21,11 +21,7 @@ import {
   IconClose,
   IconKey,
   IconCheck,
-  IconSun,
-  IconMoon,
-  IconMonitor,
   IconPalette,
-  IconSliders,
   IconCpu,
   IconRotateCcw,
   IconDatabase,
@@ -34,10 +30,13 @@ import {
 } from "./icons";
 import {
   ACCENT_PRESETS,
+  FONT_PRESETS,
   FONT_SIZE_PX,
+  MONO_FONT_PRESETS,
   THEME_PRESETS,
   type Conversation,
   type CustomProviderInput,
+  type FontPreset,
   type ManagedModelInfo,
   type ProviderInfo,
   type ThemeMode,
@@ -45,6 +44,8 @@ import {
   type FontSizeLevel,
   type LayoutDensity,
   type LanguageMode,
+  type ReduceMotion,
+  type DiffMark,
 } from "@shared/types";
 
 interface SettingsDialogProps {
@@ -55,7 +56,7 @@ interface SettingsDialogProps {
 }
 
 /** Tab 定义 */
-type TabId = "theme" | "system" | "model" | "trash";
+type TabId = "appearance" | "model" | "trash";
 
 /**
  * 设置弹窗（分 Tab 结构）
@@ -64,10 +65,9 @@ type TabId = "theme" | "system" | "model" | "trash";
  * ┌──────────────────────────────────────────────┐
  * │ 设置                                     [✕] │
  * │────────────┬─────────────────────────────────│
- * │ 🎨 主题    │                                 │
- * │ ⚙️ 系统    │      <当前 Tab 内容>            │
- * │ 🤖 模型    │                                 │
- * │ 🔑 API Key │                                 │
+ * │ 🎨 外观    │                                 │
+ * │ 🤖 模型    │      <当前 Tab 内容>            │
+ * │ 🗑 回收站  │                                 │
  * └────────────┴─────────────────────────────────┘
  *
  * 所有外观/模型设置即时应用并持久化（实时预览）；
@@ -76,7 +76,7 @@ type TabId = "theme" | "system" | "model" | "trash";
 export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JSX.Element | null {
   const { t } = useT();
   const { settings, update, reset } = useSettings();
-  const [tab, setTab] = useState<TabId>("theme");
+  const [tab, setTab] = useState<TabId>("appearance");
   const [confirmResetScope, setConfirmResetScope] = useState<SettingsResetScope | null>(null);
   const [resetDoneScope, setResetDoneScope] = useState<SettingsResetScope | null>(null);
 
@@ -93,7 +93,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   if (!open) return null;
 
   const resetScopeLabel = (scope: SettingsResetScope): string =>
-    scope === "theme" ? t("settings.tab.theme") : t("settings.tab.system");
+    scope === "appearance" ? t("settings.reset.appearance") : t("settings.reset.title");
 
   const handleReset = (scope: SettingsResetScope): void => {
     const scopeLabel = resetScopeLabel(scope);
@@ -113,8 +113,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   };
 
   const tabs: { id: TabId; label: string; Icon: typeof IconPalette }[] = [
-    { id: "theme", label: t("settings.tab.theme"), Icon: IconPalette },
-    { id: "system", label: t("settings.tab.system"), Icon: IconSliders },
+    { id: "appearance", label: t("settings.tab.appearance"), Icon: IconPalette },
     { id: "model", label: t("settings.tab.model"), Icon: IconCpu },
     { id: "trash", label: t("settings.tab.trash"), Icon: IconTrash },
   ];
@@ -128,14 +127,19 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
       aria-labelledby="settings-title"
     >
       <div
-        className="flex h-[calc(100vh-32px)] max-h-[672px] w-[calc(100vw-32px)] max-w-[768px] flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
+        className="flex h-[calc(100vh-32px)] max-h-[760px] w-[calc(100vw-32px)] max-w-[840px] flex-col overflow-hidden rounded-xl border border-foreground/15 bg-background shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
         <div className="flex items-center justify-between border-b border-foreground/10 px-6 py-4">
-          <h2 id="settings-title" className="text-lg font-semibold">
-            {t("settings.title")}
-          </h2>
+          <div>
+            <h2 id="settings-title" className="text-base font-semibold">
+              {t("settings.title")}
+            </h2>
+            <p className="mt-0.5 text-xs text-foreground/45">
+              {tab === "appearance" ? t("appearance.subtitle") : ""}
+            </p>
+          </div>
           <button
             type="button"
             className="rounded p-1 text-foreground/50 hover:bg-foreground/10 hover:text-foreground"
@@ -174,20 +178,12 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
 
           {/* 内容 */}
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            {tab === "theme" && (
-              <ThemeTab
+            {tab === "appearance" && (
+              <AppearanceTab
                 settings={settings}
                 update={update}
-                onResetDefaults={() => setConfirmResetScope("theme")}
-                resetDone={resetDoneScope === "theme"}
-              />
-            )}
-            {tab === "system" && (
-              <SystemTab
-                settings={settings}
-                update={update}
-                onResetDefaults={() => setConfirmResetScope("system")}
-                resetDone={resetDoneScope === "system"}
+                onResetDefaults={() => setConfirmResetScope("appearance")}
+                resetDone={resetDoneScope === "appearance"}
               />
             )}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
@@ -235,28 +231,62 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
 // 通用小组件
 // ============================================================
 
-/** 设置项行：左侧标签 + 描述，右侧控件 */
-function SettingRow({
+/**
+ * 设置区块
+ *
+ * 视觉上呈现为一张"分组卡"：左侧带渐变色细条的标题区 + 右侧的内容区。
+ * 让多个设置项按主题聚合在一起，避免单行设置显得零散。
+ */
+function SettingSection({
   title,
   desc,
+  icon,
   children,
 }: {
   title: string;
   desc?: string;
+  icon?: React.ReactNode;
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <div className="rounded-md border border-foreground/10 p-4">
-      <div className="mb-3 flex items-start justify-between gap-4">
+    <section className="rounded-xl border border-foreground/10 bg-foreground/[0.018] p-4">
+      <header className="mb-3 flex items-center gap-2">
+        {icon && (
+          <span className="flex size-6 items-center justify-center rounded-md bg-accent/10 text-accent">
+            {icon}
+          </span>
+        )}
         <div>
-          <p className="text-sm font-medium">{title}</p>
+          <h3 className="text-sm font-medium leading-tight">{title}</h3>
           {desc && <p className="mt-0.5 text-xs text-foreground/50">{desc}</p>}
         </div>
+      </header>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+/** 单行设置项：左侧标题/描述，右侧控件 */
+function SettingItem({
+  title,
+  desc,
+  control,
+}: {
+  title: string;
+  desc?: string;
+  control: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5 transition hover:border-foreground/15">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{title}</p>
+        {desc && <p className="mt-0.5 text-xs text-foreground/50">{desc}</p>}
       </div>
-      {children}
+      <div className="flex shrink-0 items-center gap-2">{control}</div>
     </div>
   );
 }
+
 function ResettableTabHeader({
   title,
   onResetDefaults,
@@ -269,7 +299,7 @@ function ResettableTabHeader({
   const { t } = useT();
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
       <h3 className="text-sm font-medium text-foreground/70">{title}</h3>
       <div className="flex items-center gap-2">
         <Button variant="tertiary" size="sm" onPress={onResetDefaults}>
@@ -281,11 +311,93 @@ function ResettableTabHeader({
     </div>
   );
 }
+
 // ============================================================
-// 主题 Tab
+// 外观 Tab
 // ============================================================
 
-function ThemeTab({
+/**
+ * 主题模式预览卡：与图中一致的三张卡片，横向并列
+ *  - 上半部分使用 50/50 左右分屏的"窗口"预览
+ *  - 边框颜色随选中状态变化（accent / 默认）
+ */
+function ThemeModePreviewCard({
+  value,
+  label,
+  active,
+  onSelect,
+  swatchLight,
+  swatchDark,
+}: {
+  value: ThemeMode;
+  label: string;
+  active: boolean;
+  onSelect: (value: ThemeMode) => void;
+  swatchLight: string;
+  swatchDark: string;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(value)}
+      aria-pressed={active}
+      className={[
+        "group flex w-full flex-col items-stretch gap-2 rounded-xl border-2 p-2 text-left transition",
+        active
+          ? "border-accent shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-accent)_18%,transparent)]"
+          : "border-foreground/10 hover:border-foreground/25",
+      ].join(" ")}
+    >
+      <div className="flex h-20 w-full overflow-hidden rounded-md border border-foreground/10">
+        <div
+          className="flex-1 p-2"
+          style={{ backgroundColor: swatchLight }}
+          aria-hidden="true"
+        >
+          <PreviewSkeleton tone="light" />
+        </div>
+        <div
+          className="flex-1 p-2"
+          style={{ backgroundColor: swatchDark }}
+          aria-hidden="true"
+        >
+          <PreviewSkeleton tone="dark" />
+        </div>
+      </div>
+      <div className="flex items-center justify-between px-1 pb-1">
+        <span
+          className={[
+            "text-sm font-medium",
+            active ? "text-accent" : "text-foreground/80",
+          ].join(" ")}
+        >
+          {label}
+        </span>
+        {active && <IconCheck className="size-4 text-accent" />}
+      </div>
+    </button>
+  );
+}
+
+/** 主题模式预览骨架图（与图中类似的几条内容示意线） */
+function PreviewSkeleton({ tone }: { tone: "light" | "dark" }): React.JSX.Element {
+  const base = tone === "light" ? "rgba(15,23,42,0.18)" : "rgba(255,255,255,0.22)";
+  const accent = tone === "light" ? "rgba(15,23,42,0.3)" : "rgba(255,255,255,0.45)";
+  return (
+    <div className="flex h-full flex-col gap-1.5">
+      <span className="block h-1.5 w-3/5 rounded-full" style={{ backgroundColor: accent }} />
+      <span className="block h-1 w-full rounded-full" style={{ backgroundColor: base }} />
+      <span className="block h-1 w-4/5 rounded-full" style={{ backgroundColor: base }} />
+      <span className="block h-1 w-2/3 rounded-full" style={{ backgroundColor: base }} />
+      <span className="mt-auto flex gap-1">
+        <span className="block h-2 w-8 rounded" style={{ backgroundColor: accent }} />
+        <span className="block h-2 w-8 rounded" style={{ backgroundColor: base }} />
+      </span>
+    </div>
+  );
+}
+
+function AppearanceTab({
   settings,
   update,
   onResetDefaults,
@@ -297,258 +409,530 @@ function ThemeTab({
   resetDone: boolean;
 }): React.JSX.Element {
   const { t } = useT();
-  const modes: { value: ThemeMode; label: string; Icon: typeof IconSun }[] = [
-    { value: "light", label: t("shell.theme.light"), Icon: IconSun },
-    { value: "dark", label: t("shell.theme.dark"), Icon: IconMoon },
-    { value: "system", label: t("shell.theme.system"), Icon: IconMonitor },
-  ];
   const preset = ACCENT_PRESETS.find((p) => p.id === settings.accentColor);
-  const customHex = preset || settings.accentColor === "theme" ? "#4f46e5" : settings.accentColor;
+  const customAccentHex =
+    !preset && settings.accentColor !== "theme" ? settings.accentColor : "#4f46e5";
   const selectedAccent = preset ? parseColor(preset.swatch) : undefined;
+  const presetBundle = THEME_PRESETS.find((p) => p.id === settings.themePreset);
+
+  // 主题模式预览卡片：左右两色由"当前主题包 + 浅/深"决定
+  const systemSwatchLight = presetBundle?.swatches.light ?? "#f7f7f8";
+  const systemSwatchDark = presetBundle?.swatches.dark ?? "#1f1f23";
+
+  const handleThemeMode = (value: ThemeMode): void => {
+    void update({ theme: value });
+  };
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-5">
       <ResettableTabHeader
-        title={t("theme.section.appearance")}
+        title={t("appearance.title")}
         onResetDefaults={onResetDefaults}
         resetDone={resetDone}
       />
 
-      <SettingRow title={t("theme.mode")} desc={t("theme.mode.desc")}>
-        <ToggleButtonGroup
-          selectionMode="single"
-          disallowEmptySelection
-          fullWidth
-          size="sm"
-          selectedKeys={[settings.theme]}
-          onSelectionChange={(keys) => {
-            const value = Array.from(keys)[0];
-            if (value === "light" || value === "dark" || value === "system") {
-              void update({ theme: value });
-            }
-          }}
-        >
-          {modes.map(({ value, label, Icon }, index) => (
-            <ToggleButton
-              key={value}
-              id={value}
-              className="flex flex-1 items-center justify-center gap-2"
+      {/* —— 主题模式预览卡 —— */}
+      <SettingSection
+        title={t("appearance.mode")}
+        desc={t("appearance.mode.desc")}
+        icon={<IconPalette className="size-3.5" />}
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <ThemeModePreviewCard
+            value="system"
+            label={t("shell.theme.system")}
+            active={settings.theme === "system"}
+            onSelect={handleThemeMode}
+            swatchLight={systemSwatchLight}
+            swatchDark={systemSwatchDark}
+          />
+          <ThemeModePreviewCard
+            value="light"
+            label={t("shell.theme.light")}
+            active={settings.theme === "light"}
+            onSelect={handleThemeMode}
+            swatchLight={systemSwatchLight}
+            swatchDark={systemSwatchLight}
+          />
+          <ThemeModePreviewCard
+            value="dark"
+            label={t("shell.theme.dark")}
+            active={settings.theme === "dark"}
+            onSelect={handleThemeMode}
+            swatchLight={systemSwatchDark}
+            swatchDark={systemSwatchDark}
+          />
+        </div>
+      </SettingSection>
+
+      {/* —— 主题包 + 强调色 并列 —— */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SettingSection title={t("appearance.bundle")} desc={t("appearance.bundle.desc")}>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {THEME_PRESETS.map((p) => {
+              const active = settings.themePreset === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => void update({ themePreset: p.id as ThemePresetId })}
+                  aria-pressed={active}
+                  className={[
+                    "flex min-h-20 flex-col justify-between rounded-md border p-2.5 text-left text-sm transition",
+                    active
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-foreground/15 text-foreground/75 hover:bg-foreground/5",
+                  ].join(" ")}
+                >
+                  <span className="font-medium">{t(p.labelKey)}</span>
+                  <span className="mt-2 flex gap-1">
+                    <span
+                      className="h-4 flex-1 rounded border border-foreground/10"
+                      style={{ backgroundColor: p.swatches.light }}
+                    />
+                    <span
+                      className="h-4 flex-1 rounded border border-foreground/10"
+                      style={{ backgroundColor: p.swatches.dark }}
+                    />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </SettingSection>
+
+        <SettingSection title={t("appearance.accent")} desc={t("appearance.accent.desc")}>
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void update({ accentColor: "theme" })}
+              aria-pressed={settings.accentColor === "theme"}
+              className={[
+                "rounded-md border px-2.5 py-1.5 text-xs transition",
+                settings.accentColor === "theme"
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
+              ].join(" ")}
             >
-              {index > 0 && <ToggleButtonGroup.Separator />}
-              <Icon className="size-4" />
-              {label}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
-      </SettingRow>
-
-      <SettingRow title={t("theme.bundle")} desc={t("theme.bundle.desc")}>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {THEME_PRESETS.map((p) => {
-            const active = settings.themePreset === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                className={[
-                  "flex min-h-20 flex-col justify-between rounded-md border p-3 text-left text-sm transition",
-                  active
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-foreground/15 text-foreground/75 hover:bg-foreground/5",
-                ].join(" ")}
-                onClick={() => void update({ themePreset: p.id as ThemePresetId })}
-                aria-pressed={active}
-              >
-                <span className="font-medium">{t(p.labelKey)}</span>
-                <span className="mt-3 flex gap-1">
-                  <span
-                    className="h-5 flex-1 rounded border border-foreground/10"
-                    style={{ backgroundColor: p.swatches.light }}
-                  />
-                  <span
-                    className="h-5 flex-1 rounded border border-foreground/10"
-                    style={{ backgroundColor: p.swatches.dark }}
-                  />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </SettingRow>
-
-      <SettingRow title={t("theme.accent")} desc={t("theme.accent.desc")}>
-        <div className="mb-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={[
-              "rounded-md border px-3 py-2 text-sm transition",
-              settings.accentColor === "theme"
-                ? "border-accent bg-accent/10 text-accent"
-                : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
-            ].join(" ")}
-            onClick={() => void update({ accentColor: "theme" })}
-            aria-pressed={settings.accentColor === "theme"}
+              {t("appearance.accent.theme")}
+            </button>
+          </div>
+          <ColorSwatchPicker
+            value={selectedAccent}
+            onChange={(color) => {
+              const hex = color.toString("hex").toLowerCase();
+              const next = ACCENT_PRESETS.find((p) => p.swatch.toLowerCase() === hex);
+              if (next) void update({ accentColor: next.id });
+              else void update({ accentColor: hex });
+            }}
+            size="md"
+            variant="circle"
+            className="gap-2.5"
           >
-            {t("theme.accent.theme")}
-          </button>
-        </div>
+            {ACCENT_PRESETS.map((p) => (
+              <ColorSwatchPicker.Item key={p.id} color={p.swatch}>
+                <ColorSwatchPicker.Swatch />
+                <ColorSwatchPicker.Indicator />
+                <span className="sr-only">{t("theme.accent." + p.id)}</span>
+              </ColorSwatchPicker.Item>
+            ))}
+          </ColorSwatchPicker>
 
-        <ColorSwatchPicker
-          value={selectedAccent}
-          onChange={(color) => {
-            const hex = color.toString("hex").toLowerCase();
-            const next = ACCENT_PRESETS.find((p) => p.swatch.toLowerCase() === hex);
-            if (next) void update({ accentColor: next.id });
-          }}
-          size="lg"
-          variant="circle"
-          className="gap-3"
-        >
-          {ACCENT_PRESETS.map((p) => (
-            <ColorSwatchPicker.Item key={p.id} color={p.swatch}>
-              <ColorSwatchPicker.Swatch />
-              <ColorSwatchPicker.Indicator />
-              <span className="sr-only">{t("theme.accent." + p.id)}</span>
-            </ColorSwatchPicker.Item>
-          ))}
-        </ColorSwatchPicker>
-
-        <div className="mt-3 flex items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-foreground/60">
-            <span>{t("theme.custom")}</span>
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-xs text-foreground/55">{t("appearance.accent.custom")}</span>
             <input
               type="color"
-              value={/^#[0-9a-fA-F]{6}$/.test(customHex) ? customHex : "#4f46e5"}
+              value={/^#[0-9a-fA-F]{6}$/.test(customAccentHex) ? customAccentHex : "#4f46e5"}
               onChange={(e) => void update({ accentColor: e.target.value })}
               className="size-7 cursor-pointer rounded border border-foreground/15 bg-transparent"
-              aria-label={t("theme.custom")}
+              aria-label={t("appearance.accent.custom")}
             />
-          </label>
-        </div>
-      </SettingRow>
-
-      <SettingRow title={t("theme.preview")}>
-        <div className="rounded-md border border-foreground/10 bg-background p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <Button variant="primary" size="sm">
-              {t("theme.preview.button")}
-            </Button>
-            <Button variant="secondary" size="sm">
-              {t("common.cancel")}
-            </Button>
-            <span className="ml-auto rounded-full bg-accent/15 px-2 py-0.5 text-xs text-accent">
-              Tag
+            <span className="font-mono text-xs text-foreground/40">
+              {settings.accentColor === "theme"
+                ? t("appearance.accent.theme")
+                : customAccentHex}
             </span>
           </div>
-          <p className="text-sm text-foreground/70">{t("theme.preview.text")}</p>
+        </SettingSection>
+      </div>
+
+      {/* —— 颜色（背景/前景/对比度）—— */}
+      <SettingSection title={t("appearance.colors")} desc={t("appearance.colors.desc")}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ColorFieldRow
+            label={t("appearance.background")}
+            value={settings.backgroundColor}
+            onChange={(v) => void update({ backgroundColor: v })}
+          />
+          <ColorFieldRow
+            label={t("appearance.foreground")}
+            value={settings.foregroundColor}
+            onChange={(v) => void update({ foregroundColor: v })}
+          />
         </div>
-      </SettingRow>
+        <SettingItem
+          title={t("appearance.contrast")}
+          desc={t("appearance.contrast.desc")}
+          control={
+            <div className="flex w-72 items-center gap-3">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={settings.contrast}
+                onChange={(e) => void update({ contrast: Number(e.target.value) })}
+                className="w-full accent-[var(--color-accent)]"
+                aria-label={t("appearance.contrast")}
+              />
+              <span className="w-8 text-right font-mono text-xs tabular-nums text-foreground/60">
+                {settings.contrast}
+              </span>
+            </div>
+          }
+        />
+      </SettingSection>
+
+      {/* —— 字体 —— */}
+      <SettingSection title={t("appearance.fonts")} desc={t("appearance.fonts.desc")}>
+        <FontFieldRow
+          label={t("appearance.font.ui")}
+          placeholder={t("appearance.font.ui.hint")}
+          value={settings.fontFamily}
+          presets={FONT_PRESETS}
+          onChange={(v) => void update({ fontFamily: v })}
+        />
+        <FontFieldRow
+          label={t("appearance.font.mono")}
+          placeholder={t("appearance.font.mono.hint")}
+          value={settings.monoFontFamily}
+          presets={MONO_FONT_PRESETS}
+          onChange={(v) => void update({ monoFontFamily: v })}
+        />
+      </SettingSection>
+
+      {/* —— 排版 —— */}
+      <SettingSection title={t("appearance.typography")}>
+        <SettingItem
+          title={t("appearance.fontSize")}
+          desc={t("appearance.fontSize.desc")}
+          control={
+            <ToggleButtonGroup
+              selectionMode="single"
+              disallowEmptySelection
+              size="sm"
+              selectedKeys={[settings.fontSize]}
+              onSelectionChange={(keys) => {
+                const v = Array.from(keys)[0];
+                if (
+                  v === "xs" ||
+                  v === "sm" ||
+                  v === "base" ||
+                  v === "lg" ||
+                  v === "xl"
+                ) {
+                  void update({ fontSize: v });
+                }
+              }}
+            >
+              {(["xs", "sm", "base", "lg", "xl"] as FontSizeLevel[]).map((lv, idx) => (
+                <ToggleButton key={lv} id={lv}>
+                  {idx > 0 && <ToggleButtonGroup.Separator />}
+                  <span style={{ fontSize: String(FONT_SIZE_PX[lv]) + "px" }}>A</span>
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          }
+        />
+        <SettingItem
+          title={t("appearance.codeFontSize")}
+          desc={t("appearance.codeFontSize.desc")}
+          control={
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={10}
+                max={24}
+                step={1}
+                value={settings.codeFontSizePx}
+                onChange={(e) => {
+                  const v = Math.min(24, Math.max(10, Number(e.target.value) || 13));
+                  void update({ codeFontSizePx: v });
+                }}
+                className="w-20 rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 text-right text-sm font-mono tabular-nums outline-none focus:border-accent/50"
+                aria-label={t("appearance.codeFontSize")}
+              />
+              <span className="text-xs text-foreground/50">px</span>
+            </div>
+          }
+        />
+      </SettingSection>
+
+      {/* —— 交互 —— */}
+      <SettingSection title={t("appearance.interaction")}>
+        <SettingItem
+          title={t("appearance.translucent")}
+          desc={t("appearance.translucent.desc")}
+          control={
+            <Switch
+              size="sm"
+              isSelected={settings.translucentSidebar}
+              onChange={(v) => void update({ translucentSidebar: v })}
+              aria-label={t("appearance.translucent")}
+            />
+          }
+        />
+        <SettingItem
+          title={t("appearance.pointer")}
+          desc={t("appearance.pointer.desc")}
+          control={
+            <Switch
+              size="sm"
+              isSelected={settings.usePointerCursor}
+              onChange={(v) => void update({ usePointerCursor: v })}
+              aria-label={t("appearance.pointer")}
+            />
+          }
+        />
+        <SettingItem
+          title={t("appearance.motion")}
+          desc={t("appearance.motion.desc")}
+          control={
+            <ToggleButtonGroup
+              selectionMode="single"
+              disallowEmptySelection
+              size="sm"
+              selectedKeys={[settings.reduceMotion]}
+              onSelectionChange={(keys) => {
+                const v = Array.from(keys)[0];
+                if (v === "system" || v === "on" || v === "off") {
+                  void update({ reduceMotion: v as ReduceMotion });
+                }
+              }}
+            >
+              <ToggleButton id="system">{t("appearance.motion.system")}</ToggleButton>
+              <ToggleButton id="on">
+                <ToggleButtonGroup.Separator />
+                {t("appearance.motion.on")}
+              </ToggleButton>
+              <ToggleButton id="off">
+                <ToggleButtonGroup.Separator />
+                {t("appearance.motion.off")}
+              </ToggleButton>
+            </ToggleButtonGroup>
+          }
+        />
+        <SettingItem
+          title={t("appearance.density")}
+          desc={t("appearance.density.desc")}
+          control={
+            <ToggleButtonGroup
+              selectionMode="single"
+              disallowEmptySelection
+              size="sm"
+              selectedKeys={[settings.density]}
+              onSelectionChange={(keys) => {
+                const v = Array.from(keys)[0];
+                if (v === "compact" || v === "comfortable" || v === "loose") {
+                  void update({ density: v as LayoutDensity });
+                }
+              }}
+            >
+              <ToggleButton id="compact">{t("appearance.density.compact")}</ToggleButton>
+              <ToggleButton id="comfortable">
+                <ToggleButtonGroup.Separator />
+                {t("appearance.density.comfortable")}
+              </ToggleButton>
+              <ToggleButton id="loose">
+                <ToggleButtonGroup.Separator />
+                {t("appearance.density.loose")}
+              </ToggleButton>
+            </ToggleButtonGroup>
+          }
+        />
+      </SettingSection>
+
+      {/* —— 高级/差异化 —— */}
+      <SettingSection title={t("appearance.advanced")}>
+        <SettingItem
+          title={t("appearance.diff")}
+          desc={t("appearance.diff.desc")}
+          control={
+            <ToggleButtonGroup
+              selectionMode="single"
+              disallowEmptySelection
+              size="sm"
+              selectedKeys={[settings.diffMark]}
+              onSelectionChange={(keys) => {
+                const v = Array.from(keys)[0];
+                if (v === "color" || v === "symbol") {
+                  void update({ diffMark: v as DiffMark });
+                }
+              }}
+            >
+              <ToggleButton id="color">{t("appearance.diff.color")}</ToggleButton>
+              <ToggleButton id="symbol">
+                <ToggleButtonGroup.Separator />
+                {t("appearance.diff.symbol")}
+              </ToggleButton>
+            </ToggleButtonGroup>
+          }
+        />
+        <SettingItem
+          title={t("appearance.language")}
+          desc={t("appearance.language.desc")}
+          control={
+            <ToggleButtonGroup
+              selectionMode="single"
+              disallowEmptySelection
+              size="sm"
+              selectedKeys={[settings.language]}
+              onSelectionChange={(keys) => {
+                const v = Array.from(keys)[0];
+                if (v === "system" || v === "zh-CN" || v === "en") {
+                  void update({ language: v as LanguageMode });
+                }
+              }}
+            >
+              {LANGUAGE_OPTIONS.map((opt, idx) => (
+                <ToggleButton key={opt.value} id={opt.value}>
+                  {idx > 0 && <ToggleButtonGroup.Separator />}
+                  {t(opt.labelKey)}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          }
+        />
+      </SettingSection>
     </section>
   );
 }
 
 // ============================================================
-// System Tab
+// 字段子组件
 // ============================================================
 
-function SystemTab({
-  settings,
-  update,
-  onResetDefaults,
-  resetDone,
+/** 颜色输入行：左侧标签，右侧颜色选择器 + 文本输入 + 清空按钮 */
+function ColorFieldRow({
+  label,
+  value,
+  onChange,
 }: {
-  settings: import("@shared/types").AppSettings;
-  update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
-  onResetDefaults: () => void;
-  resetDone: boolean;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
 }): React.JSX.Element {
-  const { t } = useT();
-  const fontLevels: FontSizeLevel[] = ["xs", "sm", "base", "lg", "xl"];
-  const densities: { value: LayoutDensity; label: string }[] = [
-    { value: "compact", label: t("system.density.compact") },
-    { value: "comfortable", label: t("system.density.comfortable") },
-    { value: "loose", label: t("system.density.loose") },
-  ];
-
+  const isHex = /^#[0-9a-fA-F]{6}$/.test(value);
   return (
-    <section className="space-y-4">
-      <ResettableTabHeader
-        title={t("settings.tab.system")}
-        onResetDefaults={onResetDefaults}
-        resetDone={resetDone}
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
+      <span className="min-w-0 flex-1 text-sm font-medium">{label}</span>
+      <label className="relative flex items-center">
+        <span
+          className="block size-6 rounded-md border border-foreground/20"
+          style={{
+            background: value || "transparent",
+            backgroundImage:
+              "linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%), linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%)",
+            backgroundSize: "8px 8px",
+            backgroundPosition: "0 0, 4px 4px",
+          }}
+        />
+        <input
+          type="color"
+          value={isHex ? value : "#000000"}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 size-full cursor-pointer opacity-0"
+          aria-label={label}
+        />
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="#RRGGBB / oklch()"
+        className="w-36 rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent/50"
+        spellCheck={false}
+        aria-label={label}
       />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="rounded p-1 text-foreground/45 hover:bg-foreground/5 hover:text-foreground"
+          aria-label="reset"
+        >
+          <IconClose className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
 
-      <SettingRow title={t("system.fontSize")} desc={t("system.fontSize.desc")}>
-        <div className="flex gap-2">
-          {fontLevels.map((lv) => {
-            const active = settings.fontSize === lv;
-            return (
-              <button
-                key={lv}
-                type="button"
-                className={[
-                  "flex-1 rounded-md border px-2 py-2 text-center transition",
-                  active
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
-                ].join(" ")}
-                style={{ fontSize: String(FONT_SIZE_PX[lv]) + "px" }}
-                onClick={() => void update({ fontSize: lv })}
-                aria-pressed={active}
-              >
-                A
-              </button>
-            );
-          })}
+/** 字体输入行：标签 + 预设下拉 + 自定义输入 */
+function FontFieldRow({
+  label,
+  placeholder,
+  value,
+  presets,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  presets: FontPreset[];
+  onChange: (v: string) => void;
+}): React.JSX.Element {
+  // 当前 value 命中某个预设时高亮它
+  const matchedPreset = presets.find((p) => p.value === value);
+  return (
+    <div className="space-y-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium">{label}</span>
+        <select
+          value={matchedPreset ? matchedPreset.id : ""}
+          onChange={(e) => {
+            const next = presets.find((p) => p.id === e.target.value);
+            onChange(next ? next.value : value);
+          }}
+          className="rounded-md border border-foreground/15 bg-background px-2 py-1 text-xs outline-none focus:border-accent/50"
+        >
+          <option value="">—</option>
+          {presets.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent/50"
+        spellCheck={false}
+        aria-label={label}
+        style={value ? { fontFamily: value } : undefined}
+      />
+      {value && (
+        <div className="flex items-center justify-between text-xs text-foreground/50">
+          <span
+            className="truncate"
+            style={{ fontFamily: value, fontSize: "14px" }}
+          >
+            The quick brown fox jumps over the lazy dog · 敏捷的棕色狐狸
+          </span>
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="ml-2 rounded p-1 text-foreground/45 hover:bg-foreground/5 hover:text-foreground"
+            aria-label="reset"
+          >
+            <IconClose className="size-3.5" />
+          </button>
         </div>
-      </SettingRow>
-
-      <SettingRow title={t("system.density")} desc={t("system.density.desc")}>
-        <ToggleButtonGroup
-          selectionMode="single"
-          disallowEmptySelection
-          fullWidth
-          size="sm"
-          selectedKeys={[settings.density]}
-          onSelectionChange={(keys) => {
-            const value = Array.from(keys)[0];
-            if (value === "compact" || value === "comfortable" || value === "loose") {
-              void update({ density: value });
-            }
-          }}
-        >
-          {densities.map(({ value, label }, index) => (
-            <ToggleButton key={value} id={value} className="flex flex-1 justify-center">
-              {index > 0 && <ToggleButtonGroup.Separator />}
-              {label}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
-      </SettingRow>
-
-      <SettingRow title={t("system.language")} desc={t("system.language.desc")}>
-        <ToggleButtonGroup
-          selectionMode="single"
-          disallowEmptySelection
-          fullWidth
-          size="sm"
-          selectedKeys={[settings.language]}
-          onSelectionChange={(keys) => {
-            const value = Array.from(keys)[0];
-            if (value === "system" || value === "zh-CN" || value === "en") {
-              void update({ language: value as LanguageMode });
-            }
-          }}
-        >
-          {LANGUAGE_OPTIONS.map((opt, index) => (
-            <ToggleButton key={opt.value} id={opt.value} className="flex flex-1 justify-center">
-              {index > 0 && <ToggleButtonGroup.Separator />}
-              {t(opt.labelKey)}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
-      </SettingRow>
-    </section>
+      )}
+    </div>
   );
 }
 
@@ -678,114 +1062,116 @@ function ModelTab({
     <section className="space-y-4">
       <h3 className="text-sm font-medium text-foreground/70">{t("settings.tab.model")}</h3>
 
-      <SettingRow title={t("model.default")} desc={t("model.default.desc")}>
-        <select
-          className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
-          value={settings.selectedModel ?? ""}
-          onChange={(e) => void update({ selectedModel: e.target.value || null })}
-        >
-          <option value="">{t("chat.selectModel")}</option>
-          {enabledProviders.map((provider) => (
-            <optgroup key={provider.id} label={provider.label}>
-              {provider.models.map((model) => (
-                <option key={model.id} value={providerModelRef(provider.id, model.id)}>
-                  {model.label ?? model.id}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </SettingRow>
+      <SettingItem
+        title={t("model.default")}
+        desc={t("model.default.desc")}
+        control={
+          <select
+            className="min-w-56 rounded-md border border-foreground/15 bg-background px-3 py-1.5 text-sm outline-none focus:border-accent/50"
+            value={settings.selectedModel ?? ""}
+            onChange={(e) => void update({ selectedModel: e.target.value || null })}
+          >
+            <option value="">{t("chat.selectModel")}</option>
+            {enabledProviders.map((provider) => (
+              <optgroup key={provider.id} label={provider.label}>
+                {provider.models.map((model) => (
+                  <option key={model.id} value={providerModelRef(provider.id, model.id)}>
+                    {model.label ?? model.id}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        }
+      />
 
-      <SettingRow title={t("model.catalog")} desc={t("model.catalog.desc")}>
-        <div className="space-y-3">
-          <div className="flex justify-end">
-            <Button variant="primary" size="sm" onPress={() => setEditorState({ mode: "add" })}>
-              <IconPlus className="mr-1 size-3.5" />
-              {t("model.addModel")}
-            </Button>
+      <SettingSection title={t("model.catalog")} desc={t("model.catalog.desc")}>
+        <div className="flex justify-end">
+          <Button variant="primary" size="sm" onPress={() => setEditorState({ mode: "add" })}>
+            <IconPlus className="mr-1 size-3.5" />
+            {t("model.addModel")}
+          </Button>
+        </div>
+
+        {models.length === 0 ? (
+          <div className="rounded-md border border-dashed border-foreground/15 px-4 py-8 text-center text-sm text-foreground/50">
+            {t("model.empty")}
           </div>
-
-          {models.length === 0 ? (
-            <div className="rounded-md border border-dashed border-foreground/15 px-4 py-8 text-center text-sm text-foreground/50">
-              {t("model.empty")}
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-md border border-foreground/10">
-              {models.map((model, index) => {
-                const selected = settings.selectedModel === model.ref;
-                return (
-                  <div
-                    key={model.ref}
-                    className={[
-                      "grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto]",
-                      index > 0 ? "border-t border-foreground/10" : "",
-                      selected ? "bg-accent/10" : "",
-                      model.enabled ? "" : "opacity-65",
-                    ].join(" ")}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-medium">
-                          {model.modelLabel ?? model.modelId}
+        ) : (
+          <div className="overflow-hidden rounded-md border border-foreground/10">
+            {models.map((model, index) => {
+              const selected = settings.selectedModel === model.ref;
+              return (
+                <div
+                  key={model.ref}
+                  className={[
+                    "grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto]",
+                    index > 0 ? "border-t border-foreground/10" : "",
+                    selected ? "bg-accent/10" : "",
+                    model.enabled ? "" : "opacity-65",
+                  ].join(" ")}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {model.modelLabel ?? model.modelId}
+                      </span>
+                      <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] text-foreground/55">
+                        {t("model.custom")}
+                      </span>
+                      <span
+                        className={[
+                          "rounded-full px-2 py-0.5 text-[11px]",
+                          model.hasApiKey
+                            ? "bg-success/10 text-success"
+                            : "bg-warning/10 text-warning",
+                        ].join(" ")}
+                      >
+                        {model.hasApiKey ? t("apikey.configured") : t("apikey.notConfigured")}
+                      </span>
+                      {selected && (
+                        <span className="inline-flex items-center gap-1 text-xs text-accent">
+                          <IconCheck className="size-3" /> {t("model.selected")}
                         </span>
-                        <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] text-foreground/55">
-                          {t("model.custom")}
-                        </span>
-                        <span
-                          className={[
-                            "rounded-full px-2 py-0.5 text-[11px]",
-                            model.hasApiKey
-                              ? "bg-success/10 text-success"
-                              : "bg-warning/10 text-warning",
-                          ].join(" ")}
-                        >
-                          {model.hasApiKey ? t("apikey.configured") : t("apikey.notConfigured")}
-                        </span>
-                        {selected && (
-                          <span className="inline-flex items-center gap-1 text-xs text-accent">
-                            <IconCheck className="size-3" /> {t("model.selected")}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 break-all text-xs text-foreground/45">
-                        {model.providerLabel} / {model.modelId}
-                      </p>
-                      <p className="mt-1 text-xs text-foreground/40">{formatParams(model)}</p>
-                      {model.providerBaseUrl && (
-                        <p className="mt-1 break-all text-xs text-foreground/35">
-                          {t("model.provider.baseUrl")}: {model.providerBaseUrl}
-                        </p>
                       )}
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                      <Switch
-                        size="sm"
-                        isSelected={model.enabled}
-                        onChange={(enabled) => handleToggleModel(model, enabled)}
-                        aria-label={t("model.enabled")}
-                      />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onPress={() => setEditorState({ mode: "edit", model })}
-                      >
-                        <IconKey className="mr-1 size-3.5" />
-                        {t("common.edit")}
-                      </Button>
-                      <Button variant="tertiary" size="sm" onPress={() => setModelToDelete(model)}>
-                        <IconTrash className="size-3.5" />
-                      </Button>
-                    </div>
+                    <p className="mt-1 break-all text-xs text-foreground/45">
+                      {model.providerLabel} / {model.modelId}
+                    </p>
+                    <p className="mt-1 text-xs text-foreground/40">{formatParams(model)}</p>
+                    {model.providerBaseUrl && (
+                      <p className="mt-1 break-all text-xs text-foreground/35">
+                        {t("model.provider.baseUrl")}: {model.providerBaseUrl}
+                      </p>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </SettingRow>
+                  <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                    <Switch
+                      size="sm"
+                      isSelected={model.enabled}
+                      onChange={(enabled) => handleToggleModel(model, enabled)}
+                      aria-label={t("model.enabled")}
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onPress={() => setEditorState({ mode: "edit", model })}
+                    >
+                      <IconKey className="mr-1 size-3.5" />
+                      {t("common.edit")}
+                    </Button>
+                    <Button variant="tertiary" size="sm" onPress={() => setModelToDelete(model)}>
+                      <IconTrash className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </SettingSection>
 
-      <SettingRow title={t("model.cache")} desc={t("model.cache.desc")}>
+      <SettingSection title={t("model.cache")} desc={t("model.cache.desc")}>
         <div className="space-y-3">
           <div>
             <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
@@ -840,7 +1226,7 @@ function ModelTab({
             {cleared && <span className="text-xs text-success">{t("model.cache.cleared")}</span>}
           </div>
         </div>
-      </SettingRow>
+      </SettingSection>
 
       <ModelEditorDialog
         open={!!editorState}
@@ -1326,7 +1712,7 @@ function ModelEditorDialog({
 }
 
 // ============================================================
-// Trash Tab
+// 回收站 Tab
 // ============================================================
 function TrashTab(): React.JSX.Element {
   const { t } = useT();
