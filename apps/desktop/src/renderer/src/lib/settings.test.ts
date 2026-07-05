@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { SettingKey } from "@shared/types";
+import { CHAT_REASONING_LEVELS, SettingKey } from "@shared/types";
 import { parseSettings } from "./settings";
 
 void describe("parseSettings", () => {
@@ -11,6 +11,7 @@ void describe("parseSettings", () => {
     assert.equal(settings.theme, "system");
     assert.equal(settings.themePreset, "default");
     assert.equal(settings.accentColor, "theme");
+    assert.equal(settings.chatReasoningLevel, "provider-default");
   });
 
   void it("keeps compatible legacy language and accent values", () => {
@@ -29,11 +30,23 @@ void describe("parseSettings", () => {
       [SettingKey.ThemePreset]: "unknown",
       [SettingKey.Theme]: "sepia",
       [SettingKey.AccentColor]: "not-a-color",
+      [SettingKey.ChatReasoningLevel]: "maximum",
     } as Record<string, string | null>);
 
     assert.equal(settings.language, "system");
     assert.equal(settings.themePreset, "default");
     assert.equal(settings.theme, "system");
     assert.equal(settings.accentColor, "theme");
+    assert.equal(settings.chatReasoningLevel, "provider-default");
+  });
+
+  void it("keeps every supported chat reasoning level", () => {
+    for (const level of CHAT_REASONING_LEVELS) {
+      const settings = parseSettings({
+        [SettingKey.ChatReasoningLevel]: level,
+      } as Record<string, string | null>);
+
+      assert.equal(settings.chatReasoningLevel, level);
+    }
   });
 });

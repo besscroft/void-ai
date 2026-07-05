@@ -78,6 +78,23 @@ void describe("local chat server", () => {
     });
   });
 
+  void it("rejects unsupported chat reasoning levels", async () => {
+    const app = createApp({ sessionToken: token });
+
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({ messages: validMessages, model: "mock/chat", reasoning: "extreme" }),
+    });
+
+    assert.equal(response.status, 400);
+    const body = (await response.json()) as { error: string };
+    assert.match(body.error, /reasoning must be one of/);
+  });
+
   void it("streams valid chat responses as an AI SDK UI message stream", async () => {
     const providerOptions = { mock: { reasoningEffort: "low" } };
     const model = new MockLanguageModelV4({
@@ -116,7 +133,7 @@ void describe("local chat server", () => {
         "Content-Type": "application/json",
         [CHAT_SESSION_HEADER]: token,
       },
-      body: JSON.stringify({ messages: validMessages, model: "mock/chat" }),
+      body: JSON.stringify({ messages: validMessages, model: "mock/chat", reasoning: "high" }),
     });
 
     assert.equal(response.status, 200);
@@ -127,6 +144,52 @@ void describe("local chat server", () => {
     assert.match(body, /Hello/);
     assert.match(body, / from mock/);
     assert.deepEqual(model.doStreamCalls[0]?.providerOptions, providerOptions);
+    assert.equal(model.doStreamCalls[0]?.reasoning, "high");
+  });
+
+  void it("omits provider-default reasoning when calling the model", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "text-start", id: "text-1" },
+            { type: "text-delta", id: "text-1", delta: "Hello" },
+            { type: "text-end", id: "text-1" },
+            {
+              type: "finish",
+              finishReason: { unified: "stop", raw: undefined },
+              logprobs: undefined,
+              usage: {
+                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
+                outputTokens: { total: 1, text: 1, reasoning: undefined },
+              },
+            },
+          ],
+        }),
+      }),
+    });
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
+      buildAgentSystemPrompt: () => "You are a test assistant.",
+    });
+
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({
+        messages: validMessages,
+        model: "mock/chat",
+        reasoning: "provider-default",
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal(model.doStreamCalls[0]?.reasoning, undefined);
   });
 });
 

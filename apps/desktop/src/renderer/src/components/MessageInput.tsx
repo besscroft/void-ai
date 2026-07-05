@@ -34,6 +34,7 @@ import {
 } from "react";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
+import { ReasoningSelector } from "./ReasoningSelector";
 import {
   PromptInput,
   PromptInputSubmit,
@@ -49,6 +50,7 @@ import {
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/utils";
 import { IconPaperclip, IconSmile } from "./icons";
+import type { ChatReasoningLevel } from "@shared/types";
 
 /** 单个待发送附件（含 File 引用） */
 export interface PendingAttachment extends AttachmentItem {
@@ -63,8 +65,10 @@ interface MessageInputProps {
   onStop?: () => void;
   selectedModel: string | null;
   selectedAgentId: string | null;
+  reasoningLevel: ChatReasoningLevel;
   onModelChange: (modelRef: string | null) => void;
   onAgentChange: (agentId: string) => void;
+  onReasoningLevelChange: (level: ChatReasoningLevel) => void;
   /** 单个附件最大字节数（默认 10MB） */
   maxFileSize?: number;
   /** 允许的 MIME 类型前缀（默认图片 + 文本 + pdf） */
@@ -85,8 +89,10 @@ export function MessageInput({
   onStop,
   selectedModel,
   selectedAgentId,
+  reasoningLevel,
   onModelChange,
   onAgentChange,
+  onReasoningLevelChange,
   maxFileSize = DEFAULT_MAX_SIZE,
   accept = DEFAULT_ACCEPT,
   contextMetrics,
@@ -333,6 +339,11 @@ export function MessageInput({
 
                   <AgentSelector value={selectedAgentId} onChange={onAgentChange} placement="top" />
                   <ModelSelector value={selectedModel} onChange={onModelChange} placement="top" />
+                  <ReasoningSelector
+                    value={reasoningLevel}
+                    onChange={onReasoningLevelChange}
+                    placement="top"
+                  />
 
                   {contextMetrics ? (
                     <ContextPopover metrics={contextMetrics} trigger="hover" className="ml-1" />

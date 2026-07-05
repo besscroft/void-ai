@@ -144,6 +144,22 @@ export type ModelCatalogSource = "builtin" | "custom";
 
 export type JsonObject = Record<string, unknown>;
 
+export const CHAT_REASONING_LEVELS = [
+  "provider-default",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
+
+export type ChatReasoningLevel = (typeof CHAT_REASONING_LEVELS)[number];
+
+export function isChatReasoningLevel(value: unknown): value is ChatReasoningLevel {
+  return typeof value === "string" && (CHAT_REASONING_LEVELS as readonly string[]).includes(value);
+}
+
 export interface ModelCapabilities {
   vision: boolean;
   imageOutput: boolean;
@@ -314,6 +330,8 @@ export const SettingKey = {
   ModelMaxTokens: "model_max_tokens",
   /** nucleus sampling 概率 0~1，默认 1 */
   ModelTopP: "model_top_p",
+  /** Chat reasoning effort level. */
+  ChatReasoningLevel: "chat_reasoning_level",
   /** 缓存上限（MB），默认 200 */
   CacheSizeMb: "cache_size_mb",
   /** Custom provider and model catalog JSON. */
@@ -544,6 +562,7 @@ export interface AppSettings {
   modelTemperature: number;
   modelMaxTokens: number;
   modelTopP: number;
+  chatReasoningLevel: ChatReasoningLevel;
   cacheSizeMb: number;
 }
 
@@ -573,5 +592,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   modelTemperature: 0.7,
   modelMaxTokens: 4096,
   modelTopP: 1,
+  chatReasoningLevel: "provider-default",
   cacheSizeMb: 200,
 };

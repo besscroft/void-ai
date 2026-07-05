@@ -11,7 +11,13 @@ import {
   type LanguageModel,
   type UIMessage,
 } from "ai";
-import { CHAT_SESSION_HEADER, type LocalServerInfo } from "../../shared/types";
+import {
+  CHAT_REASONING_LEVELS,
+  CHAT_SESSION_HEADER,
+  isChatReasoningLevel,
+  type ChatReasoningLevel,
+  type LocalServerInfo,
+} from "../../shared/types";
 
 const ALLOWED_ORIGIN_PATTERNS = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
 
@@ -44,6 +50,16 @@ function isAuthorized(
   token: string,
 ): boolean {
   return c.req.header(CHAT_SESSION_HEADER) === token;
+}
+
+function parseChatReasoningLevel(raw: unknown): {
+  ok: boolean;
+  value?: Exclude<ChatReasoningLevel, "provider-default">;
+} {
+  if (raw === undefined) return { ok: true };
+  if (!isChatReasoningLevel(raw)) return { ok: false };
+  if (raw === "provider-default") return { ok: true };
+  return { ok: true, value: raw };
 }
 
 /** Create the local loopback HTTP app used by the renderer chat transport. */
@@ -89,6 +105,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       system?: string;
       agentId?: string;
       conversationId?: string;
+      reasoning?: unknown;
     };
 
     if (!body.messages?.length) {
@@ -97,13 +114,20 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     if (!body.model) {
       return c.json({ error: "model is required in provider/model format" }, 400);
     }
+    const reasoning = parseChatReasoningLevel(body.reasoning);
+    if (!reasoning.ok) {
+      return c.json(
+        { error: "reasoning must be one of: " + CHAT_REASONING_LEVELS.join(", ") },
+        400,
+      );
+    }
 
     try {
       const resolveModel = options.resolveModel ?? (await import("../lib/providers")).resolveModel;
       const buildAgentSystemPrompt =
         options.buildAgentSystemPrompt ?? (await import("../lib/db")).buildAgentSystemPrompt;
       const resolved = resolveModel(body.model);
-      const result = streamText({
+      const streamOptions: Parameters<typeof streamText>[0] = {
         model: resolved.model,
         instructions: body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
         messages: await convertToModelMessages(body.messages),
@@ -111,7 +135,9 @@ export function createApp(options: CreateAppOptions = {}): Hono {
         topP: resolved.topP,
         maxOutputTokens: resolved.maxOutputTokens,
         providerOptions: resolved.providerOptions,
-      });
+      };
+      if (reasoning.value) streamOptions.reasoning = reasoning.value;
+      const result = streamText(streamOptions);
 
       return createUIMessageStreamResponse({
         stream: toUIMessageStream({

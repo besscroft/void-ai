@@ -37,8 +37,11 @@ import {
 import { estimateTokens } from "./ai-elements/context";
 import {
   CHAT_SESSION_HEADER,
+  DEFAULT_SETTINGS,
   DEFAULT_AGENT_ID,
   SettingKey,
+  isChatReasoningLevel,
+  type ChatReasoningLevel,
   type LocalServerInfo,
   type ProviderInfo,
 } from "@shared/types";
@@ -90,6 +93,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const { t, locale } = useT();
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [reasoningLevel, setReasoningLevel] = useState<ChatReasoningLevel>(
+    DEFAULT_SETTINGS.chatReasoningLevel,
+  );
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -102,6 +108,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const createdAtRef = useRef<Map<string, number>>(new Map());
   const selectedModelRef = useRef<string | null>(null);
   const selectedAgentIdRef = useRef<string | null>(null);
+  const reasoningLevelRef = useRef<ChatReasoningLevel>(DEFAULT_SETTINGS.chatReasoningLevel);
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const hydratedConversationRef = useRef<string | null>(null);
   const emptyStateSuggestions = useMemo(
@@ -120,6 +127,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     });
     void api.settings.get(SettingKey.ActiveAgentId).then((agentId) => {
       setSelectedAgentId(agentId || DEFAULT_AGENT_ID);
+    });
+    void api.settings.get(SettingKey.ChatReasoningLevel).then((level) => {
+      if (isChatReasoningLevel(level)) setReasoningLevel(level);
     });
   }, []);
 
@@ -150,6 +160,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     selectedAgentIdRef.current = selectedAgentId;
   }, [selectedAgentId]);
 
+  useEffect(() => {
+    reasoningLevelRef.current = reasoningLevel;
+  }, [reasoningLevel]);
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -159,6 +173,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           model: selectedModelRef.current ?? undefined,
           agentId: selectedAgentIdRef.current ?? DEFAULT_AGENT_ID,
           conversationId,
+          reasoning: reasoningLevelRef.current,
         }),
       }),
     [conversationId, serverInfo.port, serverInfo.token],
@@ -455,8 +470,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         onStop={handleStop}
         selectedModel={selectedModel}
         selectedAgentId={selectedAgentId}
+        reasoningLevel={reasoningLevel}
         onModelChange={setSelectedModel}
         onAgentChange={setSelectedAgentId}
+        onReasoningLevelChange={setReasoningLevel}
         contextMetrics={contextMetrics}
       />
     </div>

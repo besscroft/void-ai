@@ -13,6 +13,7 @@ import {
   SettingKey,
   DEFAULT_SETTINGS,
   ACCENT_PRESETS,
+  CHAT_REASONING_LEVELS,
   type AppSettings,
   type ThemeMode,
   type ThemePresetId,
@@ -22,6 +23,7 @@ import {
   type AppLanguage,
   type ReduceMotion,
   type DiffMark,
+  type ChatReasoningLevel,
 } from "@shared/types";
 import { applyTheme, resolveSystemTheme, type ResolvedTheme } from "./theme";
 
@@ -46,6 +48,7 @@ const APP_SETTING_KEYS: string[] = [
   SettingKey.ModelTemperature,
   SettingKey.ModelMaxTokens,
   SettingKey.ModelTopP,
+  SettingKey.ChatReasoningLevel,
   SettingKey.CacheSizeMb,
 ];
 
@@ -178,6 +181,11 @@ export function parseSettings(map: Record<string, string | null>): AppSettings {
     ["system", "zh-CN", "en"],
     DEFAULT_SETTINGS.language,
   );
+  const chatReasoningLevel = parseEnum<ChatReasoningLevel>(
+    map[SettingKey.ChatReasoningLevel],
+    CHAT_REASONING_LEVELS,
+    DEFAULT_SETTINGS.chatReasoningLevel,
+  );
   return {
     theme,
     themePreset,
@@ -209,6 +217,7 @@ export function parseSettings(map: Record<string, string | null>): AppSettings {
       32768,
     ),
     modelTopP: parseNumber(map[SettingKey.ModelTopP], DEFAULT_SETTINGS.modelTopP, 0, 1),
+    chatReasoningLevel,
     cacheSizeMb: parseNumber(map[SettingKey.CacheSizeMb], DEFAULT_SETTINGS.cacheSizeMb, 50, 4096),
   };
 }
@@ -316,6 +325,8 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
       writes.push(api.settings.set(SettingKey.ModelMaxTokens, String(patch.modelMaxTokens)));
     if (patch.modelTopP !== undefined)
       writes.push(api.settings.set(SettingKey.ModelTopP, String(patch.modelTopP)));
+    if (patch.chatReasoningLevel !== undefined)
+      writes.push(api.settings.set(SettingKey.ChatReasoningLevel, patch.chatReasoningLevel));
     if (patch.cacheSizeMb !== undefined)
       writes.push(api.settings.set(SettingKey.CacheSizeMb, String(patch.cacheSizeMb)));
     await Promise.all(writes);
