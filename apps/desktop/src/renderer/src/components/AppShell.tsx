@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Chip } from "@heroui/react";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
-import { useT } from "../lib/i18n";
+import { useT, type TranslationKey } from "../lib/i18n";
 import {
   IconMessage,
   IconPlus,
@@ -36,16 +36,16 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-const primaryNav: { id: AppView; label: string; Icon: typeof IconMessage }[] = [
-  { id: "dashboard", label: "Void OS", Icon: IconLayout },
-  { id: "chat", label: "Chat", Icon: IconMessage },
-  { id: "agents", label: "Agents", Icon: IconCpu },
-  { id: "workflows", label: "Workflows", Icon: IconSliders },
-  { id: "memory", label: "Memory", Icon: IconDatabase },
-  { id: "harness", label: "Harness", Icon: IconKey },
-  { id: "server", label: "Server", Icon: IconGlobe },
-  { id: "interactions", label: "Interactions", Icon: IconMonitor },
-  { id: "sync", label: "Sync", Icon: IconSun },
+const primaryNav: { id: AppView; labelKey: TranslationKey; Icon: typeof IconMessage }[] = [
+  { id: "dashboard", labelKey: "workspace.title.dashboard", Icon: IconLayout },
+  { id: "chat", labelKey: "shell.nav.conversations", Icon: IconMessage },
+  { id: "agents", labelKey: "workspace.title.agents", Icon: IconCpu },
+  { id: "workflows", labelKey: "workspace.title.workflows", Icon: IconSliders },
+  { id: "memory", labelKey: "workspace.title.memory", Icon: IconDatabase },
+  { id: "harness", labelKey: "workspace.title.harness", Icon: IconKey },
+  { id: "server", labelKey: "workspace.title.server", Icon: IconGlobe },
+  { id: "interactions", labelKey: "workspace.title.interactions", Icon: IconMonitor },
+  { id: "sync", labelKey: "workspace.title.sync", Icon: IconSun },
 ];
 
 export function AppShell({
@@ -58,7 +58,7 @@ export function AppShell({
   onOpenSettings,
   children,
 }: AppShellProps): React.JSX.Element {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -96,11 +96,15 @@ export function AppShell({
     if (!pendingDelete) return;
     const id = pendingDelete.id;
     void notify
-      .promise(api.conversations.delete(id), {
-        loading: t("toast.conversation.deleting"),
-        success: t("toast.conversation.deleted"),
-        error: t("toast.conversation.deleteFailed"),
-      })
+      .promise(
+        api.conversations.delete(id),
+        {
+          loading: t("toast.conversation.deleting"),
+          success: t("toast.conversation.deleted"),
+          error: t("toast.conversation.deleteFailed"),
+        },
+        locale,
+      )
       .then(() => {
         refresh();
         onDeleteConversation(id);
@@ -162,18 +166,19 @@ export function AppShell({
         <div className="border-b border-foreground/10 px-4 py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">Void AI</p>
-              <p className="truncate text-xs text-foreground/45">Local-first agent desktop</p>
+              <p className="truncate text-sm font-semibold">{t("shell.brand")}</p>
+              <p className="truncate text-xs text-foreground/45">{t("shell.tagline")}</p>
             </div>
             <Chip size="sm" color="success" variant="soft">
-              local
+              {t("common.local")}
             </Chip>
           </div>
         </div>
 
-        <nav className="space-y-1 px-2 py-3" aria-label="Workspace">
-          {primaryNav.map(({ id, label, Icon }) => {
+        <nav className="space-y-1 px-2 py-3" aria-label={t("shell.nav.workspace")}>
+          {primaryNav.map(({ id, labelKey, Icon }) => {
             const active = activeView === id;
+            const label = t(labelKey);
             return (
               <button
                 key={id}
@@ -235,7 +240,10 @@ export function AppShell({
             </div>
           )}
 
-          <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Conversations">
+          <nav
+            className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+            aria-label={t("shell.nav.conversations")}
+          >
             {groupedConversations.length === 0 ? (
               <p className="whitespace-pre-line px-3 py-8 text-center text-sm text-foreground/50">
                 {searchQuery ? t("shell.noSearchResult") : t("shell.noConversation")}

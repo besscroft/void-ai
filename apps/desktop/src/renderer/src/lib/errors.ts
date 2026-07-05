@@ -1,4 +1,7 @@
-export type ErrorLocale = "zh-CN" | "en";
+import type { AppLanguage } from "@shared/types";
+import { translate, type TranslationKey } from "./i18n";
+
+export type ErrorLocale = AppLanguage;
 
 type ErrorLike = Error & {
   cause?: unknown;
@@ -7,32 +10,16 @@ type ErrorLike = Error & {
   status?: number;
 };
 
-const CHAT_ERROR_TEXT: Record<ErrorLocale, Record<string, string>> = {
-  "zh-CN": {
-    unknown: "\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
-    network:
-      "\u65e0\u6cd5\u8fde\u63a5\u5230\u672c\u5730\u804a\u5929\u670d\u52a1\u3002\u8bf7\u7a0d\u7b49\u51e0\u79d2\u540e\u91cd\u8bd5\uff0c\u6216\u91cd\u542f\u5e94\u7528\u3002",
-    unauthorized:
-      "\u804a\u5929\u4f1a\u8bdd\u5df2\u8fc7\u671f\u3002\u8bf7\u91cd\u542f\u5e94\u7528\u540e\u518d\u8bd5\u3002",
-    missingModel:
-      "\u8fd8\u6ca1\u6709\u9009\u62e9\u53ef\u7528\u6a21\u578b\u3002\u8bf7\u5148\u9009\u62e9\u6216\u914d\u7f6e\u4e00\u4e2a\u6a21\u578b\u3002",
-    badRequest:
-      "\u8bf7\u6c42\u5185\u5bb9\u4e0d\u5b8c\u6574\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u3002",
-    server: "\u672c\u5730\u804a\u5929\u670d\u52a1\u5904\u7406\u5931\u8d25\u3002",
-  },
-  en: {
-    unknown: "The request failed. Please try again.",
-    network:
-      "Could not reach the local chat service. Wait a few seconds and retry, or restart the app.",
-    unauthorized: "The chat session expired. Restart the app and try again.",
-    missingModel: "No available model is selected. Choose or configure a model first.",
-    badRequest: "The request is incomplete. Please send it again.",
-    server: "The local chat service failed to process the request.",
-  },
-};
-
-function normalizeLocale(locale?: string): ErrorLocale {
+function normalizeLocale(locale?: string | null): ErrorLocale {
   return locale === "en" ? "en" : "zh-CN";
+}
+
+function text(
+  locale: ErrorLocale,
+  key: TranslationKey,
+  params?: Record<string, string | number>,
+): string {
+  return translate(locale, key, params);
 }
 
 function parseJsonMessage(value: string): string | null {
@@ -54,19 +41,27 @@ function getStatusCode(error: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-/** Extract a displayable detail from arbitrary errors without depending on UI libraries. */
-export function getErrorMessage(error: unknown): string {
-  if (error == null) return "Unknown error";
-  if (typeof error === "string")
-    return parseJsonMessage(error) ?? (error.trim() || "Unknown error");
+function withStatus(status: number | undefined, message: string): string {
+  return status !== undefined ? `[${status}] ${message}` : message;
+}
+
+function stripStatusPrefix(message: string): string {
+  return message.replace(/^\[\d+\]\s*/, "");
+}
+
+function getRawErrorMessage(error: unknown, locale: ErrorLocale): string {
+  const unknown = text(locale, "error.unknown");
+
+  if (error == null) return unknown;
+  if (typeof error === "string") return parseJsonMessage(error) ?? (error.trim() || unknown);
 
   if (error instanceof Error) {
     const e = error as ErrorLike;
 
     if (e.responseBody && e.responseBody.trim()) {
       const inner = parseJsonMessage(e.responseBody);
-      if (inner) return e.statusCode !== undefined ? `[${e.statusCode}] ${inner}` : inner;
-      return e.statusCode !== undefined ? `[${e.statusCode}] ${e.responseBody}` : e.responseBody;
+      if (inner) return withStatus(e.statusCode, inner);
+      return withStatus(e.statusCode, e.responseBody);
     }
 
     if (error.message && error.message.trim()) {
@@ -74,46 +69,125 @@ export function getErrorMessage(error: unknown): string {
     }
 
     if (e.cause !== undefined && e.cause !== null) {
-      const causeMsg = getErrorMessage(e.cause);
-      if (causeMsg && causeMsg !== "Unknown error") return causeMsg;
+      const causeMsg = getRawErrorMessage(e.cause, locale);
+      if (causeMsg && causeMsg !== unknown) return causeMsg;
     }
 
-    return error.name && error.name !== "Error" ? error.name : "Unknown error";
+    return error.name && error.name !== "Error" ? error.name : unknown;
   }
 
   if (typeof error === "object") {
     try {
       return JSON.stringify(error);
     } catch {
-      return "Unknown error";
+      return unknown;
     }
   }
 
   if (typeof error === "number" || typeof error === "boolean") return String(error);
   if (typeof error === "bigint" || typeof error === "symbol") return error.toString();
-  if (typeof error === "function") return "[function]";
-  return "Unknown error";
+  if (typeof error === "function") return text(locale, "error.function");
+  return unknown;
+}
+
+function mapKnownError(rawMessage: string, locale: ErrorLocale, status?: number): string | null {
+  const raw = stripStatusPrefix(rawMessage).trim();
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("unauthorized chat session")) return text(locale, "error.chat.unauthorized");
+  if (lower.includes("messages cannot be empty")) return text(locale, "error.chat.badRequest");
+  if (lower.includes("model is required")) {
+    return text(locale, "error.chat.missingModel");
+  }
+  if (status === 400) return text(locale, "error.chat.badRequest");
+
+  if (lower.includes("base url must start with")) {
+    return text(locale, "error.provider.baseUrlProtocol");
+  }
+  if (lower.includes("help url must start with")) {
+    return text(locale, "error.provider.helpUrlProtocol");
+  }
+  if (lower === "provider id is required") return text(locale, "error.provider.providerIdRequired");
+  if (lower === "built-in providers cannot be overwritten") {
+    return text(locale, "error.provider.builtinOverwrite");
+  }
+  if (lower === "provider label is required") return text(locale, "error.provider.labelRequired");
+  if (lower === "base url is required") return text(locale, "error.provider.baseUrlRequired");
+  if (lower === "failed to save provider") return text(locale, "error.provider.saveFailed");
+  if (lower === "custom provider not found") {
+    return text(locale, "error.provider.customProviderNotFound");
+  }
+  if (lower === "model id is required") return text(locale, "error.provider.modelIdRequired");
+  if (lower === "failed to save model") return text(locale, "error.provider.modelSaveFailed");
+  if (lower === "api key is required") return text(locale, "error.provider.apiKeyRequired");
+  if (lower === "custom model not found") return text(locale, "error.provider.customModelNotFound");
+  if (lower.includes("invalid model reference") && lower.includes("expected provider/model")) {
+    return text(locale, "error.provider.invalidModelReference");
+  }
+
+  const unknownProvider = raw.match(/^Unknown provider:\s*(.+)$/i);
+  if (unknownProvider) {
+    return text(locale, "error.provider.unknownProvider", { provider: unknownProvider[1] });
+  }
+
+  const unknownModel = raw.match(/^Unknown model:\s*(.+)$/i);
+  if (unknownModel) {
+    return text(locale, "error.provider.unknownModel", { model: unknownModel[1] });
+  }
+
+  const disabledModel = raw.match(/^(.+?)\s+is disabled\.?$/i);
+  if (disabledModel) {
+    return text(locale, "error.provider.modelDisabled", { model: disabledModel[1] });
+  }
+
+  const apiKeyMissing = raw.match(/^(.+?)\s+API key is not configured\./i);
+  if (apiKeyMissing) {
+    return text(locale, "error.provider.modelApiKeyMissing", { model: apiKeyMissing[1] });
+  }
+
+  const baseUrlMissing = raw.match(/^(.+?)\s+base URL is not configured\./i);
+  if (baseUrlMissing) {
+    return text(locale, "error.provider.baseUrlMissing", { provider: baseUrlMissing[1] });
+  }
+
+  return null;
+}
+
+/** Extract a displayable detail from arbitrary errors without depending on UI libraries. */
+export function getErrorMessage(error: unknown, locale?: string | null): string {
+  const resolvedLocale = normalizeLocale(locale);
+  const raw = getRawErrorMessage(error, resolvedLocale);
+  return mapKnownError(raw, resolvedLocale, getStatusCode(error)) ?? raw;
 }
 
 /** Convert transport/server failures into actionable chat-specific copy. */
-export function getChatErrorMessage(error: unknown, locale?: string): string {
-  const text = CHAT_ERROR_TEXT[normalizeLocale(locale)];
-  const raw = getErrorMessage(error);
+export function getChatErrorMessage(error: unknown, locale?: string | null): string {
+  const resolvedLocale = normalizeLocale(locale);
+  const raw = getRawErrorMessage(error, resolvedLocale);
   const status = getStatusCode(error);
-  const lower = raw.toLowerCase();
+  const lower = stripStatusPrefix(raw).toLowerCase();
 
   if (lower.includes("failed to fetch") || lower.includes("load failed") || lower === "typeerror") {
-    return text.network;
+    return text(resolvedLocale, "error.chat.network");
   }
-  if (status === 401 || lower.includes("unauthorized")) return text.unauthorized;
-  if (
-    lower.includes("model is required") ||
-    (lower.includes("model") && lower.includes("required"))
-  ) {
-    return text.missingModel;
+  if (status === 401 || lower.includes("unauthorized")) {
+    return text(resolvedLocale, "error.chat.unauthorized");
   }
-  if (status === 400 || lower.includes("messages cannot be empty")) return text.badRequest;
-  if (status !== undefined && status >= 500) return `${text.server} ${raw}`;
-  if (raw === "Unknown error") return text.unknown;
+  if (lower.includes("model is required")) {
+    return text(resolvedLocale, "error.chat.missingModel");
+  }
+  if (status === 400 || lower.includes("messages cannot be empty")) {
+    return text(resolvedLocale, "error.chat.badRequest");
+  }
+
+  const known = mapKnownError(raw, resolvedLocale, status);
+  if (known) return known;
+
+  if (status !== undefined && status >= 500) {
+    return `${text(resolvedLocale, "error.chat.server")} ${raw}`;
+  }
+  if (raw === text(resolvedLocale, "error.unknown")) {
+    return text(resolvedLocale, "error.chat.unknown");
+  }
   return raw;
 }

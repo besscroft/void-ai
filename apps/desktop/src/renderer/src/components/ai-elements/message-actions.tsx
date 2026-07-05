@@ -17,6 +17,7 @@
  */
 import { type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import { IconCopy, IconEdit, IconRefresh, IconTrash } from "../icons";
 
 interface MessageActionsProps extends HTMLAttributes<HTMLDivElement> {
@@ -57,6 +58,7 @@ export function MessageActions({
   children,
   ...rest
 }: MessageActionsProps): React.JSX.Element {
+  const { t } = useT();
   return (
     <div
       data-slot="message-actions"
@@ -68,19 +70,27 @@ export function MessageActions({
         className,
       )}
       role="toolbar"
-      aria-label="Message actions"
+      aria-label={t("ai.messageActions.toolbar")}
       {...rest}
     >
-      <ActionButton label="Copy" onClick={onCopy} icon={<IconCopy className="size-3" />} />
+      <ActionButton label={t("msg.copy")} onClick={onCopy} icon={<IconCopy className="size-3" />} />
       {onEdit ? (
-        <ActionButton label="Edit" onClick={onEdit} icon={<IconEdit className="size-3" />} />
+        <ActionButton
+          label={t("common.edit")}
+          onClick={onEdit}
+          icon={<IconEdit className="size-3" />}
+        />
       ) : null}
       {onResend ? (
-        <ActionButton label="Resend" onClick={onResend} icon={<IconRefresh className="size-3" />} />
+        <ActionButton
+          label={t("msg.action.resend")}
+          onClick={onResend}
+          icon={<IconRefresh className="size-3" />}
+        />
       ) : null}
       {onDelete ? (
         <ActionButton
-          label="Delete"
+          label={t("common.delete")}
           onClick={onDelete}
           icon={<IconTrash className="size-3" />}
           tone="danger"

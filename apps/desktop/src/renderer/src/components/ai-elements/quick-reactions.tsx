@@ -16,6 +16,7 @@
  */
 import { useState, type HTMLAttributes } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 
 /** 6 个常用反应 emoji（按使用频次排序） */
 export const DEFAULT_REACTIONS: readonly string[] = ["👍", "❤️", "🎉", "😂", "🤔", "🔥"];
@@ -42,6 +43,7 @@ export function QuickReactions({
   className,
   ...rest
 }: QuickReactionsProps): React.JSX.Element {
+  const { t } = useT();
   const [hovered, setHovered] = useState<number | null>(null);
 
   return (
@@ -49,7 +51,7 @@ export function QuickReactions({
       data-slot="quick-reactions"
       data-placement={placement}
       role="toolbar"
-      aria-label="Quick reactions"
+      aria-label={t("ai.quickReactions.toolbar")}
       className={cn(
         "absolute z-10 flex items-center gap-0.5 rounded-full",
         "border border-foreground/10 bg-background/85 px-1 py-0.5 shadow-lg backdrop-blur",
@@ -73,7 +75,7 @@ export function QuickReactions({
           }}
           onMouseEnter={() => setHovered(i)}
           onMouseLeave={() => setHovered(null)}
-          aria-label={`React with ${emoji}`}
+          aria-label={t("ai.quickReactions.reactWith", { emoji })}
           className={cn(
             "flex size-7 items-center justify-center rounded-full text-base transition",
             "hover:bg-foreground/10",

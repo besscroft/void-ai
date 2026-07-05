@@ -75,7 +75,7 @@ type TabId = "appearance" | "model" | "trash";
  * 破坏性操作（重置、清缓存、删 Key）通过 ConfirmDialog 二次确认。
  */
 export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JSX.Element | null {
-  const { t } = useT();
+  const { t, locale } = useT();
   const { settings, update, reset } = useSettings();
   const [tab, setTab] = useState<TabId>("appearance");
   const [confirmResetScope, setConfirmResetScope] = useState<SettingsResetScope | null>(null);
@@ -99,11 +99,15 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   const handleReset = (scope: SettingsResetScope): void => {
     const scopeLabel = resetScopeLabel(scope);
     void notify
-      .promise(reset(scope), {
-        loading: t("toast.settings.resettingScope", { scope: scopeLabel }),
-        success: t("toast.settings.resetScope", { scope: scopeLabel }),
-        error: t("toast.settings.resetScopeFailed", { scope: scopeLabel }),
-      })
+      .promise(
+        reset(scope),
+        {
+          loading: t("toast.settings.resettingScope", { scope: scopeLabel }),
+          success: t("toast.settings.resetScope", { scope: scopeLabel }),
+          error: t("toast.settings.resetScopeFailed", { scope: scopeLabel }),
+        },
+        locale,
+      )
       .then(() => {
         setResetDoneScope(scope);
         window.setTimeout(() => {
@@ -646,7 +650,7 @@ function AppearanceTab({
                 className="w-20 rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 text-right text-sm font-mono tabular-nums outline-none focus:border-accent/50"
                 aria-label={t("appearance.codeFontSize")}
               />
-              <span className="text-xs text-foreground/50">px</span>
+              <span className="text-xs text-foreground/50">{t("format.unit.px")}</span>
             </div>
           }
         />
@@ -806,6 +810,7 @@ function ColorFieldRow({
   value: string;
   onChange: (v: string) => void;
 }): React.JSX.Element {
+  const { t } = useT();
   const isHex = /^#[0-9a-fA-F]{6}$/.test(value);
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
@@ -833,7 +838,7 @@ function ColorFieldRow({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="#RRGGBB / oklch()"
+        placeholder={t("appearance.color.placeholder")}
         className="w-36 rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent/50"
         spellCheck={false}
         aria-label={label}
@@ -843,7 +848,7 @@ function ColorFieldRow({
           type="button"
           onClick={() => onChange("")}
           className="rounded p-1 text-foreground/45 hover:bg-foreground/5 hover:text-foreground"
-          aria-label="reset"
+          aria-label={t("common.reset")}
         >
           <IconClose className="size-3.5" />
         </button>
@@ -866,6 +871,7 @@ function FontFieldRow({
   presets: FontPreset[];
   onChange: (v: string) => void;
 }): React.JSX.Element {
+  const { t } = useT();
   // 当前 value 命中某个预设时高亮它
   const matchedPreset = presets.find((p) => p.value === value);
   return (
@@ -880,7 +886,7 @@ function FontFieldRow({
           }}
           className="rounded-md border border-foreground/15 bg-background px-2 py-1 text-xs outline-none focus:border-accent/50"
         >
-          <option value="">—</option>
+          <option value="">{t("common.none")}</option>
           {presets.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
@@ -901,13 +907,13 @@ function FontFieldRow({
       {value && (
         <div className="flex items-center justify-between text-xs text-foreground/50">
           <span className="truncate" style={{ fontFamily: value, fontSize: "14px" }}>
-            The quick brown fox jumps over the lazy dog · 敏捷的棕色狐狸
+            {t("appearance.font.preview")}
           </span>
           <button
             type="button"
             onClick={() => onChange("")}
             className="ml-2 rounded p-1 text-foreground/45 hover:bg-foreground/5 hover:text-foreground"
-            aria-label="reset"
+            aria-label={t("common.reset")}
           >
             <IconClose className="size-3.5" />
           </button>
@@ -928,7 +934,7 @@ function ModelTab({
   settings: import("@shared/types").AppSettings;
   update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
 }): React.JSX.Element {
-  const { t } = useT();
+  const { t, f, locale } = useT();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [models, setModels] = useState<ManagedModelInfo[]>([]);
   const [modelsLoaded, setModelsLoaded] = useState(false);
@@ -980,22 +986,27 @@ function ModelTab({
     }))
     .filter((provider) => provider.models.length > 0);
 
-  const formatBytes = (bytes: number): string => {
-    if (bytes < 1024) return String(bytes) + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  };
-
   const formatParams = (model: ManagedModelInfo): string =>
-    `${t("model.temperature")} ${model.temperature.toFixed(1)} · ${t("model.topP")} ${model.topP.toFixed(2)} · ${t("model.maxTokens")} ${model.maxOutputTokens}`;
+    t("model.params.summary", {
+      temperatureLabel: t("model.temperature"),
+      temperature: f.fixed(model.temperature, 1),
+      topPLabel: t("model.topP"),
+      topP: f.fixed(model.topP, 2),
+      maxTokensLabel: t("model.maxTokens"),
+      maxTokens: f.number(model.maxOutputTokens),
+    });
 
   const handleToggleModel = (model: ManagedModelInfo, enabled: boolean): void => {
     void notify
-      .promise(api.providers.updateModelEnabled(model.providerId, model.modelId, enabled), {
-        loading: t("toast.model.modelSaving"),
-        success: t("toast.model.modelSaved"),
-        error: t("toast.model.modelSaveFailed"),
-      })
+      .promise(
+        api.providers.updateModelEnabled(model.providerId, model.modelId, enabled),
+        {
+          loading: t("toast.model.modelSaving"),
+          success: t("toast.model.modelSaved"),
+          error: t("toast.model.modelSaveFailed"),
+        },
+        locale,
+      )
       .then(() => {
         if (!enabled && settings.selectedModel === model.ref) void update({ selectedModel: null });
         refreshModels();
@@ -1007,11 +1018,15 @@ function ModelTab({
     if (!modelToDelete) return;
     const model = modelToDelete;
     void notify
-      .promise(api.providers.deleteCustomModel(model.providerId, model.modelId), {
-        loading: t("toast.model.modelDeleting"),
-        success: t("toast.model.modelDeleted"),
-        error: t("toast.model.modelDeleteFailed"),
-      })
+      .promise(
+        api.providers.deleteCustomModel(model.providerId, model.modelId),
+        {
+          loading: t("toast.model.modelDeleting"),
+          success: t("toast.model.modelDeleted"),
+          error: t("toast.model.modelDeleteFailed"),
+        },
+        locale,
+      )
       .then(() => {
         if (settings.selectedModel === model.ref) void update({ selectedModel: null });
         if (editorState?.mode === "edit" && editorState.model.ref === model.ref)
@@ -1025,11 +1040,15 @@ function ModelTab({
   const handleClear = (): void => {
     setClearing(true);
     void notify
-      .promise(api.cache.clear(), {
-        loading: t("toast.cache.clearing"),
-        success: t("toast.cache.cleared"),
-        error: t("toast.cache.clearFailed"),
-      })
+      .promise(
+        api.cache.clear(),
+        {
+          loading: t("toast.cache.clearing"),
+          success: t("toast.cache.cleared"),
+          error: t("toast.cache.clearFailed"),
+        },
+        locale,
+      )
       .then((remaining) => {
         setCacheBytes(remaining);
         setCleared(true);
@@ -1157,10 +1176,16 @@ function ModelTab({
           <div>
             <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
               <span>
-                {t("model.cache.used")}: {formatBytes(cacheBytes)}
+                {t("model.cache.limitValue", {
+                  label: t("model.cache.used"),
+                  value: f.bytes(cacheBytes),
+                })}
               </span>
               <span>
-                {t("model.cache.limit")}: {cacheLimit} MB
+                {t("model.cache.limitValue", {
+                  label: t("model.cache.limit"),
+                  value: f.bytes(cacheLimit * 1024 * 1024),
+                })}
               </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-foreground/10">
@@ -1176,7 +1201,10 @@ function ModelTab({
 
           <div>
             <div className="mb-1 text-xs text-foreground/60">
-              {t("model.cache.size")} · {settings.cacheSizeMb} MB
+              {t("model.cache.sizeValue", {
+                label: t("model.cache.size"),
+                value: f.bytes(settings.cacheSizeMb * 1024 * 1024),
+              })}
             </div>
             <input
               type="range"
@@ -1290,7 +1318,7 @@ function ModelEditorDialog({
   onSaved: () => void;
   onClose: () => void;
 }): React.JSX.Element {
-  const { t } = useT();
+  const { t, f, locale } = useT();
   const [addMode, setAddMode] = useState<"existing" | "custom">("existing");
   const [providerForm, setProviderForm] = useState<CustomProviderInput>({
     id: "",
@@ -1392,11 +1420,15 @@ function ModelEditorDialog({
     })();
 
     void notify
-      .promise(task, {
-        loading: t("toast.model.modelSaving"),
-        success: t("toast.model.modelSaved"),
-        error: t("toast.model.modelSaveFailed"),
-      })
+      .promise(
+        task,
+        {
+          loading: t("toast.model.modelSaving"),
+          success: t("toast.model.modelSaved"),
+          error: t("toast.model.modelSaveFailed"),
+        },
+        locale,
+      )
       .then(() => {
         onSaved();
         onClose();
@@ -1407,11 +1439,15 @@ function ModelEditorDialog({
   const handleClearKey = (): void => {
     if (!model) return;
     void notify
-      .promise(api.providers.deleteModelApiKey(model.providerId, model.modelId), {
-        loading: t("toast.apikey.clearing"),
-        success: t("toast.apikey.cleared"),
-        error: t("toast.apikey.clearFailed"),
-      })
+      .promise(
+        api.providers.deleteModelApiKey(model.providerId, model.modelId),
+        {
+          loading: t("toast.apikey.clearing"),
+          success: t("toast.apikey.cleared"),
+          error: t("toast.apikey.clearFailed"),
+        },
+        locale,
+      )
       .then(() => {
         setHasApiKey(false);
         onSaved();
@@ -1614,7 +1650,7 @@ function ModelEditorDialog({
                   <div>
                     <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
                       <span>{t("model.temperature")}</span>
-                      <span>{modelForm.temperature.toFixed(1)}</span>
+                      <span>{f.fixed(modelForm.temperature, 1)}</span>
                     </div>
                     <input
                       type="range"
@@ -1633,7 +1669,7 @@ function ModelEditorDialog({
                   <div>
                     <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
                       <span>{t("model.topP")}</span>
-                      <span>{modelForm.topP.toFixed(2)}</span>
+                      <span>{f.fixed(modelForm.topP, 2)}</span>
                     </div>
                     <input
                       type="range"
@@ -1696,7 +1732,7 @@ function ModelEditorDialog({
 // 回收站 Tab
 // ============================================================
 function TrashTab(): React.JSX.Element {
-  const { t } = useT();
+  const { t, f, locale } = useT();
   const [items, setItems] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingPermanentDelete, setPendingPermanentDelete] = useState<Conversation | null>(null);
@@ -1710,7 +1746,7 @@ function TrashTab(): React.JSX.Element {
       .purgeExpired()
       .then(() => api.conversations.listDeleted())
       .then(setItems)
-      .catch((error) => notify.error(t("toast.trash.loadFailed"), error))
+      .catch((error) => notify.error(t("toast.trash.loadFailed"), error, locale))
       .finally(() => setLoading(false))
       .catch(() => undefined);
   };
@@ -1757,11 +1793,15 @@ function TrashTab(): React.JSX.Element {
 
   const handleRestore = (conversation: Conversation): void => {
     void notify
-      .promise(api.conversations.restore(conversation.id), {
-        loading: t("toast.conversation.restoring"),
-        success: t("toast.conversation.restored"),
-        error: t("toast.conversation.restoreFailed"),
-      })
+      .promise(
+        api.conversations.restore(conversation.id),
+        {
+          loading: t("toast.conversation.restoring"),
+          success: t("toast.conversation.restored"),
+          error: t("toast.conversation.restoreFailed"),
+        },
+        locale,
+      )
       .then(refresh)
       .catch(() => undefined);
   };
@@ -1770,11 +1810,15 @@ function TrashTab(): React.JSX.Element {
     if (!pendingPermanentDelete) return;
     const id = pendingPermanentDelete.id;
     void notify
-      .promise(api.conversations.permanentDelete(id), {
-        loading: t("toast.conversation.permanentDeleting"),
-        success: t("toast.conversation.permanentDeleted"),
-        error: t("toast.conversation.permanentDeleteFailed"),
-      })
+      .promise(
+        api.conversations.permanentDelete(id),
+        {
+          loading: t("toast.conversation.permanentDeleting"),
+          success: t("toast.conversation.permanentDeleted"),
+          error: t("toast.conversation.permanentDeleteFailed"),
+        },
+        locale,
+      )
       .then(refresh)
       .catch(() => undefined);
     setPendingPermanentDelete(null);
@@ -1788,11 +1832,15 @@ function TrashTab(): React.JSX.Element {
       return;
     }
     void notify
-      .promise(api.conversations.permanentDeleteBatch(ids), {
-        loading: t("toast.conversation.permanentDeleting"),
-        success: t("toast.conversation.permanentDeletedBatch", { count: ids.length }),
-        error: t("toast.conversation.permanentDeleteFailed"),
-      })
+      .promise(
+        api.conversations.permanentDeleteBatch(ids),
+        {
+          loading: t("toast.conversation.permanentDeleting"),
+          success: t("toast.conversation.permanentDeletedBatch", { count: ids.length }),
+          error: t("toast.conversation.permanentDeleteFailed"),
+        },
+        locale,
+      )
       .then(() => {
         // 操作成功后清空选择 + 列表由 refresh 重建
         setSelectedIds(new Set());
@@ -1875,11 +1923,14 @@ function TrashTab(): React.JSX.Element {
                         <p className="truncate text-sm font-medium">{conversation.title}</p>
                         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/50">
                           <span>
-                            {t("trash.deletedAt")}: {formatDate(conversation.deleted_at)}
+                            {t("trash.deletedAt")}:{" "}
+                            {conversation.deleted_at ? f.dateTime(conversation.deleted_at) : "-"}
                           </span>
                           <span>
                             {t("trash.purgeIn")}:{" "}
-                            {formatRemaining(conversation.purge_after_at, t("trash.expired"))}
+                            {conversation.purge_after_at
+                              ? f.relativeDuration(conversation.purge_after_at, t("trash.expired"))
+                              : "-"}
                           </span>
                         </div>
                       </div>
@@ -1929,25 +1980,4 @@ function TrashTab(): React.JSX.Element {
       />
     </section>
   );
-}
-
-function formatDate(value: number | null): string {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function formatRemaining(value: number | null, expiredLabel: string): string {
-  if (!value) return "-";
-  const remaining = value - Date.now();
-  if (remaining <= 0) return expiredLabel;
-  const days = Math.floor(remaining / 86_400_000);
-  const hours = Math.ceil((remaining % 86_400_000) / 3_600_000);
-  if (days <= 0) return `${hours}h`;
-  return `${days}d ${hours}h`;
 }

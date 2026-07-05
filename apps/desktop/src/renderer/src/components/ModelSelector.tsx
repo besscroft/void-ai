@@ -94,6 +94,7 @@ export function ModelSelector({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={t("model.selector.label")}
       >
         <span className="size-2 shrink-0 rounded-full bg-accent shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-accent)_18%,transparent)]" />
         <span className="max-w-[160px] truncate font-medium">{selectedLabel()}</span>
@@ -103,6 +104,7 @@ export function ModelSelector({
       {open && (
         <div
           role="listbox"
+          aria-label={t("model.selector.label")}
           className={`absolute z-50 max-h-80 w-72 overflow-y-auto rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
         >
           {enabledProviders.map((p) => (

@@ -25,6 +25,7 @@
  */
 import { type DetailsHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import {
   IconBrain,
   IconChevronDown,
@@ -64,13 +65,16 @@ interface ChainOfThoughtProps extends Omit<DetailsHTMLAttributes<HTMLDetailsElem
  *  - 步骤用 <ol> 渲染，自带序号
  */
 export function ChainOfThought({
-  title = "Chain of Thought",
+  title,
   defaultOpen = true,
   open,
   className,
   children,
   ...rest
 }: ChainOfThoughtProps): React.JSX.Element {
+  const { t } = useT();
+  const resolvedTitle = title ?? t("msg.cot.title");
+
   return (
     <details
       data-slot="chain-of-thought"
@@ -93,7 +97,7 @@ export function ChainOfThought({
         <span className="flex size-6 items-center justify-center rounded-md bg-accent/12 text-accent">
           <IconBrain className="size-3.5" />
         </span>
-        <span className="flex-1 truncate text-foreground/80">{title}</span>
+        <span className="flex-1 truncate text-foreground/80">{resolvedTitle}</span>
         <IconChevronDown
           className={cn(
             "size-3.5 shrink-0 text-foreground/45 transition-transform",

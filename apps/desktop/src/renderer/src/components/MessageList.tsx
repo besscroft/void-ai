@@ -101,7 +101,7 @@ export function MessageList({
           {emptySuggestions && emptySuggestions.length > 0 && onSuggestion ? (
             <ConversationEmptyState title={t("msg.empty.title")} description={t("msg.empty.desc")}>
               <PromptSuggestions
-                title="Try one of these"
+                title={t("chat.suggestions.title")}
                 suggestions={emptySuggestions}
                 onSelect={onSuggestion}
                 className="mt-4 w-full"
@@ -190,7 +190,7 @@ function MessageItem({
   onResend,
   onDelete,
 }: MessageItemProps): React.JSX.Element {
-  const { t } = useT();
+  const { t, f } = useT();
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
@@ -295,14 +295,18 @@ function MessageItem({
         {(reasoningParts.length > 0 || sourceParts.length > 0 || imageParts.length > 0) && (
           <ChainOfThought
             defaultOpen={isReasoningStreaming}
-            title={isReasoningStreaming ? "Reasoning..." : "Reasoning"}
+            title={isReasoningStreaming ? t("msg.cot.reasoningActive") : t("msg.cot.reasoning")}
           >
             {reasoningParts.length > 0 ? (
               <ChainOfThoughtStep
                 icon="think"
                 status={isReasoningStreaming ? "active" : "complete"}
-                label={isReasoningStreaming ? "Thinking..." : "Reasoned"}
-                description={reasoningText ? `${reasoningText.length} chars` : undefined}
+                label={isReasoningStreaming ? t("msg.cot.thinking") : t("msg.cot.reasoned")}
+                description={
+                  reasoningText
+                    ? t("msg.cot.chars", { count: f.number(reasoningText.length) })
+                    : undefined
+                }
               />
             ) : null}
 
@@ -310,7 +314,7 @@ function MessageItem({
               <ChainOfThoughtStep
                 icon="search"
                 status="complete"
-                label={`Searched ${sourceParts.length} source${sourceParts.length > 1 ? "s" : ""}`}
+                label={t("msg.cot.search", { count: f.number(sourceParts.length) })}
               >
                 <ChainOfThoughtSearchResults>
                   {sourceParts.map((source) => {
@@ -322,7 +326,9 @@ function MessageItem({
                         key={key}
                         href={source.type === "source-url" ? source.url : undefined}
                         title={label}
-                        description={source.type === "source-url" ? source.url : "Document"}
+                        description={
+                          source.type === "source-url" ? source.url : t("msg.cot.document")
+                        }
                       />
                     );
                   })}
@@ -334,14 +340,14 @@ function MessageItem({
               <ChainOfThoughtStep
                 icon="image"
                 status="complete"
-                label={`Processed ${imageParts.length} image${imageParts.length > 1 ? "s" : ""}`}
+                label={t("msg.cot.image", { count: f.number(imageParts.length) })}
               >
                 <div className="grid grid-cols-2 gap-1.5">
                   {imageParts.map((p, i) => (
                     <ChainOfThoughtImage
                       key={i}
                       src={p.url || p.data || ""}
-                      alt={p.filename || "image"}
+                      alt={p.filename || t("msg.cot.imageAlt")}
                     />
                   ))}
                 </div>
@@ -389,7 +395,10 @@ function MessageItem({
                 />
                 <ToolContent>
                   <ToolInput input={part.input} />
-                  <ToolOutput output={renderToolOutput(part.output)} errorText={part.errorText} />
+                  <ToolOutput
+                    output={renderToolOutput(part.output, t("tool.unserializable"))}
+                    errorText={part.errorText}
+                  />
                 </ToolContent>
               </Tool>
             );
@@ -465,18 +474,22 @@ function normalizeToolState(raw: string | undefined): ToolState {
   return known.includes(raw as ToolState) ? (raw as ToolState) : "input-available";
 }
 
-function renderToolOutput(output: unknown): ReactNode {
+function renderToolOutput(output: unknown, unserializableLabel: string): ReactNode {
   if (output === undefined || output === null) return undefined;
   if (typeof output === "string" || typeof output === "number" || typeof output === "boolean") {
     return String(output);
   }
-  return <pre className="m-0 whitespace-pre-wrap font-mono">{safeJsonStringify(output)}</pre>;
+  return (
+    <pre className="m-0 whitespace-pre-wrap font-mono">
+      {safeJsonStringify(output, unserializableLabel)}
+    </pre>
+  );
 }
 
-function safeJsonStringify(value: unknown): string {
+function safeJsonStringify(value: unknown, fallback: string): string {
   try {
     return JSON.stringify(value, null, 2);
   } catch {
-    return "[unserializable]";
+    return fallback;
   }
 }

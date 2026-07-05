@@ -24,6 +24,7 @@
  */
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import { IconChartBar, IconChevronDown, IconCurrency, IconStatusDot } from "../icons";
 
 /* ---------- 类型 ---------- */
@@ -62,15 +63,17 @@ interface ContextProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
  */
 export function Context({
   metrics,
-  title = "Context",
+  title,
   defaultExpanded = false,
   expanded,
   maxLabel,
   className,
   ...rest
 }: ContextProps): React.JSX.Element {
+  const { t, f } = useT();
   const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
   const isOpen = expanded ?? internalExpanded;
+  const displayTitle = title ?? t("chat.context.title");
   const ratio = metrics.maxTokens > 0 ? metrics.usedTokens / metrics.maxTokens : 0;
   const percent = Math.min(100, Math.max(0, Math.round(ratio * 100)));
   // 颜色阈值：<60% 安全；<85% 提示；>=85% 警告
@@ -105,7 +108,9 @@ export function Context({
         >
           <IconChartBar className="size-3.5" />
         </span>
-        <span className="flex-1 truncate text-[12px] font-medium text-foreground/80">{title}</span>
+        <span className="flex-1 truncate text-[12px] font-medium text-foreground/80">
+          {displayTitle}
+        </span>
         <span
           className={cn(
             "flex items-center gap-1.5 rounded-full bg-foreground/[0.05] px-2 py-0.5 text-[10.5px] font-medium",
@@ -113,7 +118,8 @@ export function Context({
           )}
         >
           <IconStatusDot className="size-1.5" />
-          {formatNumber(metrics.usedTokens)} / {formatNumber(metrics.maxTokens)} · {percent}%
+          {f.compactNumber(metrics.usedTokens)} / {f.compactNumber(metrics.maxTokens)} /{" "}
+          {f.number(percent)}%
         </span>
         <IconChevronDown
           className={cn(
@@ -136,24 +142,24 @@ export function Context({
       {isOpen ? (
         <div className="mt-2 grid grid-cols-3 gap-2">
           <Metric
-            label={maxLabel ?? "Max"}
-            value={formatNumber(metrics.maxTokens)}
+            label={maxLabel ?? t("chat.context.max")}
+            value={f.compactNumber(metrics.maxTokens)}
             tone="text-foreground/70"
           />
           <Metric
-            label="Input"
-            value={formatNumber(metrics.inputTokens ?? 0)}
+            label={t("chat.context.input")}
+            value={f.compactNumber(metrics.inputTokens ?? 0)}
             tone="text-foreground/70"
           />
           <Metric
-            label="Output"
-            value={formatNumber(metrics.outputTokens ?? 0)}
+            label={t("chat.context.output")}
+            value={f.compactNumber(metrics.outputTokens ?? 0)}
             tone="text-foreground/70"
           />
           {typeof metrics.costUsd === "number" ? (
             <Metric
-              label="Cost"
-              value={formatCost(metrics.costUsd)}
+              label={t("chat.context.cost")}
+              value={f.usd(metrics.costUsd)}
               tone="text-accent"
               icon={<IconCurrency className="size-3" />}
             />
@@ -188,23 +194,6 @@ function Metric({
       <div className={cn("mt-0.5 text-[12px] font-medium tabular-nums", tone)}>{value}</div>
     </div>
   );
-}
-
-/* ---------- 工具函数 ---------- */
-
-/** 1000 -> "1.0K"，1000000 -> "1.0M" */
-function formatNumber(value: number): string {
-  if (!Number.isFinite(value)) return "0";
-  if (value < 1000) return String(Math.round(value));
-  if (value < 1_000_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}K`;
-  return `${(value / 1_000_000).toFixed(value < 10_000_000 ? 1 : 0)}M`;
-}
-
-/** 美元成本：< 0.01 显示 "<$0.01"，否则保留 4 位小数 */
-function formatCost(cost: number): string {
-  if (!Number.isFinite(cost) || cost <= 0) return "$0";
-  if (cost < 0.01) return "<$0.01";
-  return `$${cost.toFixed(cost < 1 ? 3 : 2)}`;
 }
 
 /* ---------- 文本估算工具 ---------- */
@@ -259,6 +248,7 @@ export function ContextPopover({
   onOpenChange,
   className,
 }: ContextPopoverProps): React.JSX.Element {
+  const { t, f } = useT();
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open ?? internalOpen;
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -322,8 +312,8 @@ export function ContextPopover({
       {/* 触发按钮：图标 + 微型进度条 + 百分比 */}
       <button
         type="button"
-        aria-label="Context usage"
-        title="Context usage"
+        aria-label={t("chat.context.title")}
+        title={t("chat.context.title")}
         className={cn(
           "group/trigger flex items-center gap-1.5 rounded-xl px-2 py-1.5",
           "text-foreground/60 transition",
@@ -339,14 +329,16 @@ export function ContextPopover({
             aria-hidden
           />
         </span>
-        <span className={cn("text-[10.5px] font-medium tabular-nums", tone)}>{percent}%</span>
+        <span className={cn("text-[10.5px] font-medium tabular-nums", tone)}>
+          {f.number(percent)}%
+        </span>
       </button>
 
       {/* 弹层：完整 Context 详情 */}
       {isOpen && (
         <div
           role="dialog"
-          aria-label="Context usage details"
+          aria-label={t("ai.context.details")}
           className={cn(
             "absolute bottom-full left-1/2 z-50 mb-2 w-[300px] -translate-x-1/2",
             "rounded-xl border border-foreground/10 bg-background/95 p-2 shadow-2xl backdrop-blur",
@@ -355,7 +347,7 @@ export function ContextPopover({
         >
           <Context
             metrics={metrics}
-            title="Context usage"
+            title={t("chat.context.title")}
             defaultExpanded
             className="border-none bg-transparent px-1 py-0"
           />

@@ -47,13 +47,6 @@ interface ChatViewProps {
   serverInfo: LocalServerInfo;
 }
 
-const EMPTY_STATE_SUGGESTIONS: string[] = [
-  "Explain quantum computing in one sentence",
-  "Help me rewrite this code in TypeScript",
-  "Draft an agenda for a team weekly meeting",
-  "Recommend 3 books about system design",
-];
-
 /**
  * 模型上下文窗口查找（粗略）。
  *  - 部分主流模型从已知的"厂商惯例"给默认值
@@ -103,6 +96,15 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const selectedAgentIdRef = useRef<string | null>(null);
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const hydratedConversationRef = useRef<string | null>(null);
+  const emptyStateSuggestions = useMemo(
+    () => [
+      t("chat.suggestions.quantum"),
+      t("chat.suggestions.typescript"),
+      t("chat.suggestions.agenda"),
+      t("chat.suggestions.books"),
+    ],
+    [t],
+  );
 
   useEffect(() => {
     void api.settings.get(SettingKey.SelectedModel).then((model) => {
@@ -176,7 +178,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       console.error("[chat] streaming error:", err);
       void persistMessagesSnapshot(conversationId, latestMessagesRef.current, createdAtRef.current);
       void api.conversations.touch(conversationId);
-      notify.error(t("toast.chat.failed"), detail);
+      notify.error(t("toast.chat.failed"), detail, locale);
     },
   });
 
@@ -253,7 +255,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       console.error("[chat] failed to send message:", err);
       void persistMessagesSnapshot(conversationId, pendingMessages, createdAtRef.current);
       void api.conversations.touch(conversationId);
-      notify.error(t("toast.chat.failed"), detail);
+      notify.error(t("toast.chat.failed"), detail, locale);
     });
   };
 
@@ -322,7 +324,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       console.error("[chat] edit regenerate failed:", err);
       const detail = getChatErrorMessage(err, locale);
       setChatError(detail);
-      notify.error(t("toast.chat.failed"), detail);
+      notify.error(t("toast.chat.failed"), detail, locale);
     }
   };
 
@@ -351,7 +353,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       console.error("[chat] resend failed:", err);
       const detail = getChatErrorMessage(err, locale);
       setChatError(detail);
-      notify.error(t("toast.chat.failed"), detail);
+      notify.error(t("toast.chat.failed"), detail, locale);
     }
   };
 
@@ -377,7 +379,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
     // 2. 持久化（目标消息与可能的 assistant 同步从 DB 中删除）
     void persistMessagesSnapshot(conversationId, next, createdAtRef.current);
-    notify.success(t("msg.action.delete") + " ✓");
+    notify.success(t("chat.messageDeleted"));
   };
 
   if (!historyLoaded) {
@@ -398,7 +400,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         <EmptyState
           title={t("chat.empty.title")}
           subtitle={t("chat.empty.subtitle")}
-          suggestions={EMPTY_STATE_SUGGESTIONS}
+          suggestions={emptyStateSuggestions}
           onSuggestion={handleSuggestion}
         />
       ) : (
@@ -407,7 +409,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           isLoading={isLoading}
           error={chat.error}
           errorDetail={chatError}
-          emptySuggestions={EMPTY_STATE_SUGGESTIONS}
+          emptySuggestions={emptyStateSuggestions}
           onRetry={handleRetry}
           onDismissError={handleDismissError}
           onEditMessage={handleEditMessage}
@@ -441,6 +443,7 @@ interface ChatHeaderProps {
  * 头部只展示"对话名 + 状态徽章"；上下文用量已迁至输入框的 ContextPopover。
  */
 function ChatHeader({ status }: ChatHeaderProps): React.JSX.Element {
+  const { t } = useT();
   return (
     <header
       className="flex shrink-0 items-center justify-between gap-3 border-b border-foreground/10 px-4 py-3 sm:px-6"
@@ -451,11 +454,11 @@ function ChatHeader({ status }: ChatHeaderProps): React.JSX.Element {
           className="flex size-2 rounded-full bg-success/80 ring-2 ring-success/20"
           aria-hidden
         />
-        <h1 className="text-sm font-medium text-foreground/80">Conversation</h1>
+        <h1 className="text-sm font-medium text-foreground/80">{t("chat.header.title")}</h1>
         <ConversationStatus status={status} />
       </div>
       <span className="text-[10.5px] uppercase tracking-wider text-foreground/40">
-        local · loopback
+        {t("chat.header.runtime")}
       </span>
     </header>
   );
@@ -563,6 +566,7 @@ function EmptyState({
   suggestions: string[];
   onSuggestion: (s: string) => void;
 }): React.JSX.Element {
+  const { t } = useT();
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-6 py-10 text-center">
@@ -570,14 +574,14 @@ function EmptyState({
           className="flex size-14 items-center justify-center rounded-2xl bg-accent/10 text-2xl"
           aria-hidden
         >
-          AI
+          {t("chat.empty.icon")}
         </div>
         <div className="space-y-2">
           <h2 className="text-xl font-semibold text-foreground/85">{title}</h2>
           <p className="mx-auto max-w-md text-sm leading-relaxed text-foreground/55">{subtitle}</p>
         </div>
         <PromptSuggestions
-          title="Try one of these"
+          title={t("chat.suggestions.title")}
           suggestions={suggestions}
           onSelect={onSuggestion}
           className="mt-2"

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Chip } from "@heroui/react";
 import { api } from "../lib/api";
+import { useT, type TranslationKey } from "../lib/i18n";
 import { SettingKey, DEFAULT_AGENT_ID, type AgentProfile } from "@shared/types";
 import { IconCheck, IconChevronDown, IconCpu } from "./icons";
 
@@ -10,11 +11,18 @@ interface AgentSelectorProps {
   placement?: "top" | "bottom";
 }
 
+const AGENT_STATUS_KEYS: Record<string, TranslationKey> = {
+  active: "status.agent.active",
+  archived: "status.agent.archived",
+  draft: "status.agent.draft",
+};
+
 export function AgentSelector({
   value,
   onChange,
   placement = "bottom",
 }: AgentSelectorProps): React.JSX.Element {
+  const { t } = useT();
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -55,6 +63,7 @@ export function AgentSelector({
         size="sm"
         className="h-8 min-w-0 gap-1.5 rounded-full border border-foreground/10 bg-foreground/[0.035] px-2 text-[13px] shadow-sm hover:bg-foreground/[0.06]"
         onPress={() => setOpen((next) => !next)}
+        aria-label={t("agent.selector.label")}
       >
         <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-accent/15 text-[10px] font-semibold text-accent">
           {selected?.avatar ?? "V"}
@@ -68,11 +77,12 @@ export function AgentSelector({
           className={`absolute z-50 w-80 overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
         >
           <div className="border-b border-foreground/10 px-3 py-2 text-xs font-medium text-foreground/50">
-            Agents
+            {t("agent.selector.title")}
           </div>
           <div className="max-h-80 overflow-y-auto p-1">
             {agents.map((agent) => {
               const active = agent.id === selected?.id;
+              const statusKey = AGENT_STATUS_KEYS[agent.status];
               return (
                 <button
                   key={agent.id}
@@ -94,7 +104,7 @@ export function AgentSelector({
                         variant="soft"
                         color={agent.status === "active" ? "success" : "default"}
                       >
-                        {agent.status}
+                        {statusKey ? t(statusKey) : agent.status}
                       </Chip>
                     </span>
                     <span className="mt-0.5 line-clamp-2 text-xs text-foreground/55">

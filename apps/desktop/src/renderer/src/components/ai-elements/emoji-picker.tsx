@@ -20,6 +20,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT, type TranslationKey } from "../../lib/i18n";
 import { IconClose, IconSearch } from "../icons";
 
 /** 单个 emoji 字典条目 */
@@ -587,6 +588,22 @@ interface EmojiPickerProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelec
   children?: ReactNode;
 }
 
+const CATEGORY_LABEL_KEYS: Record<string, TranslationKey> = {
+  food: "ai.emoji.category.food",
+  gestures: "ai.emoji.category.gestures",
+  hearts: "ai.emoji.category.hearts",
+  nature: "ai.emoji.category.nature",
+  objects: "ai.emoji.category.objects",
+  smileys: "ai.emoji.category.smileys",
+};
+
+type TFunction = ReturnType<typeof useT>["t"];
+
+function getCategoryLabel(t: TFunction, category: EmojiCategory): string {
+  const key = CATEGORY_LABEL_KEYS[category.id];
+  return key ? t(key) : category.label;
+}
+
 /**
  * EmojiPicker 主体（Popover 容器）
  *
@@ -603,13 +620,15 @@ export function EmojiPicker({
   onSelect,
   onCategoryChange,
   categories = DEFAULT_EMOJI_CATEGORIES,
-  placeholder = "搜索 emoji...",
+  placeholder,
   className,
 }: EmojiPickerProps): React.JSX.Element | null {
+  const { t } = useT();
   const [activeCategory, setActiveCategory] = useState<string>(categories[0]?.id ?? "");
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const placeholderText = placeholder ?? t("ai.emoji.placeholder");
 
   // 关闭时清空搜索
   useEffect(() => {
@@ -668,7 +687,7 @@ export function EmojiPicker({
       ref={containerRef}
       data-slot="emoji-picker"
       role="dialog"
-      aria-label="Emoji picker"
+      aria-label={t("ai.emoji.picker")}
       className={cn(
         "absolute bottom-full left-0 z-50 mb-2 w-[320px] overflow-hidden",
         "rounded-2xl border border-foreground/10 bg-background shadow-2xl",
@@ -684,8 +703,8 @@ export function EmojiPicker({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.currentTarget.value)}
-          placeholder={placeholder}
-          aria-label="Search emoji"
+          placeholder={placeholderText}
+          aria-label={t("ai.emoji.search")}
           className={cn(
             "h-6 flex-1 bg-transparent text-sm outline-none",
             "placeholder:text-foreground/35",
@@ -695,7 +714,7 @@ export function EmojiPicker({
           type="button"
           onClick={() => onOpenChange(false)}
           className="flex size-5 shrink-0 items-center justify-center rounded text-foreground/40 transition hover:bg-foreground/5 hover:text-foreground"
-          aria-label="Close"
+          aria-label={t("ai.emoji.close")}
         >
           <IconClose className="size-3.5" />
         </button>
@@ -721,7 +740,7 @@ export function EmojiPicker({
                   ? "bg-foreground/10"
                   : "opacity-50 hover:bg-foreground/5 hover:opacity-100",
               )}
-              title={cat.label}
+              title={getCategoryLabel(t, cat)}
             >
               {cat.icon}
             </button>
@@ -735,7 +754,9 @@ export function EmojiPicker({
         data-slot="emoji-grid"
       >
         {visibleEntries.length === 0 ? (
-          <p className="col-span-8 py-8 text-center text-xs text-foreground/40">没有匹配的 emoji</p>
+          <p className="col-span-8 py-8 text-center text-xs text-foreground/40">
+            {t("ai.emoji.noMatch")}
+          </p>
         ) : (
           visibleEntries.map((entry) => (
             <button
@@ -750,7 +771,7 @@ export function EmojiPicker({
                 "hover:bg-foreground/10 active:scale-95",
               )}
               title={entry.keywords[0] ?? entry.char}
-              aria-label={`Emoji ${entry.keywords[0] ?? entry.char}`}
+              aria-label={t("ai.emoji.label", { label: entry.keywords[0] ?? entry.char })}
             >
               {entry.char}
             </button>

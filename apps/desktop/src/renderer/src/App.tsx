@@ -8,6 +8,7 @@ import { SettingsProvider, useSettings } from "./lib/settings";
 import { AppI18nProvider, useT } from "./lib/i18n";
 import { SettingKey, type LocalServerInfo } from "@shared/types";
 import { Toaster } from "sonner";
+import { I18nProvider } from "@heroui/react";
 
 function App(): React.JSX.Element {
   return (
@@ -21,7 +22,9 @@ function AppRoot(): React.JSX.Element {
   const { resolvedLanguage } = useSettings();
   return (
     <AppI18nProvider locale={resolvedLanguage}>
-      <AppContent />
+      <I18nProvider locale={resolvedLanguage}>
+        <AppContent />
+      </I18nProvider>
     </AppI18nProvider>
   );
 }

@@ -20,6 +20,7 @@
  */
 import { type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT, type TranslationKey } from "../../lib/i18n";
 import { IconChevronDown, IconList, IconStatusDot } from "../icons";
 
 /* ---------- 类型 ---------- */
@@ -141,10 +142,10 @@ const STATUS_TONE: Record<QueueItemStatus, string> = {
   done: "text-success",
 };
 
-const STATUS_LABEL: Record<QueueItemStatus, string> = {
-  pending: "Queued",
-  active: "Active",
-  done: "Done",
+const STATUS_LABEL_KEY: Record<QueueItemStatus, TranslationKey> = {
+  pending: "queue.status.queued",
+  active: "queue.status.active",
+  done: "queue.status.done",
 };
 
 /** 单条队列条目 */
@@ -156,6 +157,7 @@ export function QueueItem({
   children,
   ...rest
 }: QueueItemProps): React.JSX.Element {
+  const { t } = useT();
   return (
     <li
       data-slot="queue-item"
@@ -186,7 +188,7 @@ export function QueueItem({
               STATUS_TONE[status],
             )}
           >
-            {STATUS_LABEL[status]}
+            {t(STATUS_LABEL_KEY[status])}
           </span>
         </div>
         {description ? (

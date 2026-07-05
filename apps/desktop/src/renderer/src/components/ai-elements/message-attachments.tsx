@@ -12,6 +12,7 @@
  */
 import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import { AttachmentChip } from "./attachment-chip";
 import type { AttachmentItem } from "./attachment-chip";
 
@@ -35,11 +36,12 @@ export function MessageAttachments({
   parts,
   className,
 }: MessageAttachmentsProps): React.JSX.Element | null {
+  const { t } = useT();
   if (parts.length === 0) return null;
 
   const items: AttachmentItem[] = parts.map((p, i) => ({
     id: `${p.type}-${i}`,
-    name: p.filename ?? "file",
+    name: p.filename ?? t("attachment.file"),
     mediaType: p.mediaType ?? "application/octet-stream",
     size: 0,
     // 兼容 url 字段（ai-sdk FileUIPart 标准）和 data 字段（历史/旧版本）

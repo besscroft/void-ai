@@ -16,6 +16,7 @@
  */
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import { IconArrowDown } from "../icons";
 
 export function Conversation({
@@ -128,6 +129,7 @@ export function ConversationScrollButton({
   className,
   ...rest
 }: HTMLAttributes<HTMLButtonElement>): React.JSX.Element {
+  const { t } = useT();
   const container = useRef<HTMLElement | null>(null);
   const [visible, setVisible] = useState(false);
 
@@ -156,7 +158,7 @@ export function ConversationScrollButton({
   return (
     <button
       type="button"
-      aria-label="跳到最新消息"
+      aria-label={t("ai.scroll.toLatest")}
       onClick={scrollToBottom}
       className={cn(
         "absolute bottom-4 left-1/2 z-10 -translate-x-1/2",

@@ -30,6 +30,7 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import { IconArrowUp, IconDots } from "../icons";
 
 export interface PromptInputMessage {
@@ -213,6 +214,7 @@ export function PromptInputSubmit({
   disabled,
   ...rest
 }: PromptInputSubmitProps): React.JSX.Element {
+  const { t } = useT();
   const ctx = usePromptInputContext();
   const status = statusProp ?? ctx.status;
   const isLoading = status === "streaming" || status === "submitted";
@@ -225,7 +227,7 @@ export function PromptInputSubmit({
       data-slot="prompt-input-submit"
       data-status={status}
       disabled={computedDisabled}
-      aria-label={isLoading ? "停止生成" : "发送消息"}
+      aria-label={rest["aria-label"] ?? (isLoading ? t("input.stop") : t("input.send"))}
       className={cn(
         "flex size-8 shrink-0 items-center justify-center rounded-xl",
         "border border-transparent transition",

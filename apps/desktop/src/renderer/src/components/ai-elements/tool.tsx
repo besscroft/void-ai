@@ -19,6 +19,7 @@
  */
 import { type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT, type TranslationKey } from "../../lib/i18n";
 import {
   IconChevronDown,
   IconCircleCheck,
@@ -38,18 +39,41 @@ export type ToolState =
   | "output-denied";
 
 /** state → 状态标签与图标（与 AI Elements getStatusBadge 等价） */
-const STATE_META: Record<ToolState, { label: string; tone: string; Icon: typeof IconWrench }> = {
-  "input-streaming": { label: "Pending", tone: "text-foreground/55", Icon: IconCircleDashed },
-  "input-available": { label: "Running", tone: "text-accent", Icon: IconCircleDashed },
+const STATE_META: Record<
+  ToolState,
+  { labelKey: TranslationKey; tone: string; Icon: typeof IconWrench }
+> = {
+  "input-streaming": {
+    labelKey: "tool.status.input-streaming",
+    tone: "text-foreground/55",
+    Icon: IconCircleDashed,
+  },
+  "input-available": {
+    labelKey: "tool.status.input-available",
+    tone: "text-accent",
+    Icon: IconCircleDashed,
+  },
   "approval-requested": {
-    label: "Awaiting Approval",
+    labelKey: "tool.status.approval-requested",
     tone: "text-warning",
     Icon: IconCircleDashed,
   },
-  "approval-responded": { label: "Responded", tone: "text-foreground/65", Icon: IconCircleDashed },
-  "output-available": { label: "Completed", tone: "text-success", Icon: IconCircleCheck },
-  "output-error": { label: "Error", tone: "text-danger", Icon: IconCircleX },
-  "output-denied": { label: "Denied", tone: "text-danger", Icon: IconCircleX },
+  "approval-responded": {
+    labelKey: "tool.status.approval-responded",
+    tone: "text-foreground/65",
+    Icon: IconCircleDashed,
+  },
+  "output-available": {
+    labelKey: "tool.status.output-available",
+    tone: "text-success",
+    Icon: IconCircleCheck,
+  },
+  "output-error": { labelKey: "tool.status.output-error", tone: "text-danger", Icon: IconCircleX },
+  "output-denied": {
+    labelKey: "tool.status.output-denied",
+    tone: "text-danger",
+    Icon: IconCircleX,
+  },
 };
 
 interface ToolProps extends HTMLAttributes<HTMLDetailsElement> {
@@ -91,6 +115,7 @@ export function ToolHeader({
   children,
   ...rest
 }: ToolHeaderProps): React.JSX.Element {
+  const { t } = useT();
   const displayName = title ?? toolName ?? type.replace(/^tool-/, "");
   const meta = STATE_META[state];
   const StatusIcon = meta.Icon;
@@ -119,7 +144,7 @@ export function ToolHeader({
         )}
       >
         <StatusIcon className={cn("size-3", stateIconClass)} />
-        <span className="text-[10px] font-medium uppercase tracking-wide">{meta.label}</span>
+        <span className="text-[10px] font-medium uppercase tracking-wide">{t(meta.labelKey)}</span>
       </span>
       <IconChevronDown
         className={cn(
@@ -154,13 +179,14 @@ interface ToolInputProps extends HTMLAttributes<HTMLDivElement> {
 
 /** 工具调用入参：以 JSON 形式展示 */
 export function ToolInput({ input, className, ...rest }: ToolInputProps): React.JSX.Element {
+  const { t } = useT();
   return (
     <div data-slot="tool-input" className={cn("space-y-1", className)} {...rest}>
       <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/45">
-        Parameters
+        {t("tool.parameters")}
       </p>
       <pre className="overflow-x-auto rounded-md bg-foreground/[0.05] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground/80">
-        {input === undefined ? "{}" : safeJsonStringify(input)}
+        {input === undefined ? "{}" : safeJsonStringify(input, t("tool.unserializable"))}
       </pre>
     </div>
   );
@@ -178,6 +204,7 @@ export function ToolOutput({
   className,
   ...rest
 }: ToolOutputProps): React.JSX.Element {
+  const { t } = useT();
   const isError = Boolean(errorText);
   return (
     <div data-slot="tool-output" className={cn("space-y-1", className)} {...rest}>
@@ -187,7 +214,7 @@ export function ToolOutput({
           isError ? "text-danger" : "text-foreground/45",
         )}
       >
-        {isError ? "Error" : "Result"}
+        {isError ? t("tool.error") : t("tool.result")}
       </p>
       {errorText ? (
         <pre className="overflow-x-auto rounded-md bg-danger/10 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-danger">
@@ -199,7 +226,7 @@ export function ToolOutput({
         </div>
       ) : (
         <pre className="overflow-x-auto rounded-md bg-foreground/[0.05] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground/45">
-          (empty)
+          {t("tool.empty")}
         </pre>
       )}
     </div>
@@ -207,10 +234,10 @@ export function ToolOutput({
 }
 
 /** JSON.stringify 兜底：循环引用会抛错，统一返回 "[unserializable]" */
-function safeJsonStringify(value: unknown): string {
+function safeJsonStringify(value: unknown, fallback: string): string {
   try {
     return JSON.stringify(value, null, 2);
   } catch {
-    return "[unserializable]";
+    return fallback;
   }
 }

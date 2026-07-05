@@ -18,6 +18,7 @@
  */
 import { useEffect, useMemo, useState, type HTMLAttributes } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import { IconClose } from "../icons";
 
 /** 通用附件描述符（与 ai-sdk 的 FileUIPart 兼容字段） */
@@ -59,6 +60,7 @@ export function AttachmentChip({
   className,
   ...rest
 }: AttachmentChipProps): React.JSX.Element {
+  const { t, f } = useT();
   /** 媒体分类（image / video / audio / file），与 ai-elements attachments 思路一致 */
   const category = useMemo<"image" | "video" | "audio" | "file">(() => {
     if (item.variant) return item.variant;
@@ -120,7 +122,7 @@ export function AttachmentChip({
           {item.name}
         </span>
         {!compact && (
-          <span className="truncate text-[10px] text-foreground/45">{formatSize(item.size)}</span>
+          <span className="truncate text-[10px] text-foreground/45">{f.bytes(item.size)}</span>
         )}
       </div>
 
@@ -129,7 +131,7 @@ export function AttachmentChip({
         <button
           type="button"
           onClick={() => onRemove(item.id)}
-          aria-label={`Remove ${item.name}`}
+          aria-label={t("attachment.remove", { name: item.name })}
           className={cn(
             "flex shrink-0 items-center justify-center rounded-md text-foreground/40 transition",
             "hover:bg-foreground/10 hover:text-foreground",
@@ -141,13 +143,6 @@ export function AttachmentChip({
       )}
     </div>
   );
-}
-
-/** 文件大小格式化：1024 进制 */
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /** 类型 icon 占位（非图片类型） */

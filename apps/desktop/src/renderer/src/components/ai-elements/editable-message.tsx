@@ -17,6 +17,7 @@
  */
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import { IconCheck, IconClose } from "../icons";
 
 interface EditableMessageProps {
@@ -37,10 +38,12 @@ export function EditableMessage({
   onSave,
   onCancel,
   isSaving = false,
-  placeholder = "Edit your message…",
+  placeholder,
   className,
 }: EditableMessageProps): React.JSX.Element {
+  const { t } = useT();
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const placeholderText = placeholder ?? t("msg.edit.placeholder");
 
   /** 进入编辑态：自动聚焦并把光标移到末尾 */
   useEffect(() => {
@@ -82,7 +85,7 @@ export function EditableMessage({
           node.style.height = `${Math.min(node.scrollHeight, 320)}px`;
         }}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder}
+        placeholder={placeholderText}
         rows={1}
         className={cn(
           "w-full resize-none rounded-2xl border border-foreground/15 bg-background/95 px-4 py-2.5",
@@ -98,7 +101,7 @@ export function EditableMessage({
           className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-foreground/55 transition hover:bg-foreground/10 hover:text-foreground"
         >
           <IconClose className="size-3" />
-          Cancel
+          {t("common.cancel")}
         </button>
         <button
           type="button"
@@ -112,7 +115,7 @@ export function EditableMessage({
           )}
         >
           <IconCheck className="size-3" />
-          {isSaving ? "Sending…" : "Save & Send"}
+          {isSaving ? t("msg.edit.sending") : t("msg.edit.save")}
         </button>
       </div>
     </div>

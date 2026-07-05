@@ -12,6 +12,7 @@
  */
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { useT, type TranslationKey } from "../../lib/i18n";
 import { IconStatusDot } from "../icons";
 
 /* ---------- 类型 ---------- */
@@ -26,34 +27,34 @@ interface ConversationStatusProps extends Omit<HTMLAttributes<HTMLDivElement>, "
 
 const STATUS_META: Record<
   ConversationStatusKind,
-  { label: string; tone: string; dotClass: string; pulse: boolean }
+  { labelKey: TranslationKey; tone: string; dotClass: string; pulse: boolean }
 > = {
   ready: {
-    label: "Ready",
+    labelKey: "chat.status.ready",
     tone: "bg-foreground/[0.06] text-foreground/65",
     dotClass: "text-foreground/40",
     pulse: false,
   },
   submitted: {
-    label: "Connecting",
+    labelKey: "chat.status.submitted",
     tone: "bg-accent/12 text-accent",
     dotClass: "text-accent",
     pulse: true,
   },
   streaming: {
-    label: "Generating",
+    labelKey: "chat.status.streaming",
     tone: "bg-accent/12 text-accent",
     dotClass: "text-accent",
     pulse: true,
   },
   stopped: {
-    label: "Stopped",
+    labelKey: "chat.status.stopped",
     tone: "bg-warning/15 text-warning",
     dotClass: "text-warning",
     pulse: false,
   },
   error: {
-    label: "Error",
+    labelKey: "chat.status.error",
     tone: "bg-danger/15 text-danger",
     dotClass: "text-danger",
     pulse: false,
@@ -71,6 +72,7 @@ export function ConversationStatus({
   className,
   ...rest
 }: ConversationStatusProps): React.JSX.Element {
+  const { t } = useT();
   const meta = STATUS_META[status];
   return (
     <div
@@ -84,7 +86,7 @@ export function ConversationStatus({
       {...rest}
     >
       <IconStatusDot className={cn("size-1.5", meta.dotClass, meta.pulse && "animate-pulse")} />
-      <span>{label ?? meta.label}</span>
+      <span>{label ?? t(meta.labelKey)}</span>
     </div>
   );
 }
