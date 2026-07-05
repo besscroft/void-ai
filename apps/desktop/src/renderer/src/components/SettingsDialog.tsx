@@ -2494,18 +2494,6 @@ function ProviderModelWorkbench({
                                   ? t("model.provider.builtin")
                                   : t("model.custom")}
                               </span>
-                              <span
-                                className={[
-                                  "rounded-full px-2 py-0.5 text-[11px]",
-                                  model.enabled
-                                    ? "bg-success/10 text-success"
-                                    : "bg-foreground/10 text-foreground/45",
-                                ].join(" ")}
-                              >
-                                {model.enabled
-                                  ? t("model.status.enabled")
-                                  : t("model.status.disabled")}
-                              </span>
                               {selected && (
                                 <span className="inline-flex items-center gap-1 text-xs text-accent">
                                   <IconCheck className="size-3" /> {t("model.selected")}
@@ -2529,8 +2517,14 @@ function ProviderModelWorkbench({
                               size="sm"
                               isSelected={model.enabled}
                               onChange={(enabled) => handleToggleModel(model, enabled)}
-                              aria-label={t("model.enabled")}
-                            />
+                            >
+                              <Switch.Content>
+                                <Switch.Control>
+                                  <Switch.Thumb />
+                                </Switch.Control>
+                                {t("model.enabled")}
+                              </Switch.Content>
+                            </Switch>
                             <Tooltip>
                               <Tooltip.Trigger>
                                 <Button
