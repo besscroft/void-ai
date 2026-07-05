@@ -15,7 +15,7 @@
  *    紧跟其后的 assistant 消息也会被一并删除（保持角色交替）
  */
 import { Fragment, useState, type ReactNode } from "react";
-import type { UIMessage } from "ai";
+import type { ChatAddToolApproveResponseFunction, UIMessage } from "ai";
 import {
   ChainOfThought,
   ChainOfThoughtImage,
@@ -63,6 +63,7 @@ interface MessageListProps {
   onDeleteMessage?: (messageId: string) => void;
   /** 建议被点击时 */
   onSuggestion?: (prompt: string) => void;
+  onToolApprovalResponse?: ChatAddToolApproveResponseFunction;
 }
 
 type MessagePart = UIMessage["parts"][number];
@@ -77,6 +78,10 @@ interface RenderableToolPart {
   input?: unknown;
   output?: unknown;
   errorText?: string;
+  approval?: {
+    id: string;
+    isAutomatic?: boolean;
+  };
 }
 
 export function MessageList({
@@ -91,6 +96,7 @@ export function MessageList({
   onResendMessage,
   onDeleteMessage,
   onSuggestion,
+  onToolApprovalResponse,
 }: MessageListProps): React.JSX.Element {
   const { t } = useT();
 
@@ -130,6 +136,7 @@ export function MessageList({
             onEdit={onEditMessage}
             onResend={onResendMessage}
             onDelete={onDeleteMessage}
+            onToolApprovalResponse={onToolApprovalResponse}
           />
         ))}
 
@@ -174,6 +181,7 @@ interface MessageItemProps {
   onEdit?: (messageId: string, newText: string) => Promise<void> | void;
   onResend?: (messageId: string) => Promise<void> | void;
   onDelete?: (messageId: string) => void;
+  onToolApprovalResponse?: ChatAddToolApproveResponseFunction;
 }
 
 /**
@@ -189,6 +197,7 @@ function MessageItem({
   onEdit,
   onResend,
   onDelete,
+  onToolApprovalResponse,
 }: MessageItemProps): React.JSX.Element {
   const { t, f } = useT();
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
@@ -382,6 +391,7 @@ function MessageItem({
 
           if (isToolPart(part)) {
             const state = normalizeToolState(part.state);
+            const approval = part.approval;
             return (
               <Tool
                 key={key}
@@ -395,6 +405,12 @@ function MessageItem({
                 />
                 <ToolContent>
                   <ToolInput input={part.input} />
+                  {approval && state === "approval-requested" && approval.isAutomatic !== true ? (
+                    <ToolApprovalActions
+                      approvalId={approval.id}
+                      onRespond={onToolApprovalResponse}
+                    />
+                  ) : null}
                   <ToolOutput
                     output={renderToolOutput(part.output, t("tool.unserializable"))}
                     errorText={part.errorText}
@@ -440,6 +456,45 @@ function MessageItem({
 }
 
 /* ---------- 类型守卫 ---------- */
+
+function ToolApprovalActions({
+  approvalId,
+  onRespond,
+}: {
+  approvalId: string;
+  onRespond?: ChatAddToolApproveResponseFunction;
+}): React.JSX.Element {
+  const { t } = useT();
+  if (!onRespond) {
+    return (
+      <p className="mb-2 rounded-md border border-warning/25 bg-warning/10 px-2.5 py-2 text-xs text-warning">
+        {t("tool.approval.unavailable")}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mb-2 rounded-md border border-warning/25 bg-warning/10 px-2.5 py-2">
+      <p className="text-xs font-medium text-warning">{t("tool.approval.requested")}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-md bg-success px-2.5 py-1 text-xs font-semibold text-success-foreground transition hover:opacity-90"
+          onClick={() => void onRespond({ id: approvalId, approved: true })}
+        >
+          {t("tool.approval.approve")}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-danger/30 bg-background/80 px-2.5 py-1 text-xs font-semibold text-danger transition hover:bg-danger/10"
+          onClick={() => void onRespond({ id: approvalId, approved: false })}
+        >
+          {t("tool.approval.deny")}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function isTextPart(part: MessagePart): part is Extract<MessagePart, { type: "text" }> {
   return part.type === "text";

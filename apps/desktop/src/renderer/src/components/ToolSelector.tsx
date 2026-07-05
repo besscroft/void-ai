@@ -1,0 +1,379 @@
+import { useMemo, type SVGProps } from "react";
+import { Button, Chip, Popover, ToggleButton, ToggleButtonGroup, Tooltip } from "@heroui/react";
+import {
+  CHAT_TOOL_IDS,
+  isChatToolMode,
+  normalizeChatToolSelection,
+  type ChatToolDescriptor,
+  type ChatToolId,
+  type ChatToolMode,
+  type ChatToolSelectionRequest,
+  type ProviderInfo,
+} from "@shared/types";
+import { createClientChatToolDescriptors, getActiveChatToolIds } from "../lib/chat-tools";
+import { useT } from "../lib/i18n";
+import { cn } from "../lib/utils";
+import {
+  IconCheck,
+  IconCheckSquare,
+  IconCircle,
+  IconCpu,
+  IconDatabase,
+  IconGlobe,
+  IconList,
+  IconMessage,
+  IconWrench,
+} from "./icons";
+
+interface ToolSelectorProps {
+  value: ChatToolSelectionRequest;
+  onChange: (next: ChatToolSelectionRequest) => void;
+  selectedModel: string | null;
+  providers: ProviderInfo[];
+  disabled?: boolean;
+}
+
+const TOOL_ORDER = CHAT_TOOL_IDS;
+
+const ICONS: Record<ChatToolId, (props: SVGProps<SVGSVGElement>) => React.JSX.Element> = {
+  web_search: IconGlobe,
+  memory_search: IconDatabase,
+  workspace_snapshot: IconList,
+  model_capabilities: IconCpu,
+  conversation_search: IconMessage,
+  memory_save: IconWrench,
+};
+
+export function ToolSelector({
+  value,
+  onChange,
+  selectedModel,
+  providers,
+  disabled = false,
+}: ToolSelectorProps): React.JSX.Element {
+  const { t } = useT();
+  const selection = normalizeChatToolSelection(value);
+  const descriptors = useMemo(
+    () => createClientChatToolDescriptors({ selectedModel, providers }),
+    [providers, selectedModel],
+  );
+  const activeToolIds = getActiveChatToolIds(selection, descriptors);
+  const canUseAnyTool = descriptors.some((descriptor) => descriptor.available);
+  const isDisabled = disabled || !canUseAnyTool;
+  const summary = getSummaryLabel(selection.mode, activeToolIds.length, t);
+
+  const updateMode = (mode: ChatToolMode): void => {
+    onChange({ ...selection, mode });
+  };
+
+  const updateManualTool = (id: ChatToolId): void => {
+    const descriptor = descriptors.find((item) => item.id === id);
+    if (!descriptor?.available) return;
+    const availableIds = new Set(
+      descriptors.filter((descriptor) => descriptor.available).map((descriptor) => descriptor.id),
+    );
+    const selected = new Set(selection.selectedToolIds.filter((item) => availableIds.has(item)));
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+    onChange({ mode: "manual", selectedToolIds: Array.from(selected) });
+  };
+
+  return (
+    <Popover>
+      <Tooltip>
+        <Tooltip.Trigger>
+          <Popover.Trigger>
+            <Button
+              type="button"
+              isIconOnly
+              size="sm"
+              variant="tertiary"
+              isDisabled={isDisabled}
+              aria-label={t("chatTools.selector.label")}
+              className={cn(
+                "relative size-8 shrink-0 rounded-xl text-foreground/65",
+                activeToolIds.length > 0 && "text-accent",
+              )}
+            >
+              <IconWrench className="size-4" />
+              {activeToolIds.length > 0 ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-foreground">
+                  {activeToolIds.length}
+                </span>
+              ) : null}
+            </Button>
+          </Popover.Trigger>
+        </Tooltip.Trigger>
+        <Tooltip.Content>{summary}</Tooltip.Content>
+      </Tooltip>
+
+      <Popover.Content
+        placement="top start"
+        offset={10}
+        className="z-[1000] w-[420px] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-foreground/10 bg-background p-0 shadow-2xl"
+      >
+        <Popover.Dialog className="flex max-h-[min(560px,calc(100vh-7rem))] min-w-0 flex-col bg-background outline-none">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-foreground/10 px-4 py-3">
+            <div className="min-w-0">
+              <Popover.Heading className="text-sm font-semibold text-foreground">
+                {t("chatTools.selector.title")}
+              </Popover.Heading>
+              <p className="mt-0.5 max-w-[30rem] text-xs leading-relaxed text-foreground/55">
+                {t("chatTools.selector.description")}
+              </p>
+            </div>
+            <Chip size="sm" variant="secondary" className="shrink-0">
+              <Chip.Label>{summary}</Chip.Label>
+            </Chip>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <ToggleButtonGroup
+              selectionMode="single"
+              disallowEmptySelection
+              size="sm"
+              fullWidth
+              selectedKeys={[selection.mode]}
+              onSelectionChange={(keys) => {
+                const next = String(Array.from(keys)[0] ?? "");
+                if (isChatToolMode(next)) updateMode(next);
+              }}
+              aria-label={t("chatTools.mode.label")}
+            >
+              <ToggleButton id="off">{t("chatTools.mode.off")}</ToggleButton>
+              <ToggleButton id="auto">
+                <ToggleButtonGroup.Separator />
+                {t("chatTools.mode.auto")}
+              </ToggleButton>
+              <ToggleButton id="manual">
+                <ToggleButtonGroup.Separator />
+                {t("chatTools.mode.manual")}
+              </ToggleButton>
+            </ToggleButtonGroup>
+
+            <div className="mt-3">
+              {selection.mode === "manual" ? (
+                <ManualToolGroup
+                  descriptors={descriptors}
+                  selectedIds={selection.selectedToolIds}
+                  onToggle={updateManualTool}
+                />
+              ) : (
+                <AutoToolList descriptors={descriptors} activeIds={activeToolIds} />
+              )}
+            </div>
+
+            {!canUseAnyTool ? (
+              <p className="mt-3 rounded-md border border-warning/25 bg-warning/10 px-2.5 py-2 text-xs leading-relaxed text-warning">
+                {descriptors[0]?.unavailableReason ?? t("chatTools.unavailable.toolCalling")}
+              </p>
+            ) : null}
+          </div>
+
+          {selection.mode === "manual" ? (
+            <div className="shrink-0 border-t border-foreground/10 px-4 py-3">
+              <ActiveToolChips descriptors={descriptors} ids={activeToolIds} />
+            </div>
+          ) : null}
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
+  );
+}
+
+function ManualToolGroup({
+  descriptors,
+  selectedIds,
+  onToggle,
+}: {
+  descriptors: ChatToolDescriptor[];
+  selectedIds: ChatToolId[];
+  onToggle: (id: ChatToolId) => void;
+}): React.JSX.Element {
+  const { t } = useT();
+  const selectedSet = new Set(selectedIds);
+  return (
+    <div role="group" aria-label={t("chatTools.manual.label")} className="grid gap-1.5">
+      {TOOL_ORDER.map((id) => {
+        const descriptor = descriptors.find((item) => item.id === id);
+        if (!descriptor) return null;
+        const Icon = ICONS[id];
+        const selected = descriptor.available && selectedSet.has(id);
+        return (
+          <button
+            key={id}
+            type="button"
+            disabled={!descriptor.available}
+            aria-pressed={selected}
+            onClick={() => onToggle(id)}
+            className={cn(
+              "flex min-h-[4.5rem] w-full min-w-0 items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition",
+              selected
+                ? "border-accent/35 bg-accent/10 text-foreground"
+                : "border-foreground/10 bg-background text-foreground hover:border-foreground/20 hover:bg-foreground/[0.035]",
+              !descriptor.available &&
+                "cursor-not-allowed border-foreground/10 bg-foreground/[0.025] text-foreground/45 hover:border-foreground/10 hover:bg-foreground/[0.025]",
+            )}
+          >
+            <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-accent">
+              {selected ? (
+                <IconCheckSquare className="size-4" />
+              ) : (
+                <IconCircle className="size-4" />
+              )}
+            </span>
+            <Icon className="mt-0.5 size-4 shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5 leading-5">
+                <span className="break-words text-xs font-semibold">{toolLabel(t, id)}</span>
+                <ToolBadges descriptor={descriptor} />
+              </span>
+              <span className="mt-0.5 block break-words text-[11px] leading-snug text-foreground/55">
+                {descriptor.available
+                  ? toolDescription(t, id, descriptor)
+                  : (descriptor.unavailableReason ?? t("chatTools.unavailable.toolCalling"))}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AutoToolList({
+  descriptors,
+  activeIds,
+}: {
+  descriptors: ChatToolDescriptor[];
+  activeIds: ChatToolId[];
+}): React.JSX.Element {
+  const { t } = useT();
+  const active = new Set(activeIds);
+  return (
+    <div className="grid gap-1">
+      {TOOL_ORDER.map((id) => {
+        const descriptor = descriptors.find((item) => item.id === id);
+        if (!descriptor) return null;
+        const Icon = ICONS[id];
+        const enabled = active.has(id);
+        return (
+          <div
+            key={id}
+            className={cn(
+              "flex min-w-0 items-start gap-2 rounded-md border px-2.5 py-2",
+              enabled
+                ? "border-accent/20 bg-accent/5 text-foreground"
+                : "border-foreground/10 bg-foreground/[0.025] text-foreground/55",
+            )}
+          >
+            <Icon className="mt-0.5 size-3.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="break-words text-xs font-semibold">{toolLabel(t, id)}</span>
+                {enabled ? <IconCheck className="size-3 text-accent" /> : null}
+                <ToolBadges descriptor={descriptor} compact />
+              </div>
+              <p className="mt-0.5 break-words text-[11px] leading-snug text-foreground/55">
+                {descriptor.available
+                  ? descriptor.defaultAuto
+                    ? toolDescription(t, id, descriptor)
+                    : t("chatTools.auto.manualOnly")
+                  : (descriptor.unavailableReason ?? t("chatTools.unavailable.toolCalling"))}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ActiveToolChips({
+  descriptors,
+  ids,
+}: {
+  descriptors: ChatToolDescriptor[];
+  ids: ChatToolId[];
+}): React.JSX.Element | null {
+  const { t } = useT();
+  if (ids.length === 0) {
+    return <p className="text-xs text-foreground/50">{t("chatTools.manual.none")}</p>;
+  }
+  const available = ids.filter((id) =>
+    descriptors.some((descriptor) => descriptor.id === id && descriptor.available),
+  );
+  if (available.length === 0) {
+    return <p className="text-xs text-foreground/50">{t("chatTools.manual.none")}</p>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {available.map((id) => (
+        <Chip key={id} size="sm" variant="secondary">
+          <Chip.Label>{toolLabel(t, id)}</Chip.Label>
+        </Chip>
+      ))}
+    </div>
+  );
+}
+
+function getSummaryLabel(
+  mode: ChatToolMode,
+  activeCount: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (mode === "off") return t("chatTools.summary.off");
+  if (mode === "manual") return t("chatTools.summary.manual", { count: activeCount });
+  return t("chatTools.summary.auto", { count: activeCount });
+}
+
+function toolLabel(t: (key: string) => string, id: ChatToolId): string {
+  return t(`chatTools.${id}.label`);
+}
+
+function toolDescription(
+  t: (key: string) => string,
+  id: ChatToolId,
+  descriptor?: ChatToolDescriptor,
+): string {
+  if (id === "web_search" && descriptor?.execution === "host") {
+    return t("chatTools.web_search.description.host");
+  }
+  if (id === "web_search" && descriptor?.execution === "provider") {
+    return t("chatTools.web_search.description.provider");
+  }
+  return t(`chatTools.${id}.description`);
+}
+
+function ToolBadges({
+  descriptor,
+  compact = false,
+}: {
+  descriptor: ChatToolDescriptor;
+  compact?: boolean;
+}): React.JSX.Element {
+  const { t } = useT();
+  const badgeClass = cn(
+    "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 font-medium leading-none",
+    compact ? "text-[9px]" : "text-[10px]",
+  );
+  return (
+    <>
+      {descriptor.requiresApproval ? (
+        <span className={cn(badgeClass, "bg-warning/12 text-warning")}>
+          {t("chatTools.badge.approval")}
+        </span>
+      ) : null}
+      {descriptor.id === "web_search" && descriptor.execution === "provider" ? (
+        <span className={cn(badgeClass, "bg-accent/10 text-accent")}>
+          {t("chatTools.badge.native")}
+        </span>
+      ) : null}
+      {descriptor.id === "web_search" && descriptor.execution === "host" ? (
+        <span className={cn(badgeClass, "bg-success/10 text-success")}>
+          {t("chatTools.badge.host")}
+        </span>
+      ) : null}
+    </>
+  );
+}

@@ -19,6 +19,7 @@ import {
   SettingKey,
   type CustomModelInput,
   type CustomProviderInput,
+  type ChatToolId,
   type JsonObject,
   type ManagedModelInfo,
   type ModelCapabilities,
@@ -47,10 +48,22 @@ const DEFAULT_CAPABILITIES: ModelCapabilities = {
 
 export interface ResolvedModelConfig {
   model: LanguageModel;
+  providerId: string;
+  providerKind: ProviderInfo["kind"];
+  modelId: string;
+  capabilities: ModelCapabilities;
   temperature: number;
   topP: number;
   maxOutputTokens: number;
   providerOptions?: ProviderOptions;
+  nativeTools: NativeChatTool[];
+}
+
+export interface NativeChatTool {
+  id: ChatToolId;
+  toolName: string;
+  tool: unknown;
+  providerExecuted: true;
 }
 
 function emptyCatalog(): ModelCatalogSettings {
@@ -924,10 +937,15 @@ export function resolveModel(modelRef: string): ResolvedModelConfig {
 
   return {
     model: createLanguageModel(config, apiKey, modelId),
+    providerId,
+    providerKind: config.kind,
+    modelId,
+    capabilities: model.capabilities,
     temperature: model.temperature,
     topP: model.topP,
     maxOutputTokens: model.maxOutputTokens,
     providerOptions: model.providerOptions as ProviderOptions,
+    nativeTools: createNativeChatTools(config, apiKey),
   };
 }
 
@@ -942,5 +960,48 @@ function createLanguageModel(config: ProviderInfo, apiKey: string, modelId: stri
       return createAnthropic({ apiKey })(modelId);
     case "google":
       return createGoogle({ apiKey })(modelId);
+  }
+}
+
+function createNativeChatTools(config: ProviderInfo, apiKey: string): NativeChatTool[] {
+  switch (config.kind) {
+    case "openai": {
+      const provider = createOpenAI({ apiKey, baseURL: config.baseUrl, name: config.id });
+      return [
+        {
+          id: "web_search",
+          toolName: "web_search",
+          tool: provider.tools.webSearch({
+            externalWebAccess: true,
+            searchContextSize: "medium",
+          }),
+          providerExecuted: true,
+        },
+      ];
+    }
+    case "anthropic": {
+      const provider = createAnthropic({ apiKey });
+      return [
+        {
+          id: "web_search",
+          toolName: "web_search",
+          tool: provider.tools.webSearch_20250305({ maxUses: 5 }),
+          providerExecuted: true,
+        },
+      ];
+    }
+    case "google": {
+      const provider = createGoogle({ apiKey });
+      return [
+        {
+          id: "web_search",
+          toolName: "google_search",
+          tool: provider.tools.googleSearch({ searchTypes: { webSearch: {} } }),
+          providerExecuted: true,
+        },
+      ];
+    }
+    case "openai-compatible":
+      return [];
   }
 }

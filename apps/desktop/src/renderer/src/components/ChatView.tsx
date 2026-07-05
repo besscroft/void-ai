@@ -13,7 +13,11 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import {
+  DefaultChatTransport,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+  type UIMessage,
+} from "ai";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { api } from "../lib/api";
@@ -37,11 +41,15 @@ import {
 import { estimateTokens } from "./ai-elements/context";
 import {
   CHAT_SESSION_HEADER,
+  DEFAULT_CHAT_TOOL_SELECTION,
   DEFAULT_SETTINGS,
   DEFAULT_AGENT_ID,
   SettingKey,
+  getChatToolSelectionForConversation,
   isChatReasoningLevel,
+  withChatToolSelectionForConversation,
   type ChatReasoningLevel,
+  type ChatToolSelectionRequest,
   type LocalServerInfo,
   type ProviderInfo,
 } from "@shared/types";
@@ -100,7 +108,11 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [isStopped, setIsStopped] = useState(false);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [modelContextWindows, setModelContextWindows] = useState<Map<string, number>>(new Map());
+  const [toolSelection, setToolSelection] = useState<ChatToolSelectionRequest>(
+    DEFAULT_CHAT_TOOL_SELECTION,
+  );
   /** 是否已为本对话生成过标题（防止重复生成） */
   const titledRef = useRef<Set<string>>(new Set());
   /** 上一次发送时的消息数（用于识别"本轮回复完成"） */
@@ -109,6 +121,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const selectedModelRef = useRef<string | null>(null);
   const selectedAgentIdRef = useRef<string | null>(null);
   const reasoningLevelRef = useRef<ChatReasoningLevel>(DEFAULT_SETTINGS.chatReasoningLevel);
+  const toolSelectionRef = useRef<ChatToolSelectionRequest>(DEFAULT_CHAT_TOOL_SELECTION);
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const hydratedConversationRef = useRef<string | null>(null);
   const emptyStateSuggestions = useMemo(
@@ -137,6 +150,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     let cancelled = false;
     void api.providers.list().then((providerList: ProviderInfo[]) => {
       if (cancelled) return;
+      setProviders(providerList);
       setModelContextWindows(
         new Map(
           providerList.flatMap((provider) =>
@@ -164,6 +178,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     reasoningLevelRef.current = reasoningLevel;
   }, [reasoningLevel]);
 
+  useEffect(() => {
+    toolSelectionRef.current = toolSelection;
+  }, [toolSelection]);
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -174,6 +192,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           agentId: selectedAgentIdRef.current ?? DEFAULT_AGENT_ID,
           conversationId,
           reasoning: reasoningLevelRef.current,
+          toolSelection: toolSelectionRef.current,
         }),
       }),
     [conversationId, serverInfo.port, serverInfo.token],
@@ -183,6 +202,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     setHistoryLoaded(false);
     setChatError(null);
     setIsStopped(false);
+    setToolSelection(DEFAULT_CHAT_TOOL_SELECTION);
     createdAtRef.current = new Map();
     hydratedConversationRef.current = null;
     // 不重置 titledRef：保留跨会话记录，避免重复生成（切换回到旧对话也不重生成）
@@ -200,12 +220,17 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         }
       });
     });
+
+    void api.settings.get(SettingKey.ChatTools).then((raw) => {
+      setToolSelection(getChatToolSelectionForConversation(raw, conversationId));
+    });
   }, [conversationId]);
 
   const chat = useChat({
     id: conversationId,
     messages: initialMessages,
     transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onFinish: ({ messages, isError }) => {
       if (!isError) setChatError(null);
       setIsStopped(false);
@@ -336,6 +361,20 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     void handleSend({ text: suggestion, files: [] });
   };
 
+  const handleToolSelectionChange = (next: ChatToolSelectionRequest): void => {
+    setToolSelection(next);
+    toolSelectionRef.current = next;
+    void api.settings
+      .get(SettingKey.ChatTools)
+      .then((raw) =>
+        api.settings.set(
+          SettingKey.ChatTools,
+          JSON.stringify(withChatToolSelectionForConversation(raw, conversationId, next)),
+        ),
+      )
+      .catch((err) => console.error("[chat] failed to persist tool selection:", err));
+  };
+
   /* ---------- 消息动作：编辑 ---------- */
   const handleEditMessage = async (messageId: string, newText: string): Promise<void> => {
     const idx = chat.messages.findIndex((m) => m.id === messageId);
@@ -460,6 +499,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           onEditMessage={handleEditMessage}
           onResendMessage={handleResendMessage}
           onDeleteMessage={handleDeleteMessage}
+          onToolApprovalResponse={chat.addToolApprovalResponse}
           onSuggestion={handleSuggestion}
         />
       )}
@@ -474,6 +514,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         onModelChange={setSelectedModel}
         onAgentChange={setSelectedAgentId}
         onReasoningLevelChange={setReasoningLevel}
+        toolSelection={toolSelection}
+        onToolSelectionChange={handleToolSelectionChange}
+        providers={providers}
         contextMetrics={contextMetrics}
       />
     </div>

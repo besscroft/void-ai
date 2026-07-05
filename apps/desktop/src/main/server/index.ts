@@ -16,8 +16,13 @@ import {
   CHAT_SESSION_HEADER,
   isChatReasoningLevel,
   type ChatReasoningLevel,
+  type ChatToolSelectionRequest,
   type LocalServerInfo,
+  type ModelCapabilities,
+  type ModelProviderKind,
 } from "../../shared/types";
+import type { ChatToolModelContext } from "../lib/chat-tools";
+import type { NativeChatTool } from "../lib/providers";
 
 const ALLOWED_ORIGIN_PATTERNS = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
 
@@ -29,16 +34,31 @@ interface CreateAppOptions {
   sessionToken?: string;
   getAssignedPort?: () => number;
   resolveModel?: (modelRef: string) => ResolvedChatModel;
+  buildChatToolRuntime?: typeof import("../lib/chat-tools").buildChatToolRuntime;
+  auditChatToolApprovalResponses?: typeof import("../lib/chat-tools").auditChatToolApprovalResponses;
   buildAgentSystemPrompt?: (agentId?: string | null, conversationId?: string) => string;
 }
 
 interface ResolvedChatModel {
   model: LanguageModel;
+  providerId?: string;
+  providerKind?: ModelProviderKind;
+  modelId?: string;
+  capabilities?: ModelCapabilities;
   temperature: number;
   topP: number;
   maxOutputTokens: number;
   providerOptions?: Parameters<typeof streamText>[0]["providerOptions"];
+  nativeTools?: NativeChatTool[];
 }
+
+const DEFAULT_CHAT_MODEL_CAPABILITIES: ModelCapabilities = {
+  vision: false,
+  imageOutput: false,
+  toolCalling: true,
+  reasoning: false,
+  embedding: false,
+};
 
 function allowRendererOrigin(origin: string): string | null {
   if (origin === "null") return origin;
@@ -54,12 +74,23 @@ function isAuthorized(
 
 function parseChatReasoningLevel(raw: unknown): {
   ok: boolean;
-  value?: Exclude<ChatReasoningLevel, "provider-default">;
+  value?: Exclude<ChatReasoningLevel, "provider-default" | "none">;
 } {
   if (raw === undefined) return { ok: true };
   if (!isChatReasoningLevel(raw)) return { ok: false };
-  if (raw === "provider-default") return { ok: true };
+  if (raw === "provider-default" || raw === "none") return { ok: true };
   return { ok: true, value: raw };
+}
+
+function normalizeChatReasoningForModel(
+  reasoning: ReturnType<typeof parseChatReasoningLevel>,
+  model: ChatToolModelContext,
+): ReturnType<typeof parseChatReasoningLevel> {
+  if (!reasoning.ok || !reasoning.value) return reasoning;
+  if (model.providerKind === "openai-compatible" && reasoning.value === "minimal") {
+    return { ok: true };
+  }
+  return reasoning;
 }
 
 /** Create the local loopback HTTP app used by the renderer chat transport. */
@@ -106,6 +137,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       agentId?: string;
       conversationId?: string;
       reasoning?: unknown;
+      toolSelection?: ChatToolSelectionRequest;
     };
 
     if (!body.messages?.length) {
@@ -114,8 +146,8 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     if (!body.model) {
       return c.json({ error: "model is required in provider/model format" }, 400);
     }
-    const reasoning = parseChatReasoningLevel(body.reasoning);
-    if (!reasoning.ok) {
+    const parsedReasoning = parseChatReasoningLevel(body.reasoning);
+    if (!parsedReasoning.ok) {
       return c.json(
         { error: "reasoning must be one of: " + CHAT_REASONING_LEVELS.join(", ") },
         400,
@@ -126,17 +158,51 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       const resolveModel = options.resolveModel ?? (await import("../lib/providers")).resolveModel;
       const buildAgentSystemPrompt =
         options.buildAgentSystemPrompt ?? (await import("../lib/db")).buildAgentSystemPrompt;
+      const chatToolsModule = options.buildChatToolRuntime
+        ? undefined
+        : await import("../lib/chat-tools");
+      const buildChatToolRuntime =
+        options.buildChatToolRuntime ?? chatToolsModule!.buildChatToolRuntime;
+      const auditChatToolApprovalResponses =
+        options.auditChatToolApprovalResponses ?? chatToolsModule?.auditChatToolApprovalResponses;
       const resolved = resolveModel(body.model);
+      const chatToolModelContext = toChatToolModelContext(body.model, resolved);
+      const reasoning = normalizeChatReasoningForModel(parsedReasoning, chatToolModelContext);
+      auditChatToolApprovalResponses?.({
+        messages: body.messages,
+        model: chatToolModelContext,
+        conversationId: body.conversationId,
+        agentId: body.agentId,
+      });
+      const toolRuntime = buildChatToolRuntime({
+        selection: body.toolSelection,
+        model: chatToolModelContext,
+        conversationId: body.conversationId,
+        agentId: body.agentId,
+      });
+      const instructions = appendChatToolInstructions(
+        body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
+        toolRuntime.instructions,
+      );
       const streamOptions: Parameters<typeof streamText>[0] = {
         model: resolved.model,
-        instructions: body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
-        messages: await convertToModelMessages(body.messages),
+        instructions,
+        messages: await convertToModelMessages(
+          body.messages,
+          toolRuntime.tools ? { tools: toolRuntime.tools } : undefined,
+        ),
         temperature: resolved.temperature,
         topP: resolved.topP,
         maxOutputTokens: resolved.maxOutputTokens,
         providerOptions: resolved.providerOptions,
       };
       if (reasoning.value) streamOptions.reasoning = reasoning.value;
+      if (toolRuntime.tools) streamOptions.tools = toolRuntime.tools;
+      if (toolRuntime.activeTools?.length) streamOptions.activeTools = toolRuntime.activeTools;
+      if (toolRuntime.toolChoice) streamOptions.toolChoice = toolRuntime.toolChoice;
+      if (toolRuntime.toolApproval) streamOptions.toolApproval = toolRuntime.toolApproval;
+      if (toolRuntime.stopWhen) streamOptions.stopWhen = toolRuntime.stopWhen;
+      if (toolRuntime.onStepEnd) streamOptions.onStepEnd = toolRuntime.onStepEnd;
       const result = streamText(streamOptions);
 
       return createUIMessageStreamResponse({
@@ -155,7 +221,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[server] /api/chat failed:", message);
-      return c.json({ error: message }, 500);
+      return c.json({ error: message }, getHttpErrorStatus(err));
     }
   });
 
@@ -229,6 +295,11 @@ export function createApp(options: CreateAppOptions = {}): Hono {
   });
 
   return app;
+}
+
+function appendChatToolInstructions(base: string, toolInstructions: string | undefined): string {
+  if (!toolInstructions) return base;
+  return [base.trim(), toolInstructions.trim()].filter(Boolean).join("\n\n");
 }
 
 /** Start the local HTTP server bound to loopback on a random free port. */
@@ -320,4 +391,28 @@ function sanitizeTitle(raw: string): string {
   // 截断到 40 字
   if (text.length > 40) text = text.slice(0, 40);
   return text.trim();
+}
+
+function toChatToolModelContext(
+  modelRef: string,
+  resolved: ResolvedChatModel,
+): ChatToolModelContext {
+  const slashIdx = modelRef.indexOf("/");
+  const providerId =
+    resolved.providerId ?? (slashIdx > 0 ? modelRef.slice(0, slashIdx) : "unknown");
+  const modelId = resolved.modelId ?? (slashIdx > 0 ? modelRef.slice(slashIdx + 1) : modelRef);
+  return {
+    providerId,
+    providerKind: resolved.providerKind ?? "openai-compatible",
+    modelId,
+    capabilities: resolved.capabilities ?? DEFAULT_CHAT_MODEL_CAPABILITIES,
+    nativeTools: resolved.nativeTools ?? [],
+  };
+}
+
+function getHttpErrorStatus(err: unknown): 400 | 500 {
+  if (err && typeof err === "object" && (err as { status?: unknown }).status === 400) {
+    return 400;
+  }
+  return 500;
 }

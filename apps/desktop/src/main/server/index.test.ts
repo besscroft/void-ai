@@ -7,6 +7,7 @@ import { CHAT_SESSION_HEADER } from "../../shared/types";
 
 const token = "test-session-token";
 const validMessages = [{ id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] }];
+const buildNoChatTools = () => ({ descriptors: [], toolChoice: "none" as const });
 
 void describe("local chat server", () => {
   void it("answers chat CORS preflight for allowed renderer origins", async () => {
@@ -124,6 +125,7 @@ void describe("local chat server", () => {
         assert.equal(modelRef, "mock/chat");
         return { model, temperature: 0.7, topP: 1, maxOutputTokens: 256, providerOptions };
       },
+      buildChatToolRuntime: buildNoChatTools,
       buildAgentSystemPrompt: () => "You are a test assistant.",
     });
 
@@ -171,6 +173,7 @@ void describe("local chat server", () => {
     const app = createApp({
       sessionToken: token,
       resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
+      buildChatToolRuntime: buildNoChatTools,
       buildAgentSystemPrompt: () => "You are a test assistant.",
     });
 
@@ -184,6 +187,104 @@ void describe("local chat server", () => {
         messages: validMessages,
         model: "mock/chat",
         reasoning: "provider-default",
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal(model.doStreamCalls[0]?.reasoning, undefined);
+  });
+
+  void it("omits none reasoning when calling the model", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "text-start", id: "text-1" },
+            { type: "text-delta", id: "text-1", delta: "Hello" },
+            { type: "text-end", id: "text-1" },
+            {
+              type: "finish",
+              finishReason: { unified: "stop", raw: undefined },
+              logprobs: undefined,
+              usage: {
+                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
+                outputTokens: { total: 1, text: 1, reasoning: undefined },
+              },
+            },
+          ],
+        }),
+      }),
+    });
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
+      buildChatToolRuntime: buildNoChatTools,
+      buildAgentSystemPrompt: () => "You are a test assistant.",
+    });
+
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({
+        messages: validMessages,
+        model: "mock/chat",
+        reasoning: "none",
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal(model.doStreamCalls[0]?.reasoning, undefined);
+  });
+
+  void it("omits incompatible minimal reasoning for openai-compatible models", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "text-start", id: "text-1" },
+            { type: "text-delta", id: "text-1", delta: "Hello" },
+            { type: "text-end", id: "text-1" },
+            {
+              type: "finish",
+              finishReason: { unified: "stop", raw: undefined },
+              logprobs: undefined,
+              usage: {
+                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
+                outputTokens: { total: 1, text: 1, reasoning: undefined },
+              },
+            },
+          ],
+        }),
+      }),
+    });
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: () => ({
+        model,
+        providerKind: "openai-compatible",
+        temperature: 0.7,
+        topP: 1,
+        maxOutputTokens: 256,
+      }),
+      buildChatToolRuntime: buildNoChatTools,
+      buildAgentSystemPrompt: () => "You are a test assistant.",
+    });
+
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({
+        messages: validMessages,
+        model: "mock/chat",
+        reasoning: "minimal",
       }),
     });
 

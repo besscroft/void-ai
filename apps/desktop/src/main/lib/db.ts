@@ -534,6 +534,38 @@ export function listHarnessEvents(): HarnessEvent[] {
   return getDb().select().from(harnessEvents).orderBy(desc(harnessEvents.created_at)).all();
 }
 
+export function insertHarnessEvent(input: {
+  id?: string;
+  kind: HarnessEvent["kind"];
+  title: string;
+  status: HarnessEvent["status"];
+  detail?: unknown;
+  created_at?: number;
+}): HarnessEvent {
+  const row: HarnessEvent = {
+    id: input.id ?? randomUUID(),
+    kind: input.kind,
+    title: input.title,
+    status: input.status,
+    detail_json: JSON.stringify(sanitizeHarnessDetail(input.detail ?? {})),
+    created_at: input.created_at ?? Date.now(),
+  };
+  getDb().insert(harnessEvents).values(row).run();
+  return row;
+}
+
+function sanitizeHarnessDetail(detail: unknown): unknown {
+  if (!detail || typeof detail !== "object") return detail;
+  const redactKeys = new Set(["apiKey", "api_key", "authorization", "Authorization", "token"]);
+  if (Array.isArray(detail)) return detail.map(sanitizeHarnessDetail);
+  return Object.fromEntries(
+    Object.entries(detail as Record<string, unknown>).map(([key, value]) => [
+      key,
+      redactKeys.has(key) ? "[redacted]" : sanitizeHarnessDetail(value),
+    ]),
+  );
+}
+
 export function listServerNodes(): ServerNode[] {
   return getDb().select().from(serverNodes).orderBy(desc(serverNodes.updated_at)).all();
 }

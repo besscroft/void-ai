@@ -118,6 +118,109 @@ export interface LocalServerInfo {
   token: string;
 }
 
+export const CHAT_TOOL_IDS = [
+  "web_search",
+  "memory_search",
+  "workspace_snapshot",
+  "model_capabilities",
+  "conversation_search",
+  "memory_save",
+] as const;
+
+export type ChatToolId = (typeof CHAT_TOOL_IDS)[number];
+export type ChatToolMode = "off" | "auto" | "manual";
+
+export interface ChatToolSelectionRequest {
+  mode: ChatToolMode;
+  selectedToolIds: ChatToolId[];
+}
+
+export interface ChatToolsSetting {
+  version: 1;
+  byConversation: Record<string, ChatToolSelectionRequest>;
+}
+
+export interface ChatToolDescriptor {
+  id: ChatToolId;
+  label: string;
+  description: string;
+  kind: "provider" | "host";
+  execution?: "provider" | "host";
+  category: "web" | "memory" | "workspace" | "model" | "conversation";
+  defaultAuto: boolean;
+  requiresApproval: boolean;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export const DEFAULT_CHAT_TOOL_SELECTION: ChatToolSelectionRequest = {
+  mode: "auto",
+  selectedToolIds: [],
+};
+
+export function isChatToolId(value: unknown): value is ChatToolId {
+  return typeof value === "string" && (CHAT_TOOL_IDS as readonly string[]).includes(value);
+}
+
+export function isChatToolMode(value: unknown): value is ChatToolMode {
+  return value === "off" || value === "auto" || value === "manual";
+}
+
+export function normalizeChatToolSelection(raw: unknown): ChatToolSelectionRequest {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_CHAT_TOOL_SELECTION };
+  const value = raw as Partial<ChatToolSelectionRequest>;
+  const ids = Array.isArray(value.selectedToolIds)
+    ? value.selectedToolIds.filter(isChatToolId)
+    : [];
+  return {
+    mode: isChatToolMode(value.mode) ? value.mode : DEFAULT_CHAT_TOOL_SELECTION.mode,
+    selectedToolIds: [...new Set(ids)],
+  };
+}
+
+export function parseChatToolsSetting(raw: string | null | undefined): ChatToolsSetting {
+  if (!raw) return { version: 1, byConversation: {} };
+  try {
+    const parsed = JSON.parse(raw) as Partial<ChatToolsSetting>;
+    const byConversation: Record<string, ChatToolSelectionRequest> = {};
+    if (
+      parsed.version === 1 &&
+      parsed.byConversation &&
+      typeof parsed.byConversation === "object"
+    ) {
+      for (const [conversationId, selection] of Object.entries(parsed.byConversation)) {
+        if (conversationId) byConversation[conversationId] = normalizeChatToolSelection(selection);
+      }
+    }
+    return { version: 1, byConversation };
+  } catch {
+    return { version: 1, byConversation: {} };
+  }
+}
+
+export function getChatToolSelectionForConversation(
+  rawSetting: string | null | undefined,
+  conversationId: string,
+): ChatToolSelectionRequest {
+  const setting = parseChatToolsSetting(rawSetting);
+  return setting.byConversation[conversationId] ?? { ...DEFAULT_CHAT_TOOL_SELECTION };
+}
+
+export function withChatToolSelectionForConversation(
+  rawSetting: string | null | undefined,
+  conversationId: string,
+  selection: ChatToolSelectionRequest,
+): ChatToolsSetting {
+  const setting = parseChatToolsSetting(rawSetting);
+  return {
+    version: 1,
+    byConversation: {
+      ...setting.byConversation,
+      [conversationId]: normalizeChatToolSelection(selection),
+    },
+  };
+}
+
 export interface InteractionProfile {
   id: string;
   kind: "chat" | "voice" | "video" | "mouse" | "desktop_pet";
@@ -332,6 +435,8 @@ export const SettingKey = {
   ModelTopP: "model_top_p",
   /** Chat reasoning effort level. */
   ChatReasoningLevel: "chat_reasoning_level",
+  /** Per-conversation chat tool mode and manual selections. */
+  ChatTools: "chat_tools",
   /** 缓存上限（MB），默认 200 */
   CacheSizeMb: "cache_size_mb",
   /** Custom provider and model catalog JSON. */

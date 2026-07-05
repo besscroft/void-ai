@@ -35,6 +35,7 @@ import {
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
 import { ReasoningSelector } from "./ReasoningSelector";
+import { ToolSelector } from "./ToolSelector";
 import {
   PromptInput,
   PromptInputSubmit,
@@ -50,7 +51,7 @@ import {
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/utils";
 import { IconPaperclip, IconSmile } from "./icons";
-import type { ChatReasoningLevel } from "@shared/types";
+import type { ChatReasoningLevel, ChatToolSelectionRequest, ProviderInfo } from "@shared/types";
 
 /** 单个待发送附件（含 File 引用） */
 export interface PendingAttachment extends AttachmentItem {
@@ -66,9 +67,12 @@ interface MessageInputProps {
   selectedModel: string | null;
   selectedAgentId: string | null;
   reasoningLevel: ChatReasoningLevel;
+  toolSelection: ChatToolSelectionRequest;
   onModelChange: (modelRef: string | null) => void;
   onAgentChange: (agentId: string) => void;
   onReasoningLevelChange: (level: ChatReasoningLevel) => void;
+  onToolSelectionChange: (selection: ChatToolSelectionRequest) => void;
+  providers: ProviderInfo[];
   /** 单个附件最大字节数（默认 10MB） */
   maxFileSize?: number;
   /** 允许的 MIME 类型前缀（默认图片 + 文本 + pdf） */
@@ -90,9 +94,12 @@ export function MessageInput({
   selectedModel,
   selectedAgentId,
   reasoningLevel,
+  toolSelection,
   onModelChange,
   onAgentChange,
   onReasoningLevelChange,
+  onToolSelectionChange,
+  providers,
   maxFileSize = DEFAULT_MAX_SIZE,
   accept = DEFAULT_ACCEPT,
   contextMetrics,
@@ -337,6 +344,13 @@ export function MessageInput({
 
                   <span className="mx-1 h-4 w-px shrink-0 bg-foreground/10" />
 
+                  <ToolSelector
+                    value={toolSelection}
+                    onChange={onToolSelectionChange}
+                    selectedModel={selectedModel}
+                    providers={providers}
+                    disabled={isLoading}
+                  />
                   <AgentSelector value={selectedAgentId} onChange={onAgentChange} placement="top" />
                   <ModelSelector value={selectedModel} onChange={onModelChange} placement="top" />
                   <ReasoningSelector
