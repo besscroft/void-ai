@@ -1,7 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogle } from "@ai-sdk/google";
-import type { LanguageModel } from "ai";
+import type { LanguageModel, streamText } from "ai";
 import {
   deleteApiKey,
   deleteModelApiKey,
@@ -9,7 +9,9 @@ import {
   getApiKey,
   getModelApiKey,
   getSetting,
+  listApiKeyProviders,
   listModelApiKeyRefs,
+  setApiKey,
   setModelApiKey,
   setSetting,
 } from "./db";
@@ -17,23 +19,38 @@ import {
   SettingKey,
   type CustomModelInput,
   type CustomProviderInput,
+  type JsonObject,
   type ManagedModelInfo,
+  type ModelCapabilities,
   type ModelCatalogSettings,
   type ModelOption,
+  type ProviderModelSyncResult,
   type ProviderInfo,
+  type ProviderTestResult,
 } from "../../shared/types";
 
-type ProviderConfig = ProviderInfo;
+type ProviderConfig = Omit<ProviderInfo, "hasApiKey"> & { hasApiKey?: boolean };
+type ProviderOptions = NonNullable<Parameters<typeof streamText>[0]["providerOptions"]>;
 
 const DEFAULT_MODEL_TEMPERATURE = 0.7;
 const DEFAULT_MODEL_TOP_P = 1;
 const DEFAULT_MODEL_MAX_OUTPUT_TOKENS = 4096;
+const DEFAULT_MODEL_CONTEXT_WINDOW = 32_000;
+
+const DEFAULT_CAPABILITIES: ModelCapabilities = {
+  vision: false,
+  imageOutput: false,
+  toolCalling: true,
+  reasoning: false,
+  embedding: false,
+};
 
 export interface ResolvedModelConfig {
   model: LanguageModel;
   temperature: number;
   topP: number;
   maxOutputTokens: number;
+  providerOptions?: ProviderOptions;
 }
 
 function emptyCatalog(): ModelCatalogSettings {
@@ -95,6 +112,9 @@ function customModel(model: ModelCatalogSettings["models"][number], enabled: boo
     temperature: model.temperature,
     topP: model.topP,
     maxOutputTokens: model.maxOutputTokens,
+    contextWindow: model.contextWindow,
+    capabilities: model.capabilities,
+    providerOptions: model.providerOptions as ProviderOptions,
   };
 }
 
@@ -148,6 +168,13 @@ function normalizeCatalog(raw: Partial<ModelCatalogSettings>): ModelCatalogSetti
           maxOutputTokens: normalizeMaxOutputTokens(
             (model as { maxOutputTokens?: unknown }).maxOutputTokens,
           ),
+          contextWindow: normalizeContextWindow(
+            (model as { contextWindow?: unknown }).contextWindow,
+          ),
+          capabilities: normalizeCapabilities((model as { capabilities?: unknown }).capabilities),
+          providerOptions: normalizeProviderOptions(
+            (model as { providerOptions?: unknown }).providerOptions,
+          ),
           createdAt: Number(model.createdAt) || Date.now(),
           updatedAt: Number(model.updatedAt) || Date.now(),
         }))
@@ -193,7 +220,7 @@ function normalizeProviderId(raw: string | undefined): string {
 }
 
 function normalizeOptionalText(raw: unknown): string | undefined {
-  const text = String(raw ?? "").trim();
+  const text = primitiveToString(raw).trim();
   return text ? text : undefined;
 }
 
@@ -208,13 +235,27 @@ function normalizeBaseUrl(raw: string): string {
 }
 
 function normalizeOptionalUrl(raw: unknown): string | undefined {
-  const text = String(raw ?? "").trim();
+  const text = primitiveToString(raw).trim();
   if (!text) return undefined;
   const url = new URL(text);
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new Error("Help URL must start with http:// or https://");
   }
   return url.toString();
+}
+
+function primitiveToString(raw: unknown): string {
+  if (raw == null) return "";
+  switch (typeof raw) {
+    case "string":
+      return raw;
+    case "number":
+    case "boolean":
+    case "bigint":
+      return String(raw);
+    default:
+      return "";
+  }
 }
 
 function normalizeTemperature(raw: unknown): number {
@@ -227,6 +268,51 @@ function normalizeTopP(raw: unknown): number {
 
 function normalizeMaxOutputTokens(raw: unknown): number {
   return Math.floor(normalizeNumber(raw, DEFAULT_MODEL_MAX_OUTPUT_TOKENS, 1, 32768));
+}
+
+function normalizeContextWindow(raw: unknown): number {
+  return Math.floor(normalizeNumber(raw, DEFAULT_MODEL_CONTEXT_WINDOW, 1, 2_000_000));
+}
+
+function normalizeCapabilities(raw: unknown): ModelCapabilities {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_CAPABILITIES };
+  const value = raw as Partial<Record<keyof ModelCapabilities, unknown>>;
+  return {
+    vision: value.vision === true,
+    imageOutput: value.imageOutput === true,
+    toolCalling: value.toolCalling !== false,
+    reasoning: value.reasoning === true,
+    embedding: value.embedding === true,
+  };
+}
+
+function isPlainJsonObject(raw: unknown): raw is JsonObject {
+  return !!raw && typeof raw === "object" && !Array.isArray(raw);
+}
+
+function normalizeProviderOptions(raw: unknown): JsonObject {
+  if (raw == null || raw === "") return {};
+  if (!isPlainJsonObject(raw)) throw new Error("Provider options must be a JSON object");
+  return raw;
+}
+
+export function parseProviderOptionsJson(raw: string | undefined): JsonObject | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "{}") return {};
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return normalizeProviderOptions(parsed);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Provider options must be a JSON object") {
+      throw error;
+    }
+    throw new Error("Provider options must be valid JSON");
+  }
+}
+
+function stringifyProviderOptions(options: JsonObject): string {
+  return Object.keys(options).length === 0 ? "{}" : JSON.stringify(options, null, 2);
 }
 
 function normalizeNumber(raw: unknown, fallback: number, min: number, max: number): number {
@@ -326,8 +412,10 @@ function mergeModels(provider: ProviderConfig, catalog: ModelCatalogSettings): M
     .map((model) => customModel(model, isModelEnabled(catalog, provider.id, model.id)));
 }
 
-export function listProviders(): ProviderConfig[] {
+export function listProviders(): ProviderInfo[] {
   const catalog = readCatalog();
+  const providerKeys = new Set(listApiKeyProviders());
+  const modelKeyRefs = listModelApiKeyRefs();
   const customProviders: ProviderConfig[] = catalog.providers.map((provider) => ({
     id: provider.id,
     label: provider.label,
@@ -340,12 +428,16 @@ export function listProviders(): ProviderConfig[] {
 
   return [...BUILTIN_PROVIDERS, ...customProviders].map((provider) => ({
     ...provider,
+    hasApiKey:
+      providerKeys.has(provider.id) ||
+      modelKeyRefs.some((ref) => ref.startsWith(provider.id + "/")),
     models: mergeModels(provider, catalog),
   }));
 }
 
 export function listManagedModels(): ManagedModelInfo[] {
   const keyRefs = new Set(listModelApiKeyRefs());
+  const providerKeys = new Set(listApiKeyProviders());
   return listProviders().flatMap((provider) =>
     provider.models.map((model) => ({
       ref: providerModelRef(provider.id, model.id),
@@ -359,15 +451,20 @@ export function listManagedModels(): ManagedModelInfo[] {
       modelLabel: model.label,
       modelSource: model.source,
       enabled: model.enabled,
-      hasApiKey: keyRefs.has(providerModelRef(provider.id, model.id)),
+      hasApiKey:
+        providerKeys.has(provider.id) || keyRefs.has(providerModelRef(provider.id, model.id)),
       temperature: model.temperature,
       topP: model.topP,
       maxOutputTokens: model.maxOutputTokens,
+      contextWindow: model.contextWindow,
+      capabilities: model.capabilities,
+      providerOptions: model.providerOptions,
+      providerOptionsJson: stringifyProviderOptions(model.providerOptions),
     })),
   );
 }
 
-export function getProviderConfig(providerId: string): ProviderConfig | null {
+export function getProviderConfig(providerId: string): ProviderInfo | null {
   return listProviders().find((provider) => provider.id === providerId) ?? null;
 }
 
@@ -421,6 +518,295 @@ export function deleteCustomProvider(providerId: string): void {
   deleteModelApiKeysForProvider(id);
 }
 
+export function saveProviderApiKey(providerId: string, apiKey: string): void {
+  const normalizedProviderId = normalizeProviderId(providerId);
+  const key = apiKey.trim();
+  if (!key) throw new Error("API key is required");
+  assertKnownProvider(normalizedProviderId);
+  setApiKey(normalizedProviderId, key);
+}
+
+export function clearProviderApiKey(providerId: string): void {
+  deleteApiKey(normalizeProviderId(providerId));
+}
+
+export function resolveProviderApiKeyFallback({
+  providerId,
+  modelId,
+  providerKey,
+  legacyModelRefs,
+  getLegacyModelKey,
+}: {
+  providerId: string;
+  modelId?: string;
+  providerKey: string | null;
+  legacyModelRefs: string[];
+  getLegacyModelKey: (modelId: string) => string | null;
+}): string | null {
+  if (providerKey) return providerKey;
+  if (modelId) return getLegacyModelKey(modelId);
+  const prefix = providerId + "/";
+  const legacyRef = legacyModelRefs.find((ref) => ref.startsWith(prefix));
+  return legacyRef ? getLegacyModelKey(legacyRef.slice(prefix.length)) : null;
+}
+
+function getProviderOrLegacyModelApiKey(providerId: string, modelId?: string): string | null {
+  return resolveProviderApiKeyFallback({
+    providerId,
+    modelId,
+    providerKey: getApiKey(providerId),
+    legacyModelRefs: listModelApiKeyRefs(),
+    getLegacyModelKey: (id) => getModelApiKey(providerId, id),
+  });
+}
+
+export interface RemoteModelInfo {
+  id: string;
+  label?: string;
+  contextWindow?: number;
+  capabilities?: Partial<ModelCapabilities>;
+}
+
+function inferModelCapabilities(modelId: string): ModelCapabilities {
+  const lower = modelId.toLowerCase();
+  return {
+    vision:
+      /\bvision\b|gpt-4o|gpt-5|gemini|claude-3|claude-sonnet|claude-opus/.test(lower) &&
+      !lower.includes("embedding"),
+    imageOutput: /image|dall-e|gpt-image|imagen/.test(lower),
+    toolCalling: !lower.includes("embedding") && !lower.includes("image"),
+    reasoning: /(^|[-_/])(o1|o3|o4)([-_/]|$)|reason|thinking|deepseek-reasoner|gpt-5/.test(lower),
+    embedding: /embed|embedding/.test(lower),
+  };
+}
+
+function inferContextWindow(modelId: string): number {
+  const lower = modelId.toLowerCase();
+  if (lower.includes("gemini-1.5") || lower.includes("gemini-2")) return 1_000_000;
+  if (lower.includes("claude")) return 200_000;
+  if (lower.includes("gpt-4o") || lower.includes("gpt-5") || /^o[134]/.test(lower)) return 128_000;
+  if (lower.includes("deepseek")) return 64_000;
+  return DEFAULT_MODEL_CONTEXT_WINDOW;
+}
+
+export function normalizeRemoteModels(models: RemoteModelInfo[]): RemoteModelInfo[] {
+  const byId = new Map<string, RemoteModelInfo>();
+  for (const model of models) {
+    const id = model.id.trim();
+    if (!id) continue;
+    byId.set(id, {
+      ...model,
+      id,
+      label: normalizeOptionalText(model.label),
+      contextWindow: normalizeContextWindow(model.contextWindow ?? inferContextWindow(id)),
+      capabilities: normalizeCapabilities(model.capabilities ?? inferModelCapabilities(id)),
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export function parseOpenAIModelListResponse(json: unknown): RemoteModelInfo[] {
+  const data = (json as { data?: Array<{ id?: unknown; name?: unknown; display_name?: unknown }> })
+    .data;
+  return normalizeRemoteModels(
+    (Array.isArray(data) ? data : []).map((item) => ({
+      id: primitiveToString(item.id ?? item.name),
+      label: normalizeOptionalText(item.display_name),
+    })),
+  );
+}
+
+export function parseAnthropicModelListResponse(json: unknown): RemoteModelInfo[] {
+  const data = (json as { data?: Array<{ id?: unknown; display_name?: unknown }> }).data;
+  return normalizeRemoteModels(
+    (Array.isArray(data) ? data : []).map((item) => ({
+      id: primitiveToString(item.id),
+      label: normalizeOptionalText(item.display_name),
+    })),
+  );
+}
+
+export function parseGoogleModelListResponse(json: unknown): RemoteModelInfo[] {
+  const models = (
+    json as {
+      models?: Array<{
+        name?: unknown;
+        displayName?: unknown;
+        supportedGenerationMethods?: unknown;
+      }>;
+    }
+  ).models;
+  return normalizeRemoteModels(
+    (Array.isArray(models) ? models : [])
+      .filter((item) => {
+        const methods = item.supportedGenerationMethods;
+        return !Array.isArray(methods) || methods.includes("generateContent");
+      })
+      .map((item) => {
+        const name = primitiveToString(item.name).replace(/^models\//, "");
+        return {
+          id: name,
+          label: normalizeOptionalText(item.displayName),
+        };
+      }),
+  );
+}
+
+export function mergeRemoteModelsIntoCatalog(
+  catalog: ModelCatalogSettings,
+  providerId: string,
+  remoteModels: RemoteModelInfo[],
+  now = Date.now(),
+): {
+  catalog: ModelCatalogSettings;
+  discovered: number;
+  added: number;
+  updated: number;
+} {
+  const normalizedRemoteModels = normalizeRemoteModels(remoteModels);
+  const nextCatalog: ModelCatalogSettings = {
+    providers: catalog.providers.map((provider) => ({ ...provider })),
+    models: catalog.models.map((model) => ({
+      ...model,
+      capabilities: { ...model.capabilities },
+      providerOptions: { ...model.providerOptions },
+    })),
+    modelStates: catalog.modelStates.map((state) => ({ ...state })),
+  };
+  let added = 0;
+  let updated = 0;
+
+  for (const remote of normalizedRemoteModels) {
+    const existing = nextCatalog.models.find(
+      (model) => model.providerId === providerId && model.id === remote.id,
+    );
+    if (existing) {
+      const nextLabel = existing.label ?? remote.label;
+      const changed = nextLabel !== existing.label;
+      if (changed) updated += 1;
+      nextCatalog.models = nextCatalog.models.map((model) =>
+        model.providerId === providerId && model.id === remote.id
+          ? { ...model, label: nextLabel, updatedAt: changed ? now : model.updatedAt }
+          : model,
+      );
+      continue;
+    }
+
+    added += 1;
+    nextCatalog.models.push({
+      providerId,
+      id: remote.id,
+      label: remote.label,
+      enabled: false,
+      temperature: DEFAULT_MODEL_TEMPERATURE,
+      topP: DEFAULT_MODEL_TOP_P,
+      maxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+      contextWindow: normalizeContextWindow(remote.contextWindow),
+      capabilities: normalizeCapabilities(remote.capabilities ?? inferModelCapabilities(remote.id)),
+      providerOptions: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    setModelState(nextCatalog, providerId, remote.id, false);
+  }
+
+  return {
+    catalog: nextCatalog,
+    discovered: normalizedRemoteModels.length,
+    added,
+    updated,
+  };
+}
+
+async function fetchJson(url: URL, init: RequestInit): Promise<unknown> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    const detail = body.trim() ? ": " + body.trim().slice(0, 300) : "";
+    throw new Error("Provider request failed (" + response.status + ")" + detail);
+  }
+  return response.json();
+}
+
+async function fetchRemoteModels(
+  provider: ProviderInfo,
+  apiKey: string,
+): Promise<RemoteModelInfo[]> {
+  switch (provider.kind) {
+    case "openai":
+    case "openai-compatible": {
+      if (!provider.baseUrl) throw new Error(provider.label + " base URL is not configured.");
+      const url = new URL(provider.baseUrl.replace(/\/+$/, "") + "/models");
+      const json = await fetchJson(url, {
+        headers: { Authorization: "Bearer " + apiKey },
+      });
+      return parseOpenAIModelListResponse(json);
+    }
+    case "anthropic": {
+      const url = new URL("https://api.anthropic.com/v1/models");
+      const json = await fetchJson(url, {
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+      });
+      return parseAnthropicModelListResponse(json);
+    }
+    case "google": {
+      const url = new URL("https://generativelanguage.googleapis.com/v1beta/models");
+      url.searchParams.set("key", apiKey);
+      const json = await fetchJson(url, {});
+      return parseGoogleModelListResponse(json);
+    }
+  }
+}
+
+export async function testProvider(providerId: string): Promise<ProviderTestResult> {
+  const id = normalizeProviderId(providerId);
+  const provider = getProviderConfig(id);
+  if (!provider) throw new Error("Unknown provider: " + id);
+
+  try {
+    const apiKey = getProviderOrLegacyModelApiKey(id);
+    if (!apiKey) throw new Error("API key is required");
+    const models = await fetchRemoteModels(provider, apiKey);
+    return {
+      ok: true,
+      providerId: id,
+      checkedModels: models.length,
+      message: "Provider is available.",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      providerId: id,
+      checkedModels: 0,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function syncAvailableModels(providerId: string): Promise<ProviderModelSyncResult> {
+  const id = normalizeProviderId(providerId);
+  const provider = getProviderConfig(id);
+  if (!provider) throw new Error("Unknown provider: " + id);
+
+  const apiKey = getProviderOrLegacyModelApiKey(id);
+  if (!apiKey) throw new Error("API key is required");
+
+  const remoteModels = await fetchRemoteModels(provider, apiKey);
+  const result = mergeRemoteModelsIntoCatalog(readCatalog(), id, remoteModels);
+  writeCatalog(result.catalog);
+  const saved = getProviderConfig(id);
+  if (!saved) throw new Error("Failed to save provider");
+  return {
+    provider: saved,
+    discovered: result.discovered,
+    added: result.added,
+    updated: result.updated,
+  };
+}
+
 export function upsertCustomModel(input: CustomModelInput): ProviderInfo {
   const providerId = normalizeProviderId(input.providerId);
   assertKnownProvider(providerId);
@@ -433,6 +819,11 @@ export function upsertCustomModel(input: CustomModelInput): ProviderInfo {
     (model) => model.providerId === providerId && model.id === modelId,
   );
   const now = Date.now();
+  const providerOptions =
+    parseProviderOptionsJson(input.providerOptionsJson) ??
+    (input.providerOptions !== undefined
+      ? normalizeProviderOptions(input.providerOptions)
+      : existing?.providerOptions);
   const nextModel = {
     providerId,
     id: modelId,
@@ -441,6 +832,9 @@ export function upsertCustomModel(input: CustomModelInput): ProviderInfo {
     temperature: normalizeTemperature(input.temperature ?? existing?.temperature),
     topP: normalizeTopP(input.topP ?? existing?.topP),
     maxOutputTokens: normalizeMaxOutputTokens(input.maxOutputTokens ?? existing?.maxOutputTokens),
+    contextWindow: normalizeContextWindow(input.contextWindow ?? existing?.contextWindow),
+    capabilities: normalizeCapabilities(input.capabilities ?? existing?.capabilities),
+    providerOptions: normalizeProviderOptions(providerOptions ?? {}),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -496,16 +890,10 @@ export function deleteCustomModel(providerId: string, modelId: string): void {
 }
 
 export function migrateProviderApiKeysToModelKeys(): void {
-  const existingModelKeys = new Set(listModelApiKeyRefs());
   for (const provider of listProviders()) {
-    const legacyKey = getApiKey(provider.id);
-    if (!legacyKey) continue;
-    for (const model of provider.models) {
-      const ref = providerModelRef(provider.id, model.id);
-      if (existingModelKeys.has(ref)) continue;
-      setModelApiKey(provider.id, model.id, legacyKey);
-      existingModelKeys.add(ref);
-    }
+    if (getApiKey(provider.id)) continue;
+    const legacyKey = getProviderOrLegacyModelApiKey(provider.id);
+    if (legacyKey) setApiKey(provider.id, legacyKey);
   }
   clearInvalidSelectedModel();
 }
@@ -527,13 +915,10 @@ export function resolveModel(modelRef: string): ResolvedModelConfig {
   if (!model) throw new Error("Unknown model: " + modelRef);
   if (!model.enabled) throw new Error((model.label ?? model.id) + " is disabled.");
 
-  const apiKey = getModelApiKey(providerId, modelId);
+  const apiKey = getProviderOrLegacyModelApiKey(providerId, modelId);
   if (!apiKey) {
     throw new Error(
-      config.label +
-        " / " +
-        (model.label ?? model.id) +
-        " API key is not configured. Please add it in model management.",
+      config.label + " API key is not configured. Please add it in model management.",
     );
   }
 
@@ -542,14 +927,11 @@ export function resolveModel(modelRef: string): ResolvedModelConfig {
     temperature: model.temperature,
     topP: model.topP,
     maxOutputTokens: model.maxOutputTokens,
+    providerOptions: model.providerOptions as ProviderOptions,
   };
 }
 
-function createLanguageModel(
-  config: ProviderConfig,
-  apiKey: string,
-  modelId: string,
-): LanguageModel {
+function createLanguageModel(config: ProviderInfo, apiKey: string, modelId: string): LanguageModel {
   switch (config.kind) {
     case "openai":
       return createOpenAI({ apiKey, baseURL: config.baseUrl, name: config.id })(modelId);

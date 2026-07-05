@@ -79,6 +79,7 @@ void describe("local chat server", () => {
   });
 
   void it("streams valid chat responses as an AI SDK UI message stream", async () => {
+    const providerOptions = { mock: { reasoningEffort: "low" } };
     const model = new MockLanguageModelV4({
       doStream: async () => ({
         stream: simulateReadableStream({
@@ -104,7 +105,7 @@ void describe("local chat server", () => {
       sessionToken: token,
       resolveModel: (modelRef) => {
         assert.equal(modelRef, "mock/chat");
-        return { model, temperature: 0.7, topP: 1, maxOutputTokens: 256 };
+        return { model, temperature: 0.7, topP: 1, maxOutputTokens: 256, providerOptions };
       },
       buildAgentSystemPrompt: () => "You are a test assistant.",
     });
@@ -125,6 +126,7 @@ void describe("local chat server", () => {
     assert.match(body, /text-delta/);
     assert.match(body, /Hello/);
     assert.match(body, / from mock/);
+    assert.deepEqual(model.doStreamCalls[0]?.providerOptions, providerOptions);
   });
 });
 
@@ -157,9 +159,10 @@ void describe("local chat server /api/title", () => {
   });
 
   void it("generates a sanitized title from the model", async () => {
+    const providerOptions = { mock: { textVerbosity: "low" } };
     const model = new MockLanguageModelV4({
       doGenerate: {
-        content: [{ type: "text" as const, text: '  "量子计算入门"  ' }],
+        content: [{ type: "text" as const, text: '  "\u91cf\u5b50\u8ba1\u7b97\u5165\u95e8"  ' }],
         finishReason: { unified: "stop" as const, raw: undefined },
         usage: {
           inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
@@ -172,7 +175,7 @@ void describe("local chat server /api/title", () => {
       sessionToken: token,
       resolveModel: (modelRef) => {
         assert.equal(modelRef, "mock/chat");
-        return { model, temperature: 0.4, topP: 1, maxOutputTokens: 64 };
+        return { model, temperature: 0.4, topP: 1, maxOutputTokens: 64, providerOptions };
       },
       buildAgentSystemPrompt: () => "",
     });
@@ -188,7 +191,7 @@ void describe("local chat server /api/title", () => {
 
     assert.equal(response.status, 200);
     const body = (await response.json()) as { title: string };
-    // 清洗：去引号 + 去首尾空白
-    assert.equal(body.title, "量子计算入门");
+    assert.equal(body.title, "\u91cf\u5b50\u8ba1\u7b97\u5165\u95e8");
+    assert.deepEqual(model.doGenerateCalls[0]?.providerOptions, providerOptions);
   });
 });

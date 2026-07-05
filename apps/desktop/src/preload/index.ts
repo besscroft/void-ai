@@ -74,6 +74,13 @@ const api = {
       ipcRenderer.invoke("providers:upsertCustomProvider", input),
     deleteCustomProvider: (providerId: string) =>
       ipcRenderer.invoke("providers:deleteCustomProvider", providerId),
+    setProviderApiKey: (providerId: string, apiKey: string) =>
+      ipcRenderer.invoke("providers:setProviderApiKey", providerId, apiKey),
+    deleteProviderApiKey: (providerId: string) =>
+      ipcRenderer.invoke("providers:deleteProviderApiKey", providerId),
+    testProvider: (providerId: string) => ipcRenderer.invoke("providers:testProvider", providerId),
+    syncAvailableModels: (providerId: string) =>
+      ipcRenderer.invoke("providers:syncAvailableModels", providerId),
     upsertCustomModel: (input: unknown) => ipcRenderer.invoke("providers:upsertCustomModel", input),
     updateModelEnabled: (providerId: string, modelId: string, enabled: boolean) =>
       ipcRenderer.invoke("providers:updateModelEnabled", providerId, modelId, enabled),

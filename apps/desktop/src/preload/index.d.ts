@@ -11,7 +11,9 @@ import type {
   ManagedModelInfo,
   MemoryRecord,
   MessageRow,
+  ProviderModelSyncResult,
   ProviderInfo,
+  ProviderTestResult,
   ServerNode,
   SyncState,
   WorkflowDefinition,
@@ -93,6 +95,10 @@ export interface VoidAIApi {
     listManagedModels: () => Promise<ManagedModelInfo[]>;
     upsertCustomProvider: (input: CustomProviderInput) => Promise<ProviderInfo>;
     deleteCustomProvider: (providerId: string) => Promise<boolean>;
+    setProviderApiKey: (providerId: string, apiKey: string) => Promise<boolean>;
+    deleteProviderApiKey: (providerId: string) => Promise<boolean>;
+    testProvider: (providerId: string) => Promise<ProviderTestResult>;
+    syncAvailableModels: (providerId: string) => Promise<ProviderModelSyncResult>;
     upsertCustomModel: (input: CustomModelInput) => Promise<ProviderInfo>;
     updateModelEnabled: (providerId: string, modelId: string, enabled: boolean) => Promise<boolean>;
     setModelApiKey: (providerId: string, modelId: string, apiKey: string) => Promise<boolean>;

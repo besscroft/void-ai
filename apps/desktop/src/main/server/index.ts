@@ -31,6 +31,7 @@ interface ResolvedChatModel {
   temperature: number;
   topP: number;
   maxOutputTokens: number;
+  providerOptions?: Parameters<typeof streamText>[0]["providerOptions"];
 }
 
 function allowRendererOrigin(origin: string): string | null {
@@ -109,6 +110,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
         temperature: resolved.temperature,
         topP: resolved.topP,
         maxOutputTokens: resolved.maxOutputTokens,
+        providerOptions: resolved.providerOptions,
       });
 
       return createUIMessageStreamResponse({
@@ -185,6 +187,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
         prompt: promptText,
         temperature: 0.4,
         maxOutputTokens: 64,
+        providerOptions: resolved.providerOptions,
       });
 
       const title = sanitizeTitle(result.text);

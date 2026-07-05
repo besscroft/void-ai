@@ -8,8 +8,11 @@ import {
   Label,
   Modal,
   parseColor,
+  SearchField,
   Switch,
+  TextArea,
   TextField,
+  Tooltip,
   ToggleButton,
   ToggleButtonGroup,
 } from "@heroui/react";
@@ -26,6 +29,9 @@ import {
   IconCpu,
   IconRotateCcw,
   IconDatabase,
+  IconRefresh,
+  IconSliders,
+  IconSparkles,
   IconTrash,
   IconPlus,
 } from "./icons";
@@ -39,6 +45,8 @@ import {
   type CustomProviderInput,
   type FontPreset,
   type ManagedModelInfo,
+  type ModelCapabilities,
+  type ModelOption,
   type ProviderInfo,
   type ThemeMode,
   type ThemePresetId,
@@ -132,7 +140,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
       aria-labelledby="settings-title"
     >
       <div
-        className="flex h-[calc(100vh-32px)] max-h-[760px] w-[calc(100vw-32px)] max-w-[840px] flex-col overflow-hidden rounded-xl border border-foreground/15 bg-background shadow-2xl"
+        className="flex h-[calc(100vh-32px)] max-h-[820px] w-[calc(100vw-32px)] max-w-[1120px] flex-col overflow-hidden rounded-xl border border-foreground/15 bg-background shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -926,8 +934,19 @@ function FontFieldRow({
 // ============================================================
 // 模型 Tab
 // ============================================================
-
 function ModelTab({
+  settings,
+  update,
+}: {
+  settings: import("@shared/types").AppSettings;
+  update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
+}): React.JSX.Element {
+  return <ProviderModelWorkbench settings={settings} update={update} />;
+}
+
+void LegacyModelTab;
+
+function LegacyModelTab({
   settings,
   update,
 }: {
@@ -1731,6 +1750,1367 @@ function ModelEditorDialog({
 // ============================================================
 // 回收站 Tab
 // ============================================================
+const DEFAULT_MODEL_CAPABILITIES: ModelCapabilities = {
+  vision: false,
+  imageOutput: false,
+  toolCalling: true,
+  reasoning: false,
+  embedding: false,
+};
+
+interface ModelOptionsFormState {
+  providerId: string;
+  id: string;
+  label: string;
+  enabled: boolean;
+  temperature: number;
+  topP: number;
+  maxOutputTokens: number;
+  contextWindow: number;
+  capabilities: ModelCapabilities;
+  providerOptionsJson: string;
+}
+
+type ModelOptionsEditorState =
+  | { mode: "add"; providerId: string }
+  | { mode: "edit"; providerId: string; model: ModelOption };
+
+function providerModelRef(providerId: string, modelId: string): string {
+  return providerId + "/" + modelId;
+}
+
+function stringifyJsonObject(value: Record<string, unknown> | undefined): string {
+  if (!value || Object.keys(value).length === 0) return "{}";
+  return JSON.stringify(value, null, 2);
+}
+
+function validateJsonObject(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return "Provider options must be a JSON object";
+    }
+    return null;
+  } catch {
+    return "Provider options must be valid JSON";
+  }
+}
+
+function createModelOptionsForm(providerId: string, model?: ModelOption): ModelOptionsFormState {
+  return {
+    providerId,
+    id: model?.id ?? "",
+    label: model?.label ?? "",
+    enabled: model?.enabled ?? true,
+    temperature: model?.temperature ?? 0.7,
+    topP: model?.topP ?? 1,
+    maxOutputTokens: model?.maxOutputTokens ?? 4096,
+    contextWindow: model?.contextWindow ?? 32_000,
+    capabilities: model?.capabilities ?? DEFAULT_MODEL_CAPABILITIES,
+    providerOptionsJson: stringifyJsonObject(model?.providerOptions),
+  };
+}
+
+function ProviderModelWorkbench({
+  settings,
+  update,
+}: {
+  settings: import("@shared/types").AppSettings;
+  update: (patch: Partial<import("@shared/types").AppSettings>) => Promise<void>;
+}): React.JSX.Element {
+  const { t, f, locale } = useT();
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [providerQuery, setProviderQuery] = useState("");
+  const [providerForm, setProviderForm] = useState<CustomProviderInput>({
+    id: "",
+    label: "",
+    baseUrl: "",
+    helpUrl: "",
+  });
+  const [providerApiKey, setProviderApiKey] = useState("");
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [modelEditorState, setModelEditorState] = useState<ModelOptionsEditorState | null>(null);
+  const [providerToDelete, setProviderToDelete] = useState<ProviderInfo | null>(null);
+  const [modelToDelete, setModelToDelete] = useState<{
+    provider: ProviderInfo;
+    model: ModelOption;
+  } | null>(null);
+  const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
+  const [syncingProviderId, setSyncingProviderId] = useState<string | null>(null);
+  const [cacheBytes, setCacheBytes] = useState<number>(0);
+  const [cacheLimit, setCacheLimit] = useState<number>(settings.cacheSizeMb);
+  const [clearing, setClearing] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [cleared, setCleared] = useState(false);
+
+  const refreshCatalog = useCallback((): void => {
+    void api.providers.list().then((providerList) => {
+      setProviders(providerList);
+      setModelsLoaded(true);
+      setSelectedProviderId((current) => {
+        if (current && providerList.some((provider) => provider.id === current)) return current;
+        return providerList[0]?.id ?? null;
+      });
+    });
+  }, []);
+
+  const refreshCache = useCallback((): void => {
+    void api.cache.stats().then((stats) => {
+      setCacheBytes(stats.bytes);
+      setCacheLimit(stats.limitMb);
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshCatalog();
+    refreshCache();
+  }, [refreshCatalog, refreshCache]);
+
+  const enabledModelRefs = useMemo(
+    () =>
+      new Set(
+        providers.flatMap((provider) =>
+          provider.models
+            .filter((model) => model.enabled)
+            .map((model) => providerModelRef(provider.id, model.id)),
+        ),
+      ),
+    [providers],
+  );
+
+  useEffect(() => {
+    if (!modelsLoaded || !settings.selectedModel) return;
+    if (!enabledModelRefs.has(settings.selectedModel)) void update({ selectedModel: null });
+  }, [enabledModelRefs, modelsLoaded, settings.selectedModel, update]);
+
+  const selectedProvider = useMemo(
+    () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
+    [providers, selectedProviderId],
+  );
+
+  useEffect(() => {
+    if (!selectedProvider) return;
+    setProviderForm({
+      id: selectedProvider.id,
+      label: selectedProvider.label,
+      baseUrl: selectedProvider.baseUrl ?? "",
+      helpUrl: selectedProvider.helpUrl,
+    });
+    setProviderApiKey("");
+  }, [
+    selectedProvider?.baseUrl,
+    selectedProvider?.helpUrl,
+    selectedProvider?.id,
+    selectedProvider?.label,
+  ]);
+
+  const filteredProviders = useMemo(() => {
+    const query = providerQuery.trim().toLowerCase();
+    if (!query) return providers;
+    return providers.filter((provider) =>
+      [provider.id, provider.label, provider.baseUrl ?? "", provider.kind]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [providerQuery, providers]);
+
+  const enabledProviders = useMemo(
+    () =>
+      providers
+        .map((provider) => ({
+          ...provider,
+          models: provider.models.filter((model) => model.enabled),
+        }))
+        .filter((provider) => provider.models.length > 0),
+    [providers],
+  );
+
+  const canEditProvider = selectedProvider?.source === "custom";
+  const selectedModels = selectedProvider?.models ?? [];
+  const enabledCount = selectedModels.filter((model) => model.enabled).length;
+  const canSaveProvider =
+    !!selectedProvider &&
+    canEditProvider &&
+    providerForm.label.trim().length > 0 &&
+    providerForm.baseUrl.trim().length > 0;
+
+  const formatParams = (model: ModelOption): string =>
+    t("model.params.workbenchSummary", {
+      temperature: f.fixed(model.temperature, 1),
+      topP: f.fixed(model.topP, 2),
+      context: f.compactNumber(model.contextWindow),
+      maxTokens: f.number(model.maxOutputTokens),
+    });
+
+  const formatCapabilities = (model: ModelOption): string => {
+    const caps = [
+      model.capabilities.vision ? t("model.capability.vision") : "",
+      model.capabilities.imageOutput ? t("model.capability.imageOutput") : "",
+      model.capabilities.toolCalling ? t("model.capability.toolCalling") : "",
+      model.capabilities.reasoning ? t("model.capability.reasoning") : "",
+      model.capabilities.embedding ? t("model.capability.embedding") : "",
+    ].filter(Boolean);
+    return caps.length > 0 ? caps.join(" / ") : t("common.none");
+  };
+
+  const handleToggleModel = (model: ModelOption, enabled: boolean): void => {
+    if (!selectedProvider) return;
+    void notify
+      .promise(
+        api.providers.updateModelEnabled(selectedProvider.id, model.id, enabled),
+        {
+          loading: t("toast.model.modelSaving"),
+          success: t("toast.model.modelSaved"),
+          error: t("toast.model.modelSaveFailed"),
+        },
+        locale,
+      )
+      .then(() => {
+        if (
+          !enabled &&
+          settings.selectedModel === providerModelRef(selectedProvider.id, model.id)
+        ) {
+          void update({ selectedModel: null });
+        }
+        refreshCatalog();
+      })
+      .catch(() => undefined);
+  };
+
+  const handleSaveProvider = (): void => {
+    if (!canSaveProvider || !selectedProvider) return;
+    void notify
+      .promise(
+        api.providers.upsertCustomProvider({
+          id: selectedProvider.id,
+          label: providerForm.label,
+          baseUrl: providerForm.baseUrl,
+          helpUrl: providerForm.helpUrl,
+        }),
+        {
+          loading: t("toast.model.providerSaving"),
+          success: t("toast.model.providerSaved"),
+          error: t("toast.model.providerSaveFailed"),
+        },
+        locale,
+      )
+      .then((provider) => {
+        setSelectedProviderId(provider.id);
+        refreshCatalog();
+      })
+      .catch(() => undefined);
+  };
+
+  const handleSaveProviderKey = (): void => {
+    if (!selectedProvider || !providerApiKey.trim()) return;
+    void notify
+      .promise(
+        api.providers.setProviderApiKey(selectedProvider.id, providerApiKey.trim()),
+        {
+          loading: t("toast.apikey.saving"),
+          success: t("toast.apikey.saved"),
+          error: t("toast.apikey.saveFailed"),
+        },
+        locale,
+      )
+      .then(() => {
+        setProviderApiKey("");
+        refreshCatalog();
+      })
+      .catch(() => undefined);
+  };
+
+  const handleClearProviderKey = (): void => {
+    if (!selectedProvider) return;
+    void notify
+      .promise(
+        api.providers.deleteProviderApiKey(selectedProvider.id),
+        {
+          loading: t("toast.apikey.clearing"),
+          success: t("toast.apikey.cleared"),
+          error: t("toast.apikey.clearFailed"),
+        },
+        locale,
+      )
+      .then(() => refreshCatalog())
+      .catch(() => undefined);
+  };
+
+  const handleTestProvider = (): void => {
+    if (!selectedProvider) return;
+    const providerId = selectedProvider.id;
+    setTestingProviderId(providerId);
+    void api.providers
+      .testProvider(providerId)
+      .then((result) => {
+        if (result.ok) {
+          notify.success(t("toast.model.providerTestOk", { count: result.checkedModels }));
+        } else {
+          notify.error(t("toast.model.providerTestFailed"), result.message, locale);
+        }
+      })
+      .catch((error) => notify.error(t("toast.model.providerTestFailed"), error, locale))
+      .finally(() => setTestingProviderId(null));
+  };
+
+  const handleSyncModels = (): void => {
+    if (!selectedProvider) return;
+    const providerId = selectedProvider.id;
+    setSyncingProviderId(providerId);
+    const task = api.providers.syncAvailableModels(providerId);
+    void notify
+      .promise(
+        task,
+        {
+          loading: t("toast.model.syncing"),
+          success: t("toast.model.synced"),
+          error: t("toast.model.syncFailed"),
+        },
+        locale,
+      )
+      .then((result) => {
+        notify.success(
+          t("toast.model.syncSummary", {
+            discovered: result.discovered,
+            added: result.added,
+            updated: result.updated,
+          }),
+        );
+        setSelectedProviderId(result.provider.id);
+        refreshCatalog();
+      })
+      .catch(() => undefined)
+      .finally(() => setSyncingProviderId(null));
+  };
+
+  const handleDeleteProvider = (): void => {
+    if (!providerToDelete) return;
+    const provider = providerToDelete;
+    void notify
+      .promise(
+        api.providers.deleteCustomProvider(provider.id),
+        {
+          loading: t("toast.model.providerDeleting"),
+          success: t("toast.model.providerDeleted"),
+          error: t("toast.model.providerDeleteFailed"),
+        },
+        locale,
+      )
+      .then(() => {
+        if (settings.selectedModel?.startsWith(provider.id + "/")) {
+          void update({ selectedModel: null });
+        }
+        setProviderToDelete(null);
+        setSelectedProviderId(null);
+        refreshCatalog();
+      })
+      .catch(() => undefined);
+  };
+
+  const handleDeleteModel = (): void => {
+    if (!modelToDelete) return;
+    const { provider, model } = modelToDelete;
+    void notify
+      .promise(
+        api.providers.deleteCustomModel(provider.id, model.id),
+        {
+          loading: t("toast.model.modelDeleting"),
+          success: t("toast.model.modelDeleted"),
+          error: t("toast.model.modelDeleteFailed"),
+        },
+        locale,
+      )
+      .then(() => {
+        if (settings.selectedModel === providerModelRef(provider.id, model.id)) {
+          void update({ selectedModel: null });
+        }
+        setModelToDelete(null);
+        refreshCatalog();
+      })
+      .catch(() => undefined);
+  };
+
+  const handleClearCache = (): void => {
+    setClearing(true);
+    void notify
+      .promise(
+        api.cache.clear(),
+        {
+          loading: t("toast.cache.clearing"),
+          success: t("toast.cache.cleared"),
+          error: t("toast.cache.clearFailed"),
+        },
+        locale,
+      )
+      .then((remaining) => {
+        setCacheBytes(remaining);
+        setCleared(true);
+        setTimeout(() => setCleared(false), 2000);
+      })
+      .finally(() => setClearing(false))
+      .catch(() => undefined);
+  };
+
+  return (
+    <section className="flex min-h-[620px] flex-col gap-4">
+      <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-base font-semibold">{t("settings.tab.model")}</h3>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-foreground/50">
+            {t("model.workbench.desc")}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="h-9 min-w-64 rounded-md border border-foreground/15 bg-background px-3 text-sm outline-none focus:border-accent/50"
+            value={settings.selectedModel ?? ""}
+            onChange={(event) => void update({ selectedModel: event.target.value || null })}
+          >
+            <option value="">{t("chat.selectModel")}</option>
+            {enabledProviders.map((provider) => (
+              <optgroup key={provider.id} label={provider.label}>
+                {provider.models.map((model) => (
+                  <option key={model.id} value={providerModelRef(provider.id, model.id)}>
+                    {model.label ?? model.id}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <Button variant="primary" size="sm" onPress={() => setAddProviderOpen(true)}>
+            <IconPlus className="mr-1 size-3.5" />
+            {t("model.addProvider")}
+          </Button>
+        </div>
+      </header>
+
+      <div className="grid min-h-[500px] overflow-hidden rounded-xl border border-foreground/10 bg-foreground/[0.018] lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="min-h-0 border-b border-foreground/10 p-3 lg:border-b-0 lg:border-r">
+          <SearchField
+            aria-label={t("model.provider.search")}
+            value={providerQuery}
+            onChange={setProviderQuery}
+            fullWidth
+          >
+            <SearchField.Group>
+              <SearchField.SearchIcon />
+              <SearchField.Input placeholder={t("model.provider.search")} />
+              <SearchField.ClearButton />
+            </SearchField.Group>
+          </SearchField>
+
+          <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+            {filteredProviders.length === 0 ? (
+              <div className="rounded-md border border-dashed border-foreground/15 px-3 py-8 text-center text-xs text-foreground/50">
+                {t("model.provider.noMatches")}
+              </div>
+            ) : (
+              filteredProviders.map((provider) => {
+                const active = provider.id === selectedProviderId;
+                const count = provider.models.length;
+                const providerEnabledCount = provider.models.filter(
+                  (model) => model.enabled,
+                ).length;
+                return (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    className={[
+                      "w-full rounded-lg border px-3 py-2.5 text-left transition",
+                      active
+                        ? "border-accent/50 bg-accent/10 shadow-sm"
+                        : "border-transparent hover:border-foreground/10 hover:bg-foreground/[0.04]",
+                    ].join(" ")}
+                    onClick={() => setSelectedProviderId(provider.id)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={[
+                          "size-2 shrink-0 rounded-full",
+                          provider.hasApiKey ? "bg-success" : "bg-warning",
+                        ].join(" ")}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {provider.label}
+                      </span>
+                      <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] text-foreground/55">
+                        {provider.source === "builtin"
+                          ? t("model.provider.builtin")
+                          : t("model.provider.custom")}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-foreground/45">
+                      <span>{provider.id}</span>
+                      <span>
+                        {t("model.provider.modelsCount", {
+                          count,
+                          enabled: providerEnabledCount,
+                        })}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
+
+        <div className="min-w-0 p-4">
+          {!selectedProvider ? (
+            <div className="flex h-full min-h-[360px] items-center justify-center rounded-lg border border-dashed border-foreground/15 text-sm text-foreground/50">
+              {t("model.provider.empty")}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 border-b border-foreground/10 pb-4 md:flex-row md:items-start md:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="truncate text-base font-semibold">{selectedProvider.label}</h4>
+                    <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] text-foreground/55">
+                      {selectedProvider.kind}
+                    </span>
+                    <span
+                      className={[
+                        "rounded-full px-2 py-0.5 text-[11px]",
+                        selectedProvider.hasApiKey
+                          ? "bg-success/10 text-success"
+                          : "bg-warning/10 text-warning",
+                      ].join(" ")}
+                    >
+                      {selectedProvider.hasApiKey
+                        ? t("apikey.configured")
+                        : t("apikey.notConfigured")}
+                    </span>
+                  </div>
+                  <p className="mt-1 break-all text-xs text-foreground/45">{selectedProvider.id}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Tooltip>
+                    <Tooltip.Trigger>
+                      <Button
+                        type="button"
+                        isIconOnly
+                        size="sm"
+                        variant="secondary"
+                        isPending={testingProviderId === selectedProvider.id}
+                        onPress={handleTestProvider}
+                        aria-label={t("model.provider.test")}
+                      >
+                        <IconSparkles className="size-4" />
+                      </Button>
+                    </Tooltip.Trigger>
+                    <Tooltip.Content>{t("model.provider.test")}</Tooltip.Content>
+                  </Tooltip>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isPending={syncingProviderId === selectedProvider.id}
+                    onPress={handleSyncModels}
+                  >
+                    <IconRefresh className="mr-1 size-3.5" />
+                    {t("model.provider.sync")}
+                  </Button>
+                  {canEditProvider && (
+                    <>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onPress={handleSaveProvider}
+                        isDisabled={!canSaveProvider}
+                      >
+                        {t("common.save")}
+                      </Button>
+                      <Button
+                        variant="tertiary"
+                        size="sm"
+                        onPress={() => setProviderToDelete(selectedProvider)}
+                      >
+                        <IconTrash className="size-3.5" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <TextField>
+                  <Label>{t("model.providerName")}</Label>
+                  <Input
+                    value={providerForm.label}
+                    disabled={!canEditProvider}
+                    onChange={(event) =>
+                      setProviderForm((prev) => ({
+                        ...prev,
+                        label: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <TextField>
+                  <Label>{t("model.providerId")}</Label>
+                  <Input value={selectedProvider.id} disabled />
+                </TextField>
+                <TextField>
+                  <Label>{t("model.baseUrl")}</Label>
+                  <Input
+                    value={providerForm.baseUrl}
+                    placeholder={t("model.provider.builtinEndpoint")}
+                    disabled={!canEditProvider}
+                    onChange={(event) =>
+                      setProviderForm((prev) => ({
+                        ...prev,
+                        baseUrl: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <TextField>
+                  <Label>{t("model.helpUrl")}</Label>
+                  <Input
+                    value={providerForm.helpUrl ?? ""}
+                    disabled={!canEditProvider}
+                    onChange={(event) =>
+                      setProviderForm((prev) => ({
+                        ...prev,
+                        helpUrl: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <TextField className="md:col-span-2">
+                  <Label>{t("model.apiKey")}</Label>
+                  <Input
+                    type="password"
+                    value={providerApiKey}
+                    placeholder={
+                      selectedProvider.hasApiKey
+                        ? t("apikey.placeholder.replace")
+                        : t("apikey.placeholder.set", { label: selectedProvider.label })
+                    }
+                    onChange={(event) =>
+                      setProviderApiKey((event.target as HTMLInputElement).value)
+                    }
+                  />
+                  <Description className="mt-1 flex flex-wrap items-center gap-3">
+                    <span>{t("model.provider.keyHelp")}</span>
+                    {selectedProvider.helpUrl && (
+                      <a
+                        href={selectedProvider.helpUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("apikey.getKey")}
+                      </a>
+                    )}
+                  </Description>
+                </TextField>
+                <div className="flex flex-wrap gap-2 md:col-span-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onPress={handleSaveProviderKey}
+                    isDisabled={!providerApiKey.trim()}
+                  >
+                    <IconKey className="mr-1 size-3.5" />
+                    {t("common.save")}
+                  </Button>
+                  <Button
+                    variant="tertiary"
+                    size="sm"
+                    onPress={handleClearProviderKey}
+                    isDisabled={!selectedProvider.hasApiKey}
+                  >
+                    {t("common.clear")}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-foreground/10">
+                <div className="flex flex-col gap-2 border-b border-foreground/10 bg-foreground/[0.025] px-3 py-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h5 className="text-sm font-medium">{t("model.models.available")}</h5>
+                    <p className="mt-0.5 text-xs text-foreground/45">
+                      {t("model.provider.modelsCount", {
+                        count: selectedModels.length,
+                        enabled: enabledCount,
+                      })}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      isPending={syncingProviderId === selectedProvider.id}
+                      onPress={handleSyncModels}
+                    >
+                      <IconRefresh className="mr-1 size-3.5" />
+                      {t("model.models.fetch")}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onPress={() =>
+                        setModelEditorState({ mode: "add", providerId: selectedProvider.id })
+                      }
+                    >
+                      <IconPlus className="mr-1 size-3.5" />
+                      {t("model.models.addManual")}
+                    </Button>
+                  </div>
+                </div>
+
+                {selectedModels.length === 0 ? (
+                  <div className="px-4 py-10 text-center text-sm text-foreground/50">
+                    {t("model.provider.emptyModels")}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-foreground/10">
+                    {selectedModels.map((model) => {
+                      const ref = providerModelRef(selectedProvider.id, model.id);
+                      const selected = settings.selectedModel === ref;
+                      const optionCount = Object.keys(model.providerOptions ?? {}).length;
+                      return (
+                        <div
+                          key={model.id}
+                          className={[
+                            "grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto]",
+                            selected ? "bg-accent/10" : "",
+                            model.enabled ? "" : "opacity-70",
+                          ].join(" ")}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="truncate text-sm font-medium">
+                                {model.label ?? model.id}
+                              </span>
+                              <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] text-foreground/55">
+                                {model.source === "builtin"
+                                  ? t("model.provider.builtin")
+                                  : t("model.custom")}
+                              </span>
+                              <span
+                                className={[
+                                  "rounded-full px-2 py-0.5 text-[11px]",
+                                  model.enabled
+                                    ? "bg-success/10 text-success"
+                                    : "bg-foreground/10 text-foreground/45",
+                                ].join(" ")}
+                              >
+                                {model.enabled
+                                  ? t("model.status.enabled")
+                                  : t("model.status.disabled")}
+                              </span>
+                              {selected && (
+                                <span className="inline-flex items-center gap-1 text-xs text-accent">
+                                  <IconCheck className="size-3" /> {t("model.selected")}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 break-all text-xs text-foreground/45">{model.id}</p>
+                            <p className="mt-1 text-xs text-foreground/45">{formatParams(model)}</p>
+                            <p className="mt-1 text-xs text-foreground/40">
+                              {formatCapabilities(model)}
+                              {optionCount > 0
+                                ? " / " +
+                                  t("model.options.count", {
+                                    count: optionCount,
+                                  })
+                                : ""}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                            <Switch
+                              size="sm"
+                              isSelected={model.enabled}
+                              onChange={(enabled) => handleToggleModel(model, enabled)}
+                              aria-label={t("model.enabled")}
+                            />
+                            <Tooltip>
+                              <Tooltip.Trigger>
+                                <Button
+                                  type="button"
+                                  isIconOnly
+                                  size="sm"
+                                  variant="secondary"
+                                  onPress={() =>
+                                    setModelEditorState({
+                                      mode: "edit",
+                                      providerId: selectedProvider.id,
+                                      model,
+                                    })
+                                  }
+                                  aria-label={t("model.options.title")}
+                                >
+                                  <IconSliders className="size-4" />
+                                </Button>
+                              </Tooltip.Trigger>
+                              <Tooltip.Content>{t("model.options.title")}</Tooltip.Content>
+                            </Tooltip>
+                            <Button
+                              type="button"
+                              isIconOnly
+                              variant="tertiary"
+                              size="sm"
+                              onPress={() =>
+                                setModelToDelete({ provider: selectedProvider, model })
+                              }
+                              aria-label={t("common.delete")}
+                            >
+                              <IconTrash className="size-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <SettingSection title={t("model.cache")} desc={t("model.cache.desc")}>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
+              <span>
+                {t("model.cache.limitValue", {
+                  label: t("model.cache.used"),
+                  value: f.bytes(cacheBytes),
+                })}
+              </span>
+              <span>
+                {t("model.cache.limitValue", {
+                  label: t("model.cache.limit"),
+                  value: f.bytes(cacheLimit * 1024 * 1024),
+                })}
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-foreground/10">
+              <div
+                className="h-full rounded-full bg-accent transition-all"
+                style={{
+                  width:
+                    String(Math.min(100, (cacheBytes / (cacheLimit * 1024 * 1024)) * 100)) + "%",
+                }}
+              />
+            </div>
+            <input
+              type="range"
+              min={50}
+              max={4096}
+              step={50}
+              value={settings.cacheSizeMb}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setCacheLimit(value);
+                void update({ cacheSizeMb: value });
+              }}
+              className="mt-3 w-full accent-[var(--color-accent)]"
+              aria-label={t("model.cache.size")}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <Button
+              variant="tertiary"
+              size="sm"
+              onPress={() => setConfirmClear(true)}
+              isDisabled={clearing || cacheBytes === 0}
+            >
+              <IconDatabase className="mr-1 size-3.5" />
+              {clearing ? t("model.cache.clearing") : t("model.cache.clear")}
+            </Button>
+            {cleared && <span className="text-xs text-success">{t("model.cache.cleared")}</span>}
+          </div>
+        </div>
+      </SettingSection>
+
+      <AddProviderDialog
+        open={addProviderOpen}
+        onClose={() => setAddProviderOpen(false)}
+        onSaved={(provider) => {
+          setSelectedProviderId(provider.id);
+          refreshCatalog();
+        }}
+      />
+
+      <ModelOptionsDialog
+        state={modelEditorState}
+        provider={selectedProvider}
+        selectedModel={settings.selectedModel}
+        onClearSelectedModel={() => update({ selectedModel: null })}
+        onSaved={refreshCatalog}
+        onClose={() => setModelEditorState(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmClear}
+        title={t("model.cache.clear")}
+        message={t("model.cache.confirm")}
+        danger
+        confirmLabel={t("common.clear")}
+        onConfirm={() => {
+          setConfirmClear(false);
+          handleClearCache();
+        }}
+        onClose={() => setConfirmClear(false)}
+      />
+      <ConfirmDialog
+        open={!!providerToDelete}
+        title={t("model.provider.delete")}
+        message={t("model.provider.delete.confirm", {
+          label: providerToDelete?.label ?? "",
+        })}
+        danger
+        confirmLabel={t("common.delete")}
+        onConfirm={handleDeleteProvider}
+        onClose={() => setProviderToDelete(null)}
+      />
+      <ConfirmDialog
+        open={!!modelToDelete}
+        title={t("common.delete")}
+        message={t("model.deleteModel.confirm", {
+          label: modelToDelete?.model.label ?? modelToDelete?.model.id ?? "",
+        })}
+        danger
+        confirmLabel={t("common.delete")}
+        onConfirm={handleDeleteModel}
+        onClose={() => setModelToDelete(null)}
+      />
+    </section>
+  );
+}
+
+function AddProviderDialog({
+  open,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: (provider: ProviderInfo) => void;
+}): React.JSX.Element {
+  const { t, locale } = useT();
+  const [form, setForm] = useState<CustomProviderInput>({
+    id: "",
+    label: "",
+    baseUrl: "",
+    helpUrl: "",
+  });
+
+  useEffect(() => {
+    if (open) setForm({ id: "", label: "", baseUrl: "", helpUrl: "" });
+  }, [open]);
+
+  const canSave = form.label.trim().length > 0 && form.baseUrl.trim().length > 0;
+
+  const handleSave = (): void => {
+    if (!canSave) return;
+    void notify
+      .promise(
+        api.providers.upsertCustomProvider(form),
+        {
+          loading: t("toast.model.providerSaving"),
+          success: t("toast.model.providerSaved"),
+          error: t("toast.model.providerSaveFailed"),
+        },
+        locale,
+      )
+      .then((provider) => {
+        onSaved(provider);
+        onClose();
+      })
+      .catch(() => undefined);
+  };
+
+  return (
+    <Modal isOpen={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <Modal.Backdrop isDismissable>
+        <Modal.Container size="lg" placement="center" scroll="inside">
+          <Modal.Dialog>
+            <Modal.Header>
+              <div className="flex w-full items-center justify-between gap-3">
+                <Modal.Heading className="text-base font-semibold">
+                  {t("model.addProvider")}
+                </Modal.Heading>
+                <Button
+                  type="button"
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={onClose}
+                  aria-label={t("common.close")}
+                >
+                  <IconClose className="size-4" />
+                </Button>
+              </div>
+            </Modal.Header>
+            <Modal.Body>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TextField>
+                  <Label>{t("model.providerName")}</Label>
+                  <Input
+                    value={form.label}
+                    placeholder={t("model.placeholder.providerName")}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        label: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <TextField>
+                  <Label>{t("model.providerId")}</Label>
+                  <Input
+                    value={form.id ?? ""}
+                    placeholder={t("model.placeholder.providerId")}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        id: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <TextField>
+                  <Label>{t("model.baseUrl")}</Label>
+                  <Input
+                    value={form.baseUrl}
+                    placeholder={t("model.placeholder.baseUrl")}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        baseUrl: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <TextField>
+                  <Label>{t("model.helpUrl")}</Label>
+                  <Input
+                    value={form.helpUrl ?? ""}
+                    placeholder={t("model.placeholder.helpUrl")}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        helpUrl: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+              </div>
+            </Modal.Body>
+            <Modal.Footer>
+              <div className="flex w-full justify-end gap-2">
+                <Button variant="secondary" onPress={onClose}>
+                  {t("common.cancel")}
+                </Button>
+                <Button variant="primary" onPress={handleSave} isDisabled={!canSave}>
+                  {t("common.save")}
+                </Button>
+              </div>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  );
+}
+
+function ModelOptionsDialog({
+  state,
+  provider,
+  selectedModel,
+  onClearSelectedModel,
+  onSaved,
+  onClose,
+}: {
+  state: ModelOptionsEditorState | null;
+  provider: ProviderInfo | null;
+  selectedModel: string | null;
+  onClearSelectedModel: () => Promise<void>;
+  onSaved: () => void;
+  onClose: () => void;
+}): React.JSX.Element {
+  const { t, f, locale } = useT();
+  const [form, setForm] = useState<ModelOptionsFormState>(() => createModelOptionsForm(""));
+  const [jsonError, setJsonError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!state) return;
+    setForm(
+      createModelOptionsForm(state.providerId, state.mode === "edit" ? state.model : undefined),
+    );
+    setJsonError(null);
+  }, [state]);
+
+  if (!state || !provider) return <></>;
+
+  const isEditing = state.mode === "edit";
+  const canSave =
+    form.id.trim().length > 0 && form.maxOutputTokens > 0 && form.contextWindow > 0 && !jsonError;
+
+  const updateCapabilities = (patch: Partial<ModelCapabilities>): void => {
+    setForm((prev) => ({ ...prev, capabilities: { ...prev.capabilities, ...patch } }));
+  };
+
+  const handleJsonChange = (value: string): void => {
+    setForm((prev) => ({ ...prev, providerOptionsJson: value }));
+    setJsonError(validateJsonObject(value));
+  };
+
+  const handleSave = (): void => {
+    const error = validateJsonObject(form.providerOptionsJson);
+    setJsonError(error);
+    if (error || !canSave) return;
+    const modelId = form.id.trim();
+    const task = (async (): Promise<void> => {
+      await api.providers.upsertCustomModel({
+        providerId: form.providerId,
+        id: modelId,
+        label: form.label.trim(),
+        enabled: form.enabled,
+        temperature: form.temperature,
+        topP: form.topP,
+        maxOutputTokens: Math.floor(form.maxOutputTokens),
+        contextWindow: Math.floor(form.contextWindow),
+        capabilities: form.capabilities,
+        providerOptionsJson: form.providerOptionsJson,
+      });
+      if (!form.enabled && selectedModel === providerModelRef(form.providerId, modelId)) {
+        await onClearSelectedModel();
+      }
+    })();
+
+    void notify
+      .promise(
+        task,
+        {
+          loading: t("toast.model.modelSaving"),
+          success: t("toast.model.modelSaved"),
+          error: t("toast.model.modelSaveFailed"),
+        },
+        locale,
+      )
+      .then(() => {
+        onSaved();
+        onClose();
+      })
+      .catch(() => undefined);
+  };
+
+  return (
+    <Modal isOpen={!!state} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <Modal.Backdrop isDismissable>
+        <Modal.Container size="lg" placement="center" scroll="inside">
+          <Modal.Dialog>
+            <Modal.Header>
+              <div className="flex w-full items-center justify-between gap-3">
+                <div>
+                  <Modal.Heading className="text-base font-semibold">
+                    {isEditing ? t("model.options.title") : t("model.addModel")}
+                  </Modal.Heading>
+                  <p className="mt-0.5 text-xs text-foreground/50">{provider.label}</p>
+                </div>
+                <Button
+                  type="button"
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={onClose}
+                  aria-label={t("common.close")}
+                >
+                  <IconClose className="size-4" />
+                </Button>
+              </div>
+            </Modal.Header>
+            <Modal.Body>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TextField>
+                  <Label>{t("model.modelId")}</Label>
+                  <Input
+                    value={form.id}
+                    disabled={isEditing}
+                    placeholder={t("model.placeholder.modelId")}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        id: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <TextField>
+                  <Label>{t("model.modelName")}</Label>
+                  <Input
+                    value={form.label}
+                    placeholder={t("model.placeholder.modelName")}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        label: (event.target as HTMLInputElement).value,
+                      }))
+                    }
+                  />
+                </TextField>
+                <div className="md:col-span-2">
+                  <Switch
+                    size="sm"
+                    isSelected={form.enabled}
+                    onChange={(enabled) => setForm((prev) => ({ ...prev, enabled }))}
+                  >
+                    {t("model.enabled")}
+                  </Switch>
+                </div>
+
+                <div className="space-y-4 md:col-span-2">
+                  <p className="text-xs font-medium text-foreground/60">{t("model.params")}</p>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
+                      <span>{t("model.temperature")}</span>
+                      <span>{f.fixed(form.temperature, 1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={0.1}
+                      value={form.temperature}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, temperature: Number(event.target.value) }))
+                      }
+                      className="w-full accent-[var(--color-accent)]"
+                      aria-label={t("model.temperature")}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
+                      <span>{t("model.topP")}</span>
+                      <span>{f.fixed(form.topP, 2)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={form.topP}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, topP: Number(event.target.value) }))
+                      }
+                      className="w-full accent-[var(--color-accent)]"
+                      aria-label={t("model.topP")}
+                    />
+                  </div>
+                </div>
+
+                <TextField>
+                  <Label>{t("model.contextWindow")}</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1024}
+                    value={String(form.contextWindow)}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        contextWindow: Math.max(
+                          1,
+                          Number((event.target as HTMLInputElement).value) || 1,
+                        ),
+                      }))
+                    }
+                  />
+                  <Description className="mt-1">{t("model.contextWindow.hint")}</Description>
+                </TextField>
+                <TextField>
+                  <Label>{t("model.maxTokens")}</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={32768}
+                    step={256}
+                    value={String(form.maxOutputTokens)}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        maxOutputTokens: Math.max(
+                          1,
+                          Number((event.target as HTMLInputElement).value) || 1,
+                        ),
+                      }))
+                    }
+                  />
+                  <Description className="mt-1">{t("model.maxTokens.hint")}</Description>
+                </TextField>
+
+                <div className="md:col-span-2">
+                  <p className="mb-2 text-xs font-medium text-foreground/60">
+                    {t("model.options.capabilities")}
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {(
+                      [
+                        ["vision", "model.capability.vision"],
+                        ["imageOutput", "model.capability.imageOutput"],
+                        ["toolCalling", "model.capability.toolCalling"],
+                        ["reasoning", "model.capability.reasoning"],
+                        ["embedding", "model.capability.embedding"],
+                      ] as const
+                    ).map(([key, labelKey]) => (
+                      <Switch
+                        key={key}
+                        size="sm"
+                        isSelected={form.capabilities[key]}
+                        onChange={(enabled) => updateCapabilities({ [key]: enabled })}
+                      >
+                        {t(labelKey)}
+                      </Switch>
+                    ))}
+                  </div>
+                </div>
+
+                <TextField className="md:col-span-2" isInvalid={!!jsonError}>
+                  <Label>{t("model.options.providerOptions")}</Label>
+                  <TextArea
+                    rows={8}
+                    value={form.providerOptionsJson}
+                    onChange={(event) => handleJsonChange(event.target.value)}
+                    className="font-mono text-xs"
+                    spellCheck={false}
+                  />
+                  <Description className="mt-1">
+                    {jsonError
+                      ? t("error.providerOptions.json")
+                      : t("model.options.providerOptions.desc")}
+                  </Description>
+                </TextField>
+              </div>
+            </Modal.Body>
+            <Modal.Footer>
+              <div className="flex w-full flex-wrap justify-end gap-2">
+                <Button variant="secondary" onPress={onClose}>
+                  {t("common.cancel")}
+                </Button>
+                <Button variant="primary" onPress={handleSave} isDisabled={!canSave}>
+                  {t("common.save")}
+                </Button>
+              </div>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  );
+}
+
 function TrashTab(): React.JSX.Element {
   const { t, f, locale } = useT();
   const [items, setItems] = useState<Conversation[]>([]);

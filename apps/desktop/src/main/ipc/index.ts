@@ -33,12 +33,16 @@ import {
   getWorkspaceSnapshot,
 } from "../lib/db";
 import {
+  clearProviderApiKey,
   clearModelApiKey,
   deleteCustomModel,
   deleteCustomProvider,
   listManagedModels,
   listProviders,
+  saveProviderApiKey,
   saveModelApiKey,
+  syncAvailableModels,
+  testProvider,
   updateModelEnabled,
   upsertCustomModel,
   upsertCustomProvider,
@@ -179,6 +183,22 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     deleteCustomProvider(providerId);
     return true;
   });
+
+  ipcMain.handle("providers:setProviderApiKey", (_e, providerId: string, apiKey: string) => {
+    saveProviderApiKey(providerId, apiKey);
+    return true;
+  });
+
+  ipcMain.handle("providers:deleteProviderApiKey", (_e, providerId: string) => {
+    clearProviderApiKey(providerId);
+    return true;
+  });
+
+  ipcMain.handle("providers:testProvider", (_e, providerId: string) => testProvider(providerId));
+
+  ipcMain.handle("providers:syncAvailableModels", (_e, providerId: string) =>
+    syncAvailableModels(providerId),
+  );
 
   ipcMain.handle("providers:upsertCustomModel", (_e, input: CustomModelInput) =>
     upsertCustomModel(input),

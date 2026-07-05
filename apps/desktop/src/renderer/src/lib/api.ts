@@ -10,7 +10,9 @@ import type {
   ManagedModelInfo,
   MemoryRecord,
   MessageRow,
+  ProviderModelSyncResult,
   ProviderInfo,
+  ProviderTestResult,
   ServerNode,
   SyncState,
   WorkflowDefinition,
@@ -104,6 +106,14 @@ export const api = {
       assertApi().providers.upsertCustomProvider(input),
     deleteCustomProvider: (providerId: string): Promise<boolean> =>
       assertApi().providers.deleteCustomProvider(providerId),
+    setProviderApiKey: (providerId: string, apiKey: string): Promise<boolean> =>
+      assertApi().providers.setProviderApiKey(providerId, apiKey),
+    deleteProviderApiKey: (providerId: string): Promise<boolean> =>
+      assertApi().providers.deleteProviderApiKey(providerId),
+    testProvider: (providerId: string): Promise<ProviderTestResult> =>
+      assertApi().providers.testProvider(providerId),
+    syncAvailableModels: (providerId: string): Promise<ProviderModelSyncResult> =>
+      assertApi().providers.syncAvailableModels(providerId),
     upsertCustomModel: (input: CustomModelInput): Promise<ProviderInfo> =>
       assertApi().providers.upsertCustomModel(input),
     updateModelEnabled: (providerId: string, modelId: string, enabled: boolean): Promise<boolean> =>
@@ -138,7 +148,9 @@ export type {
   LocalServerInfo,
   MemoryRecord,
   MessageRow,
+  ProviderModelSyncResult,
   ProviderInfo,
+  ProviderTestResult,
   ServerNode,
   SyncState,
   WorkflowDefinition,

@@ -119,6 +119,12 @@ function mapKnownError(rawMessage: string, locale: ErrorLocale, status?: number)
   }
   if (lower === "model id is required") return text(locale, "error.provider.modelIdRequired");
   if (lower === "failed to save model") return text(locale, "error.provider.modelSaveFailed");
+  if (lower === "provider options must be a json object") {
+    return text(locale, "error.providerOptions.json");
+  }
+  if (lower === "provider options must be valid json") {
+    return text(locale, "error.providerOptions.json");
+  }
   if (lower === "api key is required") return text(locale, "error.provider.apiKeyRequired");
   if (lower === "custom model not found") return text(locale, "error.provider.customModelNotFound");
   if (lower.includes("invalid model reference") && lower.includes("expected provider/model")) {

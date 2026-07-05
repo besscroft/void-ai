@@ -40,6 +40,10 @@ void describe("chat error helpers", () => {
       "Unknown provider: openrouter",
     );
     assert.equal(
+      getErrorMessage(new Error("Provider options must be valid JSON"), "en"),
+      "Provider Options must be a JSON object",
+    );
+    assert.equal(
       getErrorMessage(new Error("Unknown provider: openrouter"), "zh-CN"),
       "未知服务商：openrouter",
     );

@@ -40,6 +40,7 @@ import {
   DEFAULT_AGENT_ID,
   SettingKey,
   type LocalServerInfo,
+  type ProviderInfo,
 } from "@shared/types";
 
 interface ChatViewProps {
@@ -70,7 +71,13 @@ const CONTEXT_WINDOW_BY_MODEL: Array<{ match: RegExp; tokens: number }> = [
 
 const DEFAULT_CONTEXT_WINDOW = 32_000;
 
-function getContextWindowForModel(modelRef: string | null | undefined): number {
+function getContextWindowForModel(
+  modelRef: string | null | undefined,
+  configuredContextWindow?: number,
+): number {
+  if (configuredContextWindow && Number.isFinite(configuredContextWindow)) {
+    return configuredContextWindow;
+  }
   if (!modelRef) return DEFAULT_CONTEXT_WINDOW;
   const id = modelRef.split("/").pop() ?? modelRef;
   for (const entry of CONTEXT_WINDOW_BY_MODEL) {
@@ -87,6 +94,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [isStopped, setIsStopped] = useState(false);
+  const [modelContextWindows, setModelContextWindows] = useState<Map<string, number>>(new Map());
   /** 是否已为本对话生成过标题（防止重复生成） */
   const titledRef = useRef<Set<string>>(new Set());
   /** 上一次发送时的消息数（用于识别"本轮回复完成"） */
@@ -114,6 +122,25 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       setSelectedAgentId(agentId || DEFAULT_AGENT_ID);
     });
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.providers.list().then((providerList: ProviderInfo[]) => {
+      if (cancelled) return;
+      setModelContextWindows(
+        new Map(
+          providerList.flatMap((provider) =>
+            provider.models.map(
+              (model) => [`${provider.id}/${model.id}`, model.contextWindow] as const,
+            ),
+          ),
+        ),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedModel]);
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
@@ -212,9 +239,12 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         .join("");
       return sum + estimateTokens(text);
     }, 0);
-    const maxTokens = getContextWindowForModel(selectedModel);
+    const maxTokens = getContextWindowForModel(
+      selectedModel,
+      selectedModel ? modelContextWindows.get(selectedModel) : undefined,
+    );
     return { usedTokens, maxTokens, costUsd: undefined as number | undefined };
-  }, [chat.messages, selectedModel]);
+  }, [chat.messages, modelContextWindows, selectedModel]);
 
   /* ---------- 发送 ---------- */
   const handleSend = async ({

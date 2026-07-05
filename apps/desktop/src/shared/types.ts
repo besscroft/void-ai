@@ -142,6 +142,16 @@ export interface SyncState {
 export type ModelProviderKind = "openai" | "openai-compatible" | "anthropic" | "google";
 export type ModelCatalogSource = "builtin" | "custom";
 
+export type JsonObject = Record<string, unknown>;
+
+export interface ModelCapabilities {
+  vision: boolean;
+  imageOutput: boolean;
+  toolCalling: boolean;
+  reasoning: boolean;
+  embedding: boolean;
+}
+
 export interface ModelOption {
   id: string;
   label?: string;
@@ -150,6 +160,9 @@ export interface ModelOption {
   temperature: number;
   topP: number;
   maxOutputTokens: number;
+  contextWindow: number;
+  capabilities: ModelCapabilities;
+  providerOptions: JsonObject;
 }
 
 /** Provider metadata without API keys. */
@@ -161,6 +174,7 @@ export interface ProviderInfo {
   models: ModelOption[];
   helpUrl: string;
   baseUrl?: string;
+  hasApiKey: boolean;
 }
 
 export interface CustomProviderInput {
@@ -178,6 +192,10 @@ export interface CustomModelInput {
   temperature?: number;
   topP?: number;
   maxOutputTokens?: number;
+  contextWindow?: number;
+  capabilities?: Partial<ModelCapabilities>;
+  providerOptions?: JsonObject;
+  providerOptionsJson?: string;
 }
 
 export interface ModelCatalogSettings {
@@ -198,6 +216,9 @@ export interface ModelCatalogSettings {
     temperature: number;
     topP: number;
     maxOutputTokens: number;
+    contextWindow: number;
+    capabilities: ModelCapabilities;
+    providerOptions: JsonObject;
     createdAt: number;
     updatedAt: number;
   }>;
@@ -225,6 +246,24 @@ export interface ManagedModelInfo {
   temperature: number;
   topP: number;
   maxOutputTokens: number;
+  contextWindow: number;
+  capabilities: ModelCapabilities;
+  providerOptions: JsonObject;
+  providerOptionsJson: string;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  providerId: string;
+  checkedModels: number;
+  message?: string;
+}
+
+export interface ProviderModelSyncResult {
+  provider: ProviderInfo;
+  discovered: number;
+  added: number;
+  updated: number;
 }
 
 /**
