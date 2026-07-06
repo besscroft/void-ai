@@ -68,6 +68,7 @@ export const zhCN = {
   "msg.avatar.you": "我",
   "msg.copy": "复制",
   "msg.copied": "已复制",
+  "msg.executionTime": "执行用时 {duration} 秒",
 
   // —— 设置弹窗 ——
   "settings.title": "设置",
@@ -697,6 +698,7 @@ export const en: Record<TranslationKey, string> = {
   "msg.avatar.you": "Me",
   "msg.copy": "Copy",
   "msg.copied": "Copied",
+  "msg.executionTime": "Completed in {duration}s",
   "msg.action.edit": "Edit message",
   "msg.action.resend": "Resend",
   "msg.action.delete": "Delete message",

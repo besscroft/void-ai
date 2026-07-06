@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { simulateReadableStream } from "ai";
+import { simulateReadableStream, type UIMessage } from "ai";
 import {
   MockImageModelV4,
   MockLanguageModelV4,
@@ -155,10 +155,82 @@ void describe("local chat server", () => {
     assert.match(body, /text-delta/);
     assert.match(body, /Hello/);
     assert.match(body, / from mock/);
+
+    const chunks = parseSseJsonChunks(body);
+    const startChunk = chunks.find((chunk) => chunk.type === "start");
+    const finishChunk = chunks.find((chunk) => chunk.type === "finish");
+    const startExecution = readExecutionMetadata(startChunk);
+    const finishExecution = readExecutionMetadata(finishChunk);
+    assert.equal(startExecution?.model, "mock/chat");
+    assert.equal(typeof startExecution?.startedAt, "number");
+    assert.equal(finishExecution?.model, "mock/chat");
+    assert.equal(finishExecution?.finishReason, "stop");
+    assert.equal(finishExecution?.inputTokens, 3);
+    assert.equal(finishExecution?.outputTokens, 4);
+    assert.equal(finishExecution?.totalTokens, 7);
+    assert.equal(typeof finishExecution?.durationMs, "number");
+
     assert.deepEqual(model.doStreamCalls[0]?.providerOptions, providerOptions);
     assert.equal(model.doStreamCalls[0]?.reasoning, "high");
   });
 
+  void it("injects prior assistant reactions into agent instructions", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "text-start", id: "text-1" },
+            { type: "text-delta", id: "text-1", delta: "Adjusted answer" },
+            { type: "text-end", id: "text-1" },
+            {
+              type: "finish",
+              finishReason: { unified: "stop", raw: undefined },
+              logprobs: undefined,
+              usage: {
+                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
+                outputTokens: { total: 2, text: 2, reasoning: undefined },
+              },
+            },
+          ],
+        }),
+      }),
+    });
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Explain streams" }] },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [{ type: "text", text: "This answer used a terse explanation." }],
+        metadata: {
+          reaction: { emoji: "\u{1F44D}", label: "helpful", createdAt: 123 },
+        },
+      },
+      { id: "u2", role: "user", parts: [{ type: "text", text: "Continue" }] },
+    ];
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
+      buildChatToolRuntime: buildNoChatTools,
+      buildAgentSystemPrompt: () => "Base instructions.",
+    });
+
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({ messages, model: "mock/chat" }),
+    });
+
+    assert.equal(response.status, 200);
+    await response.text();
+    const call = JSON.stringify(model.doStreamCalls[0]);
+    assert.match(call, /Base instructions/);
+    assert.match(call, /Private user feedback/);
+    assert.match(call, /helpful/);
+    assert.match(call, /This answer used a terse explanation/);
+  });
   void it("omits provider-default reasoning when calling the model", async () => {
     const model = new MockLanguageModelV4({
       doStream: async () => ({
@@ -448,6 +520,23 @@ void describe("local chat server /api/media/generate", () => {
   });
 });
 
+function parseSseJsonChunks(body: string): Array<Record<string, unknown>> {
+  return body
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
+    .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+}
+
+function readExecutionMetadata(
+  chunk: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  const metadata = chunk?.messageMetadata;
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const execution = (metadata as { execution?: unknown }).execution;
+  return execution && typeof execution === "object"
+    ? (execution as Record<string, unknown>)
+    : undefined;
+}
 function postMedia(app: ReturnType<typeof createApp>, body: unknown): Promise<Response> {
   return Promise.resolve(
     app.request("/api/media/generate", {

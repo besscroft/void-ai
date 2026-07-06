@@ -15,6 +15,7 @@
  *    紧跟其后的 assistant 消息也会被一并删除（保持角色交替）
  */
 import { Fragment, useState, type ReactNode } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import type { ChatAddToolApproveResponseFunction, UIMessage } from "ai";
 import {
   ChainOfThought,
@@ -44,6 +45,7 @@ import {
 } from "./ai-elements";
 import { useT } from "../lib/i18n";
 import { notify } from "../lib/toast";
+import { readChatMessageMetadata } from "../lib/chat-messages";
 import { IconCopy } from "./icons";
 
 interface MessageListProps {
@@ -65,6 +67,7 @@ interface MessageListProps {
   /** 建议被点击时 */
   onSuggestion?: (prompt: string) => void;
   onToolApprovalResponse?: ChatAddToolApproveResponseFunction;
+  onReactMessage?: (messageId: string, emoji: string, label: string) => void;
 }
 
 type MessagePart = UIMessage["parts"][number];
@@ -99,6 +102,7 @@ export function MessageList({
   onDeleteMessage,
   onSuggestion,
   onToolApprovalResponse,
+  onReactMessage,
 }: MessageListProps): React.JSX.Element {
   const { t } = useT();
 
@@ -130,17 +134,25 @@ export function MessageList({
     <Conversation>
       <ConversationContent>
         {messages.map((message, index) => (
-          <MessageItem
+          <motion.div
             key={message.id}
-            message={message}
-            isLastMessage={index === messages.length - 1}
-            isStreaming={isLoading}
-            onEdit={onEditMessage}
-            onResend={onResendMessage}
-            onDelete={onDeleteMessage}
-            onRetry={onRetryMessage}
-            onToolApprovalResponse={onToolApprovalResponse}
-          />
+            layout="position"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <MessageItem
+              message={message}
+              isLastMessage={index === messages.length - 1}
+              isStreaming={isLoading}
+              onEdit={onEditMessage}
+              onResend={onResendMessage}
+              onDelete={onDeleteMessage}
+              onRetry={onRetryMessage}
+              onToolApprovalResponse={onToolApprovalResponse}
+              onReactMessage={onReactMessage}
+            />
+          </motion.div>
         ))}
 
         {error && (
@@ -186,6 +198,7 @@ interface MessageItemProps {
   onDelete?: (messageId: string) => void;
   onRetry?: (messageId: string) => Promise<void> | void;
   onToolApprovalResponse?: ChatAddToolApproveResponseFunction;
+  onReactMessage?: (messageId: string, emoji: string, label: string) => void;
 }
 
 /**
@@ -203,6 +216,7 @@ function MessageItem({
   onDelete,
   onRetry,
   onToolApprovalResponse,
+  onReactMessage,
 }: MessageItemProps): React.JSX.Element {
   const { t, f } = useT();
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
@@ -221,6 +235,9 @@ function MessageItem({
   const imageParts = fileParts.filter((p) => (p.mediaType ?? "").startsWith("image/"));
   const textParts = parts.filter(isTextPart).map((part) => part.text);
   const fullText = textParts.join("\n\n");
+  const metadata = readChatMessageMetadata(message);
+  const reaction = metadata.reaction;
+  const executionTime = formatExecutionTime(metadata.execution?.durationMs, f);
   const isUser = message.role === "user";
   const isMediaError = message.role === "assistant" && isMediaGenerationError(message);
   // 是否允许 hover 动作（仅在非流式中）
@@ -319,6 +336,7 @@ function MessageItem({
       <MessageContent data-from={message.role}>
         {(reasoningParts.length > 0 || sourceParts.length > 0 || imageParts.length > 0) && (
           <ChainOfThought
+            active={isReasoningStreaming}
             defaultOpen={isReasoningStreaming}
             title={isReasoningStreaming ? t("msg.cot.reasoningActive") : t("msg.cot.reasoning")}
           >
@@ -411,7 +429,8 @@ function MessageItem({
             return (
               <Tool
                 key={key}
-                defaultOpen={state === "output-available" || state === "output-error"}
+                active={isActiveToolState(state)}
+                defaultOpen={isActiveToolState(state)}
               >
                 <ToolHeader
                   type={part.type}
@@ -457,20 +476,32 @@ function MessageItem({
         />
       )}
 
-      {message.role === "assistant" && !messageStreaming && copyState === "copied" && (
-        <span className="mt-1 inline-flex items-center gap-1 text-[10px] text-success">
-          <IconCopy className="size-2.5" />
-          {t("msg.copied")}
+      {message.role === "assistant" && !messageStreaming && executionTime && (
+        <span className="mt-0.5 text-[10.5px] leading-none text-foreground/40">
+          {t("msg.executionTime", { duration: executionTime })}
         </span>
       )}
 
-      {message.role === "assistant" && !messageStreaming && (
+      <AnimatePresence initial={false}>
+        {message.role === "assistant" && !messageStreaming && copyState === "copied" ? (
+          <motion.span
+            key="copied"
+            initial={{ opacity: 0, y: -3 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -3 }}
+            transition={{ duration: 0.14 }}
+            className="mt-1 inline-flex items-center gap-1 text-[10px] text-success"
+          >
+            <IconCopy className="size-2.5" />
+            {t("msg.copied")}
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
+
+      {message.role === "assistant" && !messageStreaming && onReactMessage && (
         <QuickReactions
-          onReact={(emoji) => {
-            console.log("[chat] reaction:", emoji);
-            notify.success(emoji);
-          }}
-          placement="top-right"
+          selectedEmoji={reaction?.emoji}
+          onReact={(emoji, label) => onReactMessage(message.id, emoji, label)}
         />
       )}
     </Message>
@@ -478,6 +509,15 @@ function MessageItem({
 }
 
 /* ---------- 类型守卫 ---------- */
+
+function formatExecutionTime(
+  durationMs: number | undefined,
+  f: { fixed: (value: number, digits: number) => string },
+): string | null {
+  if (durationMs === undefined || !Number.isFinite(durationMs)) return null;
+  const seconds = Math.max(0, durationMs) / 1000;
+  return f.fixed(seconds, seconds < 10 ? 1 : 0);
+}
 
 function ToolApprovalActions({
   approvalId,
@@ -557,6 +597,12 @@ function normalizeToolState(raw: string | undefined): ToolState {
     "output-denied",
   ];
   return known.includes(raw as ToolState) ? (raw as ToolState) : "input-available";
+}
+
+function isActiveToolState(state: ToolState): boolean {
+  return (
+    state === "input-streaming" || state === "input-available" || state === "approval-requested"
+  );
 }
 
 function renderToolOutput(output: unknown, unserializableLabel: string): ReactNode {

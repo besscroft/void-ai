@@ -8,7 +8,9 @@ import {
   buildMessageSnapshotRows,
   buildUserMessage,
   hydrateStoredMessage,
+  readChatMessageMetadata,
   toFileUIParts,
+  updateMessageReaction,
 } from "./chat-messages";
 import { hasMeaningfulConversationTitle } from "./conversation-title";
 
@@ -116,6 +118,55 @@ void describe("chat message helpers", () => {
     assert.equal(JSON.parse(rows[1].content).parts[0].text, "Updated answer");
   });
 
+  void it("updates assistant reaction metadata and keeps it in persisted snapshots", () => {
+    const reaction = { emoji: "\u{1F44D}", label: "helpful", createdAt: 123 };
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Question" }] },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Answer" }],
+        metadata: {
+          execution: {
+            startedAt: 1,
+            finishedAt: 3,
+            durationMs: 2,
+            model: "mock/chat",
+          },
+        },
+      },
+    ];
+
+    const next = updateMessageReaction({ messages, messageId: "a1", reaction });
+
+    assert.equal(next[0], messages[0]);
+    assert.notEqual(next[1], messages[1]);
+    assert.deepEqual(readChatMessageMetadata(next[1]).reaction, reaction);
+    assert.equal(readChatMessageMetadata(next[1]).execution?.durationMs, 2);
+
+    const [row] = buildMessageSnapshotRows({
+      conversationId: "c1",
+      messages: [next[1]],
+      createdAtById: new Map([["a1", 10]]),
+      now: 100,
+    });
+    const hydrated = hydrateStoredMessage(row);
+    assert.deepEqual(readChatMessageMetadata(hydrated).reaction, reaction);
+  });
+
+  void it("does not attach reactions to user messages", () => {
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Question" }] },
+    ];
+
+    const next = updateMessageReaction({
+      messages,
+      messageId: "u1",
+      reaction: { emoji: "\u{1F44D}", label: "helpful", createdAt: 123 },
+    });
+
+    assert.deepEqual(next, messages);
+  });
   void it("replaces pending messages by id before snapshot persistence", () => {
     const original: MessageRow[] = [];
     assert.deepEqual(original, []);

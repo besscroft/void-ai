@@ -41,6 +41,7 @@
     "drizzle-orm": "catalog:",
     "electron-updater": "^6.3.9",
     "hono": "^4.6.12",
+    "motion": "catalog:",
     "sonner": "catalog:",
     "tailwind-variants": "^3.2.2"
   },

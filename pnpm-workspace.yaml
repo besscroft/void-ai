@@ -22,6 +22,7 @@ catalog:
   "@ai-sdk/openai": ^4.0.7
   "@ai-sdk/anthropic": ^4.0.7
   "@ai-sdk/google": ^4.0.8
+  motion: ^12.42.2
 overrides:
   vite: "catalog:"
   vitest: "catalog:"

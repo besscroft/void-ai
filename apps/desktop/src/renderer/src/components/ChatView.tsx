@@ -29,6 +29,7 @@ import {
   buildUserMessage,
   hydrateStoredMessage,
   toFileUIParts,
+  updateMessageReaction,
 } from "../lib/chat-messages";
 import {
   buildMediaErrorMessage,
@@ -561,6 +562,17 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   };
 
   /* ---------- 消息动作：编辑 ---------- */
+  const handleReactMessage = (messageId: string, emoji: string, label: string): void => {
+    const nextMessages = updateMessageReaction({
+      messages: latestMessagesRef.current,
+      messageId,
+      reaction: { emoji, label, createdAt: Date.now() },
+    });
+    chat.setMessages(nextMessages);
+    latestMessagesRef.current = nextMessages;
+    void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
+    void api.conversations.touch(conversationId);
+  };
   const handleEditMessage = async (messageId: string, newText: string): Promise<void> => {
     const idx = chat.messages.findIndex((m) => m.id === messageId);
     if (idx < 0) return;
@@ -686,6 +698,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           onResendMessage={handleResendMessage}
           onDeleteMessage={handleDeleteMessage}
           onToolApprovalResponse={chat.addToolApprovalResponse}
+          onReactMessage={handleReactMessage}
           onSuggestion={handleSuggestion}
         />
       )}

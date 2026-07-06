@@ -76,8 +76,10 @@ export function MessageContent({
     <div
       data-slot="message-content"
       className={cn(
-        "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-        isUser ? "bg-accent text-accent-foreground" : "bg-foreground/[0.06] text-foreground",
+        "text-sm leading-relaxed",
+        isUser
+          ? "rounded-2xl bg-accent px-4 py-2.5 text-accent-foreground"
+          : "w-full bg-transparent px-0 py-0 text-foreground",
         className,
       )}
       {...rest}

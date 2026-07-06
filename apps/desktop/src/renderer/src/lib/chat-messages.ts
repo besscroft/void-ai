@@ -1,5 +1,5 @@
 import type { FileUIPart, UIMessage } from "ai";
-import type { MessageRow } from "@shared/types";
+import type { ChatMessageMetadata, ChatReactionMetadata, MessageRow } from "@shared/types";
 
 export interface FilePartInput {
   type?: string;
@@ -48,6 +48,35 @@ export function appendOrReplaceMessage(messages: UIMessage[], message: UIMessage
   const existingIndex = messages.findIndex((item) => item.id === message.id);
   if (existingIndex === -1) return [...messages, message];
   return messages.map((item, index) => (index === existingIndex ? message : item));
+}
+
+export function readChatMessageMetadata(message: UIMessage | undefined): ChatMessageMetadata {
+  const metadata = message?.metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as ChatMessageMetadata)
+    : {};
+}
+
+export function updateMessageReaction({
+  messages,
+  messageId,
+  reaction,
+}: {
+  messages: UIMessage[];
+  messageId: string;
+  reaction: ChatReactionMetadata;
+}): UIMessage[] {
+  return messages.map((message) => {
+    if (message.id !== messageId || message.role !== "assistant") return message;
+    const metadata = readChatMessageMetadata(message);
+    return {
+      ...message,
+      metadata: {
+        ...metadata,
+        reaction,
+      } satisfies ChatMessageMetadata,
+    };
+  });
 }
 
 export function hydrateStoredMessage(row: MessageRow): UIMessage {

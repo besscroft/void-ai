@@ -3,16 +3,12 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import {
-  convertToModelMessages,
-  createUIMessageStreamResponse,
+  createAgentUIStreamResponse,
   experimental_generateVideo as generateVideo,
   generateImage,
   generateSpeech,
   generateText,
-  streamText,
-  toUIMessageStream,
   transcribe,
-  type LanguageModel,
   type UIMessage,
 } from "ai";
 import {
@@ -27,8 +23,8 @@ import {
   type ModelCapabilities,
   type ModelProviderKind,
 } from "../../shared/types";
+import { buildChatAgent, type ResolvedChatModel } from "../lib/chat-agent";
 import type { ChatToolModelContext } from "../lib/chat-tools";
-import type { NativeChatTool } from "../lib/providers";
 
 const ALLOWED_ORIGIN_PATTERNS = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
 
@@ -45,19 +41,6 @@ interface CreateAppOptions {
   buildChatToolRuntime?: typeof import("../lib/chat-tools").buildChatToolRuntime;
   auditChatToolApprovalResponses?: typeof import("../lib/chat-tools").auditChatToolApprovalResponses;
   buildAgentSystemPrompt?: (agentId?: string | null, conversationId?: string) => string;
-}
-
-interface ResolvedChatModel {
-  model: LanguageModel;
-  providerId?: string;
-  providerKind?: ModelProviderKind;
-  modelId?: string;
-  capabilities?: ModelCapabilities;
-  temperature: number;
-  topP: number;
-  maxOutputTokens: number;
-  providerOptions?: Parameters<typeof streamText>[0]["providerOptions"];
-  nativeTools?: NativeChatTool[];
 }
 
 const DEFAULT_CHAT_MODEL_CAPABILITIES: ModelCapabilities = {
@@ -327,39 +310,27 @@ export function createApp(options: CreateAppOptions = {}): Hono {
         body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
         toolRuntime.instructions,
       );
-      const streamOptions: Parameters<typeof streamText>[0] = {
-        model: resolved.model,
+      const { agent, messageMetadata } = buildChatAgent({
+        modelRef: body.model,
+        resolved,
         instructions,
-        messages: await convertToModelMessages(
-          body.messages,
-          toolRuntime.tools ? { tools: toolRuntime.tools } : undefined,
-        ),
-        temperature: resolved.temperature,
-        topP: resolved.topP,
-        maxOutputTokens: resolved.maxOutputTokens,
-        providerOptions: resolved.providerOptions,
-      };
-      if (reasoning.value) streamOptions.reasoning = reasoning.value;
-      if (toolRuntime.tools) streamOptions.tools = toolRuntime.tools;
-      if (toolRuntime.activeTools?.length) streamOptions.activeTools = toolRuntime.activeTools;
-      if (toolRuntime.toolChoice) streamOptions.toolChoice = toolRuntime.toolChoice;
-      if (toolRuntime.toolApproval) streamOptions.toolApproval = toolRuntime.toolApproval;
-      if (toolRuntime.stopWhen) streamOptions.stopWhen = toolRuntime.stopWhen;
-      if (toolRuntime.onStepEnd) streamOptions.onStepEnd = toolRuntime.onStepEnd;
-      const result = streamText(streamOptions);
+        messages: body.messages,
+        agentId: body.agentId,
+        reasoning: reasoning.value,
+        toolRuntime,
+      });
 
-      return createUIMessageStreamResponse({
-        stream: toUIMessageStream({
-          stream: result.stream,
-          originalMessages: body.messages,
-          sendReasoning: true,
-          sendSources: true,
-          onError: (error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error("[server] /api/chat stream failed:", message);
-            return message || "Chat stream failed";
-          },
-        }),
+      return await createAgentUIStreamResponse({
+        agent,
+        uiMessages: body.messages,
+        sendReasoning: true,
+        sendSources: true,
+        messageMetadata,
+        onError: (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("[server] /api/chat stream failed:", message);
+          return message || "Chat stream failed";
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

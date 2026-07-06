@@ -23,7 +23,7 @@
  *     </ChainOfThoughtStep>
  *   </ChainOfThought>
  */
-import { type DetailsHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { useT } from "../../lib/i18n";
 import {
@@ -37,6 +37,12 @@ import {
   IconSparkles,
   IconWrench,
 } from "../icons";
+import {
+  AnimatedDisclosure,
+  AnimatedDisclosureContent,
+  AnimatedDisclosureChevron,
+  AnimatedDisclosureTrigger,
+} from "./animated-disclosure";
 
 /* ---------- 类型定义 ---------- */
 
@@ -48,26 +54,21 @@ export type ChainStepIcon = "default" | "search" | "image" | "think" | "tool" | 
 
 /* ---------- 容器 ChainOfThought ---------- */
 
-interface ChainOfThoughtProps extends Omit<DetailsHTMLAttributes<HTMLDetailsElement>, "title"> {
-  /** 容器标题 */
+interface ChainOfThoughtProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   title?: ReactNode;
-  /** 默认是否展开 */
   defaultOpen?: boolean;
-  /** 受控展开 */
   open?: boolean;
+  active?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children?: ReactNode;
 }
 
-/**
- * 思维链容器
- *  - 视觉：圆角边框 + 浅色背景，左侧带图标
- *  - 交互：details/summary 原生折叠
- *  - 步骤用 <ol> 渲染，自带序号
- */
 export function ChainOfThought({
   title,
   defaultOpen = true,
   open,
+  active,
+  onOpenChange,
   className,
   children,
   ...rest
@@ -76,21 +77,22 @@ export function ChainOfThought({
   const resolvedTitle = title ?? t("msg.cot.title");
 
   return (
-    <details
+    <AnimatedDisclosure
       data-slot="chain-of-thought"
-      open={open ?? defaultOpen}
+      active={active}
+      defaultOpen={defaultOpen}
+      open={open}
+      onOpenChange={onOpenChange}
       className={cn(
-        "group/cot rounded-2xl border border-foreground/10 bg-foreground/[0.025]",
-        "overflow-hidden",
+        "group/cot overflow-hidden rounded-2xl border border-foreground/10 bg-foreground/[0.025]",
         className,
       )}
       {...rest}
     >
-      <summary
+      <AnimatedDisclosureTrigger
         data-slot="chain-of-thought-trigger"
         className={cn(
-          "flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-xs font-medium",
-          "[&::-webkit-details-marker]:hidden",
+          "flex w-full cursor-pointer items-center gap-2 px-3 py-2.5 text-left text-xs font-medium",
           "hover:bg-foreground/[0.04]",
         )}
       >
@@ -98,24 +100,20 @@ export function ChainOfThought({
           <IconBrain className="size-3.5" />
         </span>
         <span className="flex-1 truncate text-foreground/80">{resolvedTitle}</span>
-        <IconChevronDown
-          className={cn(
-            "size-3.5 shrink-0 text-foreground/45 transition-transform",
-            "group-open/cot:rotate-180",
-          )}
-        />
-      </summary>
-      <ol
-        data-slot="chain-of-thought-content"
-        className="relative space-y-1.5 border-t border-foreground/10 px-2 py-2.5 text-xs"
-      >
-        {children}
-      </ol>
-    </details>
+        <AnimatedDisclosureChevron className="flex size-3.5 shrink-0 items-center justify-center text-foreground/45">
+          <IconChevronDown className="size-3.5" />
+        </AnimatedDisclosureChevron>
+      </AnimatedDisclosureTrigger>
+      <AnimatedDisclosureContent innerClassName="border-t border-foreground/10 px-2 py-2.5 text-xs">
+        <ol data-slot="chain-of-thought-content" className="relative space-y-1.5">
+          {children}
+        </ol>
+      </AnimatedDisclosureContent>
+    </AnimatedDisclosure>
   );
 }
 
-/* ---------- 步骤 ChainOfThoughtStep ---------- */
+/* ---------- ChainOfThoughtStep ---------- */
 
 interface ChainOfThoughtStepProps extends Omit<HTMLAttributes<HTMLLIElement>, "title"> {
   icon?: ChainStepIcon;

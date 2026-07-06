@@ -15,12 +15,13 @@
  *     onDelete={canDelete ? () => remove() : undefined}
  *   />
  */
-import { type HTMLAttributes, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { motion, type HTMLMotionProps } from "motion/react";
 import { cn } from "../../lib/utils";
 import { useT } from "../../lib/i18n";
 import { IconCopy, IconEdit, IconRefresh, IconTrash } from "../icons";
 
-interface MessageActionsProps extends HTMLAttributes<HTMLDivElement> {
+interface MessageActionsProps extends HTMLMotionProps<"div"> {
   /** 复制回调（必填） */
   onCopy: () => void;
   /** 编辑回调（可选：未传则不渲染按钮） */
@@ -60,12 +61,15 @@ export function MessageActions({
 }: MessageActionsProps): React.JSX.Element {
   const { t } = useT();
   return (
-    <div
+    <motion.div
       data-slot="message-actions"
       data-placement={placement}
+      initial={{ y: -3 }}
+      animate={{ y: 0 }}
+      transition={{ duration: 0.14 }}
       className={cn(
         "mt-1 flex items-center gap-0.5",
-        "opacity-0 transition group-hover/msg:opacity-100 group-focus-within/msg:opacity-100",
+        "opacity-0 transition-opacity group-hover/msg:opacity-100 group-focus-within/msg:opacity-100",
         placement === "right" ? "justify-start" : "justify-end",
         className,
       )}
@@ -97,7 +101,7 @@ export function MessageActions({
         />
       ) : null}
       {children}
-    </div>
+    </motion.div>
   );
 }
 

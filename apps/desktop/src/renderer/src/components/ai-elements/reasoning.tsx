@@ -20,11 +20,18 @@ import {
   useEffect,
   useRef,
   useState,
+  type ButtonHTMLAttributes,
   type HTMLAttributes,
   type ReactNode,
 } from "react";
 import { cn } from "../../lib/utils";
 import { IconBrain, IconChevronDown, IconDots } from "../icons";
+import {
+  AnimatedDisclosure,
+  AnimatedDisclosureContent,
+  AnimatedDisclosureChevron,
+  AnimatedDisclosureTrigger,
+} from "./animated-disclosure";
 
 interface ReasoningContextValue {
   isStreaming: boolean;
@@ -43,7 +50,7 @@ function useReasoningContext(): ReasoningContextValue {
   return ctx;
 }
 
-interface ReasoningProps extends HTMLAttributes<HTMLDetailsElement> {
+interface ReasoningProps extends HTMLAttributes<HTMLDivElement> {
   isStreaming?: boolean;
   open?: boolean;
   defaultOpen?: boolean;
@@ -52,11 +59,6 @@ interface ReasoningProps extends HTMLAttributes<HTMLDetailsElement> {
   children?: ReactNode;
 }
 
-/**
- * 推理容器（HTML5 <details>）
- * - isStreaming 时强制 defaultOpen=true，便于用户看到流式输出
- * - 结束后由用户自由折叠
- */
 export function Reasoning({
   isStreaming = false,
   open,
@@ -67,15 +69,15 @@ export function Reasoning({
   children,
   ...rest
 }: ReasoningProps): React.JSX.Element {
-  // duration 计时：组件挂载开始，isStreaming 变 false 时冻结
   const startRef = useRef<number>(Date.now());
+  const wasStreamingRef = useRef(isStreaming);
   const [duration, setDuration] = useState<number>(durationProp ?? 0);
   const [internalOpen, setInternalOpen] = useState<boolean>(defaultOpen ?? isStreaming);
+  const isOpen = open ?? internalOpen;
 
   useEffect(() => {
     if (isStreaming) {
       startRef.current = Date.now();
-      // 计时器：每秒更新一次
       const timer = window.setInterval(() => {
         setDuration(Math.round((Date.now() - startRef.current) / 1000));
       }, 1000);
@@ -85,29 +87,42 @@ export function Reasoning({
     return undefined;
   }, [isStreaming]);
 
-  const isOpen = open ?? internalOpen;
+  useEffect(() => {
+    if (open !== undefined) return;
+    if (isStreaming) {
+      wasStreamingRef.current = true;
+      setInternalOpen(true);
+      return;
+    }
+    if (wasStreamingRef.current) {
+      wasStreamingRef.current = false;
+      setInternalOpen(false);
+    }
+  }, [isStreaming, open]);
+
   const setIsOpen = (next: boolean): void => {
-    if (onOpenChange) onOpenChange(next);
+    onOpenChange?.(next);
     if (open === undefined) setInternalOpen(next);
   };
 
   return (
     <ReasoningContext.Provider value={{ isStreaming, isOpen, setIsOpen, duration }}>
-      <details
+      <AnimatedDisclosure
         data-slot="reasoning"
         data-streaming={isStreaming ? "true" : "false"}
+        active={isStreaming}
         open={isOpen}
-        onToggle={(e) => setIsOpen((e.currentTarget as HTMLDetailsElement).open)}
+        onOpenChange={setIsOpen}
         className={cn("rounded-xl border border-foreground/10 bg-foreground/[0.03]", className)}
         {...rest}
       >
         {children}
-      </details>
+      </AnimatedDisclosure>
     </ReasoningContext.Provider>
   );
 }
 
-interface ReasoningTriggerProps extends HTMLAttributes<HTMLElement> {
+interface ReasoningTriggerProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   getThinkingMessage?: (isStreaming: boolean, duration?: number) => ReactNode;
 }
 
@@ -123,15 +138,14 @@ export function ReasoningTrigger({
     (isStreaming ? "Thinking..." : `Thought for ${duration}s`);
 
   return (
-    <summary
+    <AnimatedDisclosureTrigger
       data-slot="reasoning-trigger"
       className={cn(
-        "flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-foreground/65",
-        "[&::-webkit-details-marker]:hidden",
+        "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs font-medium text-foreground/65",
         "hover:text-foreground/90",
         className,
       )}
-      {...(rest as HTMLAttributes<HTMLElement>)}
+      {...rest}
     >
       {isStreaming ? (
         <IconDots className="size-3.5 animate-pulse text-accent" />
@@ -139,11 +153,11 @@ export function ReasoningTrigger({
         <IconBrain className="size-3.5" />
       )}
       <span className="flex-1 truncate">{message}</span>
-      <IconChevronDown
-        className={cn("size-3.5 transition-transform", "[details[open]_&]:rotate-180")}
-      />
+      <AnimatedDisclosureChevron className="flex size-3.5 items-center justify-center">
+        <IconChevronDown className="size-3.5" />
+      </AnimatedDisclosureChevron>
       {children}
-    </summary>
+    </AnimatedDisclosureTrigger>
   );
 }
 
@@ -157,16 +171,16 @@ export function ReasoningContent({
   ...rest
 }: ReasoningContentProps): React.JSX.Element {
   return (
-    <div
+    <AnimatedDisclosureContent
       data-slot="reasoning-content"
-      className={cn(
+      innerClassName={cn(
         "border-t border-foreground/10 px-3 py-2.5 text-xs leading-relaxed text-foreground/75",
         className,
       )}
       {...rest}
     >
       {children}
-    </div>
+    </AnimatedDisclosureContent>
   );
 }
 

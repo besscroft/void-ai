@@ -118,6 +118,32 @@ export interface LocalServerInfo {
   token: string;
 }
 
+export interface ChatExecutionMetadata {
+  startedAt: number;
+  finishedAt?: number;
+  durationMs?: number;
+  model?: string;
+  agentId?: string | null;
+  finishReason?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  stepCount?: number;
+  toolCallCount?: number;
+}
+
+export interface ChatReactionMetadata {
+  emoji: string;
+  label: string;
+  createdAt: number;
+}
+
+export interface ChatMessageMetadata {
+  execution?: ChatExecutionMetadata;
+  reaction?: ChatReactionMetadata;
+  mediaGeneration?: JsonObject;
+}
+
 export const CHAT_TOOL_IDS = [
   "web_search",
   "memory_search",

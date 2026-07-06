@@ -17,7 +17,7 @@
  *    </ToolContent>
  *  </Tool>
  */
-import { type HTMLAttributes, type ReactNode } from "react";
+import { type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { useT, type TranslationKey } from "../../lib/i18n";
 import {
@@ -27,6 +27,12 @@ import {
   IconCircleX,
   IconWrench,
 } from "../icons";
+import {
+  AnimatedDisclosure,
+  AnimatedDisclosureContent,
+  AnimatedDisclosureChevron,
+  AnimatedDisclosureTrigger,
+} from "./animated-disclosure";
 
 /** AI SDK ToolUIPart 的 state 字段，与 ai@5 保持兼容 */
 export type ToolState =
@@ -76,30 +82,39 @@ const STATE_META: Record<
   },
 };
 
-interface ToolProps extends HTMLAttributes<HTMLDetailsElement> {
+interface ToolProps extends HTMLAttributes<HTMLDivElement> {
   defaultOpen?: boolean;
+  open?: boolean;
+  active?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children?: ReactNode;
 }
 
-/**
- * 工具调用外壳（HTML5 <details>）
- * - 完成后默认展开（output-available 时把 defaultOpen 设为 true）
- * - 父组件可显式覆盖
- */
-export function Tool({ className, children, defaultOpen, ...rest }: ToolProps): React.JSX.Element {
+export function Tool({
+  className,
+  children,
+  defaultOpen,
+  open,
+  active,
+  onOpenChange,
+  ...rest
+}: ToolProps): React.JSX.Element {
   return (
-    <details
+    <AnimatedDisclosure
       data-slot="tool"
+      active={active}
+      defaultOpen={defaultOpen}
+      open={open}
+      onOpenChange={onOpenChange}
       className={cn("rounded-xl border border-foreground/10 bg-foreground/[0.03]", className)}
-      open={defaultOpen}
       {...rest}
     >
       {children}
-    </details>
+    </AnimatedDisclosure>
   );
 }
 
-interface ToolHeaderProps extends HTMLAttributes<HTMLElement> {
+interface ToolHeaderProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> {
   type: string;
   state: ToolState;
   title?: string;
@@ -123,16 +138,15 @@ export function ToolHeader({
   const stateIconClass = state === "input-available" ? "animate-spin" : "";
 
   return (
-    <summary
+    <AnimatedDisclosureTrigger
       data-slot="tool-header"
       data-state={state}
       className={cn(
-        "flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium",
-        "[&::-webkit-details-marker]:hidden",
-        "hover:bg-foreground/[0.04]",
+        "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs font-medium",
+        "rounded-t-xl hover:bg-foreground/[0.04]",
         className,
       )}
-      {...(rest as HTMLAttributes<HTMLElement>)}
+      {...rest}
     >
       <IconWrench className="size-3.5 shrink-0 text-foreground/65" />
       <span className="min-w-0 flex-1 truncate text-foreground/85">{displayName}</span>
@@ -146,14 +160,11 @@ export function ToolHeader({
         <StatusIcon className={cn("size-3", stateIconClass)} />
         <span className="text-[10px] font-medium uppercase tracking-wide">{t(meta.labelKey)}</span>
       </span>
-      <IconChevronDown
-        className={cn(
-          "size-3.5 shrink-0 text-foreground/45 transition-transform",
-          "[details[open]_&]:rotate-180",
-        )}
-      />
+      <AnimatedDisclosureChevron className="flex size-3.5 shrink-0 items-center justify-center text-foreground/45">
+        <IconChevronDown className="size-3.5" />
+      </AnimatedDisclosureChevron>
       {children}
-    </summary>
+    </AnimatedDisclosureTrigger>
   );
 }
 
@@ -163,13 +174,13 @@ interface ToolContentProps extends HTMLAttributes<HTMLDivElement> {
 
 export function ToolContent({ className, children, ...rest }: ToolContentProps): React.JSX.Element {
   return (
-    <div
+    <AnimatedDisclosureContent
       data-slot="tool-content"
-      className={cn("space-y-2 border-t border-foreground/10 px-3 py-2.5 text-xs", className)}
+      innerClassName={cn("space-y-2 border-t border-foreground/10 px-3 py-2.5 text-xs", className)}
       {...rest}
     >
       {children}
-    </div>
+    </AnimatedDisclosureContent>
   );
 }
 
