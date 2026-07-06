@@ -63,6 +63,7 @@ void describe("chat tool runtime", () => {
 
     assert.deepEqual(runtime.activeTools, [
       "web_search",
+      "current_time",
       "memory_search",
       "workspace_snapshot",
       "model_capabilities",
@@ -128,6 +129,38 @@ void describe("chat tool runtime", () => {
       .find((descriptor) => descriptor.id === "web_search");
     assert.equal(web?.available, true);
     assert.equal(web?.execution, "host");
+  });
+
+  void it("executes the current time tool with host time metadata", async () => {
+    const runtime = chatTools.buildChatToolRuntime({
+      selection: { mode: "manual", selectedToolIds: ["current_time"] },
+      model: modelContext("openai-compatible"),
+    });
+    const timeTool = runtime.tools?.current_time as {
+      execute?: (input: Record<string, never>) => Promise<unknown>;
+    };
+    assert.equal(runtime.toolChoice, "auto");
+    assert.equal(typeof timeTool.execute, "function");
+
+    const before = Date.now();
+    const output = (await timeTool.execute?.({})) as {
+      timestampMs: number;
+      utcIso: string;
+      timeZone: string;
+      locale: string;
+      utcOffsetMinutes: number;
+      localDateTime: string;
+    };
+    const after = Date.now();
+
+    assert.equal(typeof output.timestampMs, "number");
+    assert.ok(output.timestampMs >= before);
+    assert.ok(output.timestampMs <= after);
+    assert.equal(new Date(output.utcIso).getTime(), output.timestampMs);
+    assert.equal(typeof output.timeZone, "string");
+    assert.equal(typeof output.locale, "string");
+    assert.equal(typeof output.utcOffsetMinutes, "number");
+    assert.equal(typeof output.localDateTime, "string");
   });
 
   void it("limits manual compatible-provider tools without forcing tool choice", () => {

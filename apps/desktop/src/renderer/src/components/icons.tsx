@@ -267,7 +267,17 @@ export function IconGlobe(props: IconProps): React.JSX.Element {
   );
 }
 
-/** 数据库/缓存 */
+/** Clock icon for the current time tool. */
+export function IconClock(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </svg>
+  );
+}
+
+/** Database icon. */
 export function IconDatabase(props: IconProps): React.JSX.Element {
   return (
     <svg {...base} {...props}>

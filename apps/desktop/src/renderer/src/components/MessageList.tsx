@@ -40,17 +40,19 @@ import {
   ToolHeader,
   ToolInput,
   ToolOutput,
+  type ConversationStatusKind,
   type FilePartLike,
   type ToolState,
 } from "./ai-elements";
 import { useT } from "../lib/i18n";
 import { notify } from "../lib/toast";
 import { readChatMessageMetadata } from "../lib/chat-messages";
-import { IconCopy } from "./icons";
+import { IconBrain, IconCircleDashed, IconCopy } from "./icons";
 
 interface MessageListProps {
   messages: UIMessage[];
   isLoading: boolean;
+  status: ConversationStatusKind;
   error?: Error;
   errorDetail?: string | null;
   /** 后备建议（empty 状态） */
@@ -91,6 +93,7 @@ interface RenderableToolPart {
 export function MessageList({
   messages,
   isLoading,
+  status,
   error,
   errorDetail,
   emptySuggestions,
@@ -105,6 +108,7 @@ export function MessageList({
   onReactMessage,
 }: MessageListProps): React.JSX.Element {
   const { t } = useT();
+  const activityStatus = getMessageActivityStatus(messages, isLoading, status);
 
   if (messages.length === 0 && !isLoading) {
     return (
@@ -155,6 +159,8 @@ export function MessageList({
           </motion.div>
         ))}
 
+        {activityStatus ? <MessageActivity status={activityStatus} /> : null}
+
         {error && (
           <div className="rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
             <p className="font-medium">{t("msg.error.title")}</p>
@@ -188,6 +194,52 @@ export function MessageList({
 }
 
 /* ---------- 单条消息 ---------- */
+
+type MessageActivityStatus = "submitted" | "thinking";
+
+function MessageActivity({ status }: { status: MessageActivityStatus }): React.JSX.Element {
+  const { t } = useT();
+  const Icon = status === "submitted" ? IconCircleDashed : IconBrain;
+  return (
+    <motion.div
+      key="message-activity"
+      layout="position"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+      aria-live="polite"
+      className="flex justify-start"
+    >
+      <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/60">
+        <span className="flex size-5 items-center justify-center rounded-full bg-accent/10 text-accent">
+          <Icon className="size-3 animate-pulse" />
+        </span>
+        <span>
+          {status === "submitted" ? t("msg.activity.submitted") : t("msg.activity.thinking")}
+        </span>
+      </div>
+    </motion.div>
+  );
+}
+
+function getMessageActivityStatus(
+  messages: UIMessage[],
+  isLoading: boolean,
+  status: ConversationStatusKind,
+): MessageActivityStatus | null {
+  if (!isLoading) return null;
+  if (status === "submitted") return "submitted";
+  if (status !== "streaming") return null;
+
+  const lastMessage = messages.at(-1);
+  if (!lastMessage || lastMessage.role !== "assistant") return "thinking";
+  const parts = lastMessage.parts ?? [];
+  const hasVisibleAssistantWork = parts.some(
+    (part) => isTextPart(part) || isReasoningPart(part) || isToolPart(part),
+  );
+  return hasVisibleAssistantWork ? null : "thinking";
+}
 
 interface MessageItemProps {
   message: UIMessage;

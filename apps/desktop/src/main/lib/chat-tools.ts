@@ -131,6 +131,15 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     defaultAuto: true,
     requiresApproval: false,
   },
+  current_time: {
+    id: "current_time",
+    label: "Current time",
+    description: "Read the current system date, time, and timezone from the host device.",
+    kind: "host",
+    category: "system",
+    defaultAuto: true,
+    requiresApproval: false,
+  },
   memory_search: {
     id: "memory_search",
     label: "Memory search",
@@ -335,6 +344,18 @@ function createHostTools({
   agentId?: string | null;
 }): Partial<Record<ChatToolId, ToolSet[string]>> {
   return {
+    current_time: tool({
+      description: TOOL_DEFINITIONS.current_time.description,
+      inputSchema: jsonSchema<Record<string, never>>({
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      }),
+      execute: () =>
+        executeWithAudit("current_time", "Current time", model, conversationId, async () =>
+          getCurrentSystemTime(),
+        ),
+    }),
     web_search: canUseHostWebSearch(model)
       ? tool({
           description: TOOL_DEFINITIONS.web_search.description,
@@ -468,6 +489,29 @@ function createHostTools({
           saveChatMemory(input, conversationId, agentId),
         ),
     }),
+  };
+}
+
+function getCurrentSystemTime(): {
+  timestampMs: number;
+  utcIso: string;
+  timeZone: string;
+  locale: string;
+  utcOffsetMinutes: number;
+  localDateTime: string;
+} {
+  const now = new Date();
+  const resolved = Intl.DateTimeFormat().resolvedOptions();
+  return {
+    timestampMs: now.getTime(),
+    utcIso: now.toISOString(),
+    timeZone: resolved.timeZone || "UTC",
+    locale: resolved.locale || "en-US",
+    utcOffsetMinutes: -now.getTimezoneOffset(),
+    localDateTime: new Intl.DateTimeFormat(undefined, {
+      dateStyle: "full",
+      timeStyle: "long",
+    }).format(now),
   };
 }
 

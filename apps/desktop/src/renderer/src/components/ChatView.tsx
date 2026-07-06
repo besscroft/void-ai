@@ -688,6 +688,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         <MessageList
           messages={chat.messages}
           isLoading={isLoading}
+          status={statusKind}
           error={chat.error}
           errorDetail={chatError}
           emptySuggestions={emptyStateSuggestions}

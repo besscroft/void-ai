@@ -299,17 +299,15 @@ export function MessageInput({
                 onPaste={handlePaste}
                 onKeyDown={handleKeyDownExtra}
                 placeholder={
-                  isLoading
-                    ? t("input.generating")
-                    : attachments.length > 0
-                      ? t("input.placeholder.withAttachments")
-                      : t("input.placeholder")
+                  attachments.length > 0
+                    ? t("input.placeholder.withAttachments")
+                    : t("input.placeholder")
                 }
                 aria-label={t("input.placeholder")}
               />
 
-              <div className="relative flex min-h-11 flex-wrap items-center justify-between gap-1.5 px-3 pt-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <div className="relative flex min-h-11 items-start gap-2 px-3 pt-2">
+                <div className="inline-flex min-w-0 w-fit max-w-[calc(100%-2.75rem)] flex-wrap items-center gap-1.5">
                   <div className="relative">
                     <button
                       type="button"
@@ -418,7 +416,7 @@ export function MessageInput({
                     onClick={onStop}
                     aria-label={t("input.stop")}
                     data-slot="prompt-input-stop"
-                    className="flex size-8 shrink-0 items-center justify-center rounded-xl border border-foreground/20 bg-foreground/10 text-foreground/80 transition hover:bg-foreground/15"
+                    className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-xl border border-foreground/20 bg-foreground/10 text-foreground/80 transition hover:bg-foreground/15"
                   >
                     <svg
                       width="14"
@@ -436,7 +434,7 @@ export function MessageInput({
                     status={isLoading ? "streaming" : "ready"}
                     disabled={!canSend}
                     aria-label={t("input.send")}
-                    className="size-8"
+                    className="ml-auto size-8"
                   />
                 )}
               </div>

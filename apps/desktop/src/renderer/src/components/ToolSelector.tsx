@@ -16,6 +16,7 @@ import { cn } from "../lib/utils";
 import {
   IconCheck,
   IconCheckSquare,
+  IconClock,
   IconCircle,
   IconCpu,
   IconDatabase,
@@ -37,6 +38,7 @@ const TOOL_ORDER = CHAT_TOOL_IDS;
 
 const ICONS: Record<ChatToolId, (props: SVGProps<SVGSVGElement>) => React.JSX.Element> = {
   web_search: IconGlobe,
+  current_time: IconClock,
   memory_search: IconDatabase,
   workspace_snapshot: IconList,
   model_capabilities: IconCpu,

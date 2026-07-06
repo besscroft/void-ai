@@ -146,6 +146,7 @@ export interface ChatMessageMetadata {
 
 export const CHAT_TOOL_IDS = [
   "web_search",
+  "current_time",
   "memory_search",
   "workspace_snapshot",
   "model_capabilities",
@@ -172,7 +173,7 @@ export interface ChatToolDescriptor {
   description: string;
   kind: "provider" | "host";
   execution?: "provider" | "host";
-  category: "web" | "memory" | "workspace" | "model" | "conversation";
+  category: "web" | "system" | "memory" | "workspace" | "model" | "conversation";
   defaultAuto: boolean;
   requiresApproval: boolean;
   available: boolean;

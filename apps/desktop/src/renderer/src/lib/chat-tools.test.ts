@@ -49,6 +49,7 @@ void describe("chat tool UI helpers", () => {
     assert.equal(web?.execution, "provider");
     assert.deepEqual(getActiveChatToolIds({ mode: "auto", selectedToolIds: [] }, descriptors), [
       "web_search",
+      "current_time",
       "memory_search",
       "workspace_snapshot",
       "model_capabilities",
@@ -69,10 +70,10 @@ void describe("chat tool UI helpers", () => {
     assert.equal(memory?.available, true);
     assert.deepEqual(
       getActiveChatToolIds(
-        { mode: "manual", selectedToolIds: ["web_search", "memory_search"] },
+        { mode: "manual", selectedToolIds: ["web_search", "current_time", "memory_search"] },
         descriptors,
       ),
-      ["web_search", "memory_search"],
+      ["web_search", "current_time", "memory_search"],
     );
   });
 

@@ -10,6 +10,7 @@ import {
 
 const DEFAULT_AUTO_TOOL_IDS = new Set<ChatToolId>([
   "web_search",
+  "current_time",
   "memory_search",
   "workspace_snapshot",
   "model_capabilities",
@@ -24,6 +25,13 @@ const TOOL_METADATA: Record<
     description: "Search the live web with native provider search or a host fallback.",
     kind: "provider",
     category: "web",
+    requiresApproval: false,
+  },
+  current_time: {
+    label: "Current time",
+    description: "Read the current system date, time, and timezone from the host device.",
+    kind: "host",
+    category: "system",
     requiresApproval: false,
   },
   memory_search: {
