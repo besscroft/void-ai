@@ -30,6 +30,16 @@ import {
   hydrateStoredMessage,
   toFileUIParts,
 } from "../lib/chat-messages";
+import {
+  buildMediaErrorMessage,
+  buildMediaGenerationRequest,
+  buildMediaPendingMessage,
+  buildMediaResultMessage,
+  detectMediaIntent,
+  parseMediaGenerationSettings,
+  serializeMediaGenerationSettings,
+  type MediaGenerationSelection,
+} from "../lib/chat-media";
 import { notify } from "../lib/toast";
 import { useT } from "../lib/i18n";
 import {
@@ -43,6 +53,7 @@ import {
   CHAT_SESSION_HEADER,
   DEFAULT_CHAT_TOOL_SELECTION,
   DEFAULT_SETTINGS,
+  DEFAULT_MEDIA_GENERATION_SETTINGS,
   DEFAULT_AGENT_ID,
   SettingKey,
   getChatToolSelectionForConversation,
@@ -51,6 +62,9 @@ import {
   type ChatReasoningLevel,
   type ChatToolSelectionRequest,
   type LocalServerInfo,
+  type MediaGenerationKind,
+  type MediaGenerationResponse,
+  type MediaGenerationSettings,
   type ProviderInfo,
 } from "@shared/types";
 
@@ -108,6 +122,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [isStopped, setIsStopped] = useState(false);
+  const [isMediaGenerating, setIsMediaGenerating] = useState(false);
+  const [mediaSettings, setMediaSettings] = useState<MediaGenerationSettings>(
+    DEFAULT_MEDIA_GENERATION_SETTINGS,
+  );
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [modelContextWindows, setModelContextWindows] = useState<Map<string, number>>(new Map());
   const [toolSelection, setToolSelection] = useState<ChatToolSelectionRequest>(
@@ -122,6 +140,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const selectedAgentIdRef = useRef<string | null>(null);
   const reasoningLevelRef = useRef<ChatReasoningLevel>(DEFAULT_SETTINGS.chatReasoningLevel);
   const toolSelectionRef = useRef<ChatToolSelectionRequest>(DEFAULT_CHAT_TOOL_SELECTION);
+  const mediaSettingsRef = useRef<MediaGenerationSettings>(DEFAULT_MEDIA_GENERATION_SETTINGS);
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const hydratedConversationRef = useRef<string | null>(null);
   const emptyStateSuggestions = useMemo(
@@ -143,6 +162,11 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     });
     void api.settings.get(SettingKey.ChatReasoningLevel).then((level) => {
       if (isChatReasoningLevel(level)) setReasoningLevel(level);
+    });
+    void api.settings.get(SettingKey.MediaGeneration).then((raw) => {
+      const parsed = parseMediaGenerationSettings(raw);
+      mediaSettingsRef.current = parsed;
+      setMediaSettings(parsed);
     });
   }, []);
 
@@ -182,6 +206,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     toolSelectionRef.current = toolSelection;
   }, [toolSelection]);
 
+  useEffect(() => {
+    mediaSettingsRef.current = mediaSettings;
+  }, [mediaSettings]);
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -257,20 +284,23 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     hydratedConversationRef.current = conversationId;
   }, [chat, conversationId, historyLoaded, initialMessages]);
 
-  const isLoading = chat.status === "submitted" || chat.status === "streaming";
+  const isChatLoading = chat.status === "submitted" || chat.status === "streaming";
+  const isLoading = isChatLoading || isMediaGenerating;
 
   /* ---------- 状态映射 ---------- */
   const statusKind: ConversationStatusKind = chat.error
     ? "error"
-    : isLoading
-      ? chat.status === "submitted"
-        ? "submitted"
-        : "streaming"
-      : isStopped
-        ? "stopped"
-        : "ready";
+    : isMediaGenerating
+      ? "submitted"
+      : isChatLoading
+        ? chat.status === "submitted"
+          ? "submitted"
+          : "streaming"
+        : isStopped
+          ? "stopped"
+          : "ready";
 
-  /* ---------- 上下文用量（实时估算） ---------- */
+  /* ---------- Context usage ---------- */
   const contextMetrics = useMemo(() => {
     const usedTokens = chat.messages.reduce((sum, m) => {
       const text = (m.parts ?? [])
@@ -287,17 +317,129 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   }, [chat.messages, modelContextWindows, selectedModel]);
 
   /* ---------- 发送 ---------- */
+  const handleMediaSettingsChange = (next: MediaGenerationSettings): void => {
+    mediaSettingsRef.current = next;
+    setMediaSettings(next);
+    void api.settings
+      .set(SettingKey.MediaGeneration, serializeMediaGenerationSettings(next))
+      .catch((err) => console.error("[chat] failed to persist media settings:", err));
+  };
+
+  const handleMediaSend = async ({
+    text,
+    files,
+    media,
+    userMessageId,
+    assistantMessageId: requestedAssistantMessageId,
+    baseMessages,
+  }: {
+    text: string;
+    files: ReturnType<typeof toFileUIParts>;
+    media: MediaGenerationSelection;
+    userMessageId?: string;
+    assistantMessageId?: string;
+    baseMessages?: UIMessage[];
+  }): Promise<void> => {
+    let request;
+    try {
+      request = buildMediaGenerationRequest({
+        kind: media.kind,
+        text,
+        files,
+        providers,
+        settings: mediaSettingsRef.current,
+        modelRef: media.modelRef,
+        options: media.options,
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      notify.error(t("toast.media.failed"), detail, locale);
+      return;
+    }
+
+    const messageId = userMessageId ?? crypto.randomUUID();
+    const assistantMessageId = requestedAssistantMessageId ?? crypto.randomUUID();
+    let userMessage: UIMessage;
+
+    try {
+      userMessage = buildUserMessage({ id: messageId, text, files });
+    } catch {
+      return;
+    }
+
+    setChatError(null);
+    setIsStopped(false);
+    setIsMediaGenerating(true);
+    chat.clearError();
+
+    const userMessages = appendOrReplaceMessage(
+      baseMessages ?? latestMessagesRef.current,
+      userMessage,
+    );
+    const pendingMessage = buildMediaPendingMessage(assistantMessageId, media.kind, media);
+    const pendingMessages = appendOrReplaceMessage(userMessages, pendingMessage);
+    chat.setMessages(pendingMessages);
+    latestMessagesRef.current = pendingMessages;
+    lastSentCountRef.current = userMessages.length;
+
+    void persistMessagesSnapshot(conversationId, pendingMessages, createdAtRef.current).catch(
+      (err) => console.error("[chat] failed to pre-save media messages:", err),
+    );
+    void api.conversations.touch(conversationId);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${serverInfo.port}/api/media/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [CHAT_SESSION_HEADER]: serverInfo.token,
+        },
+        body: JSON.stringify(request),
+      });
+      if (!response.ok) throw new Error(await readMediaErrorResponse(response));
+      const result = (await response.json()) as MediaGenerationResponse;
+      const resultMessage = buildMediaResultMessage(assistantMessageId, result);
+      const nextMessages = appendOrReplaceMessage(pendingMessages, resultMessage);
+      chat.setMessages(nextMessages);
+      latestMessagesRef.current = nextMessages;
+      void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
+      void api.conversations.touch(conversationId);
+      tryAutoTitle(conversationId, nextMessages, lastSentCountRef.current, titledRef);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const errorMessage = buildMediaErrorMessage(assistantMessageId, media.kind, detail, media);
+      const nextMessages = appendOrReplaceMessage(pendingMessages, errorMessage);
+      chat.setMessages(nextMessages);
+      latestMessagesRef.current = nextMessages;
+      void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
+      void api.conversations.touch(conversationId);
+      notify.error(t("toast.media.failed"), detail, locale);
+    } finally {
+      setIsMediaGenerating(false);
+    }
+  };
+
   const handleSend = async ({
     text,
     files,
+    media,
   }: {
     text: string;
     files: FilePartLike[];
+    media?: MediaGenerationSelection;
   }): Promise<void> => {
+    const finalFiles = toFileUIParts(files);
+    const detected = media ? null : detectMediaIntent(text, finalFiles);
+    const mediaSelection = media ?? (detected ? { kind: detected.kind } : undefined);
+
+    if (mediaSelection) {
+      await handleMediaSend({ text, files: finalFiles, media: mediaSelection });
+      return;
+    }
+
     if (!selectedModel) return;
 
     const messageId = crypto.randomUUID();
-    const finalFiles = toFileUIParts(files);
     let userMessage: UIMessage;
 
     try {
@@ -344,6 +486,49 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     void chat.regenerate().finally(() => {
       void persistMessagesSnapshot(conversationId, latestMessagesRef.current, createdAtRef.current);
       void api.conversations.touch(conversationId);
+    });
+  };
+
+  const handleRetryMediaMessage = async (messageId: string): Promise<void> => {
+    const messages = latestMessagesRef.current;
+    const assistantIndex = messages.findIndex((message) => message.id === messageId);
+    if (assistantIndex < 0) return;
+    const metadata = readMediaGenerationMetadata(messages[assistantIndex]);
+    if (!metadata || metadata.status !== "error") return;
+
+    let userIndex = -1;
+    for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === "user") {
+        userIndex = index;
+        break;
+      }
+    }
+
+    const userMessage = userIndex >= 0 ? messages[userIndex] : undefined;
+    if (!userMessage) {
+      notify.error(
+        t("toast.media.failed"),
+        "Original media request is no longer available.",
+        locale,
+      );
+      return;
+    }
+
+    const text = (userMessage.parts ?? [])
+      .filter((part) => part.type === "text")
+      .map((part) => (part as { text: string }).text)
+      .join("\n\n");
+    const files = (userMessage.parts ?? []).filter(
+      (part): part is ReturnType<typeof toFileUIParts>[number] => part.type === "file",
+    );
+
+    await handleMediaSend({
+      text,
+      files,
+      media: { kind: metadata.kind, modelRef: metadata.modelRef, options: metadata.options },
+      userMessageId: userMessage.id,
+      assistantMessageId: messageId,
+      baseMessages: messages.slice(0, userIndex + 1),
     });
   };
 
@@ -495,6 +680,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           errorDetail={chatError}
           emptySuggestions={emptyStateSuggestions}
           onRetry={handleRetry}
+          onRetryMessage={handleRetryMediaMessage}
           onDismissError={handleDismissError}
           onEditMessage={handleEditMessage}
           onResendMessage={handleResendMessage}
@@ -507,7 +693,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       <MessageInput
         isLoading={isLoading}
         onSend={handleSend}
-        onStop={handleStop}
+        onStop={isChatLoading ? handleStop : undefined}
         selectedModel={selectedModel}
         selectedAgentId={selectedAgentId}
         reasoningLevel={reasoningLevel}
@@ -517,6 +703,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         toolSelection={toolSelection}
         onToolSelectionChange={handleToolSelectionChange}
         providers={providers}
+        mediaSettings={mediaSettings}
+        onMediaSettingsChange={handleMediaSettingsChange}
         contextMetrics={contextMetrics}
       />
     </div>
@@ -679,4 +867,53 @@ function EmptyState({
       </div>
     </div>
   );
+}
+function readMediaGenerationMetadata(message: UIMessage | undefined): {
+  kind: MediaGenerationKind;
+  status?: string;
+  modelRef?: string | null;
+  options?: MediaGenerationSelection["options"];
+} | null {
+  const metadata = message?.metadata as
+    | {
+        mediaGeneration?: {
+          kind?: unknown;
+          status?: unknown;
+          modelRef?: unknown;
+          options?: unknown;
+        };
+      }
+    | null
+    | undefined;
+  const media = metadata?.mediaGeneration;
+  if (!media || !isMediaGenerationKind(media.kind)) return null;
+  return {
+    kind: media.kind,
+    status: typeof media.status === "string" ? media.status : undefined,
+    modelRef: typeof media.modelRef === "string" ? media.modelRef : null,
+    options:
+      media.options && typeof media.options === "object" && !Array.isArray(media.options)
+        ? (media.options as MediaGenerationSelection["options"])
+        : undefined,
+  };
+}
+
+function isMediaGenerationKind(value: unknown): value is MediaGenerationKind {
+  return value === "image" || value === "speech" || value === "transcription" || value === "video";
+}
+
+async function readMediaErrorResponse(response: Response): Promise<string> {
+  try {
+    const data = (await response.json()) as { error?: unknown };
+    if (typeof data.error === "string" && data.error.trim()) return data.error.trim();
+  } catch {
+    // Fall back to text below.
+  }
+  try {
+    const text = await response.text();
+    if (text.trim()) return text.trim();
+  } catch {
+    // Fall through to status text.
+  }
+  return response.statusText || `HTTP ${response.status}`;
 }

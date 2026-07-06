@@ -1,9 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { simulateReadableStream } from "ai";
-import { MockLanguageModelV4 } from "ai/test";
+import {
+  MockImageModelV4,
+  MockLanguageModelV4,
+  MockSpeechModelV4,
+  MockTranscriptionModelV4,
+  MockVideoModelV4,
+} from "ai/test";
 import { createApp } from "./index";
-import { CHAT_SESSION_HEADER } from "../../shared/types";
+import {
+  CHAT_SESSION_HEADER,
+  type MediaGenerationKind,
+  type ModelCapabilities,
+} from "../../shared/types";
 
 const token = "test-session-token";
 const validMessages = [{ id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] }];
@@ -293,6 +303,171 @@ void describe("local chat server", () => {
     assert.equal(model.doStreamCalls[0]?.reasoning, undefined);
   });
 });
+
+const mediaCapabilities: ModelCapabilities = {
+  textGeneration: false,
+  vision: false,
+  imageOutput: true,
+  speechOutput: true,
+  transcription: true,
+  videoOutput: true,
+  toolCalling: false,
+  reasoning: false,
+  embedding: false,
+};
+
+void describe("local chat server /api/media/generate", () => {
+  void it("rejects media generation without the active session token", async () => {
+    const app = createApp({ sessionToken: token });
+
+    const response = await app.request("/api/media/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "image", model: "mock/image", prompt: "hi" }),
+    });
+
+    assert.equal(response.status, 401);
+  });
+
+  void it("rejects missing media request parameters", async () => {
+    const app = createApp({ sessionToken: token });
+
+    const response = await app.request("/api/media/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({ kind: "image", model: "mock/image" }),
+    });
+
+    assert.equal(response.status, 400);
+    const body = (await response.json()) as { error: string };
+    assert.match(body.error, /prompt is required/);
+  });
+
+  void it("generates image, speech, transcription, and video responses", async () => {
+    const imageModel = new MockImageModelV4({
+      doGenerate: async () => ({
+        images: [new Uint8Array([1, 2, 3])],
+        warnings: [],
+        response: mockResponse("image"),
+        providerMetadata: {},
+      }),
+    });
+    const speechModel = new MockSpeechModelV4({
+      doGenerate: async () => ({
+        audio: new Uint8Array([1, 2, 3, 4]),
+        warnings: [],
+        response: mockResponse("speech"),
+        providerMetadata: {},
+      }),
+    });
+    const transcriptionModel = new MockTranscriptionModelV4({
+      doGenerate: async () => ({
+        text: "hello transcript",
+        segments: [{ text: "hello", startSecond: 0, endSecond: 1 }],
+        language: "en",
+        durationInSeconds: 1,
+        warnings: [],
+        response: mockResponse("transcription"),
+        providerMetadata: {},
+      }),
+    });
+    const videoModel = new MockVideoModelV4({
+      doGenerate: async () => ({
+        videos: [
+          { type: "binary" as const, data: new Uint8Array([1, 2, 3]), mediaType: "video/mp4" },
+        ],
+        warnings: [],
+        response: mockResponse("video"),
+        providerMetadata: {},
+      }),
+    });
+    const app = createApp({
+      sessionToken: token,
+      resolveMediaModel: ((modelRef: string, kind: MediaGenerationKind) => {
+        assert.match(modelRef, /^mock\//);
+        const model =
+          kind === "image"
+            ? imageModel
+            : kind === "speech"
+              ? speechModel
+              : kind === "transcription"
+                ? transcriptionModel
+                : videoModel;
+        return {
+          kind,
+          model,
+          providerId: "mock",
+          providerKind: "openai-compatible",
+          modelId: kind,
+          capabilities: mediaCapabilities,
+          providerOptions: {},
+        };
+      }) as typeof import("../lib/providers").resolveMediaModel,
+      writeMediaAsset: ({ data, mediaType, kind, filename }) => ({
+        type: "file" as const,
+        mediaType,
+        filename: `${filename ?? kind}.bin`,
+        url: `void-media://asset/${kind}.bin`,
+        size: data.byteLength,
+      }),
+    });
+
+    const image = await postMedia(app, { kind: "image", model: "mock/image", prompt: "draw" });
+    assert.equal(image.status, 200);
+    assert.equal(((await image.json()) as { files: unknown[] }).files.length, 1);
+
+    const speech = await postMedia(app, { kind: "speech", model: "mock/speech", text: "hello" });
+    assert.equal(speech.status, 200);
+    const speechBody = (await speech.json()) as { files: Array<{ mediaType: string }> };
+    assert.equal(speechBody.files[0]?.mediaType.startsWith("audio/"), true);
+
+    const transcription = await postMedia(app, {
+      kind: "transcription",
+      model: "mock/transcription",
+      audio: { url: "data:audio/wav;base64,AA==", mediaType: "audio/wav", filename: "clip.wav" },
+    });
+    assert.equal(transcription.status, 200);
+    const transcriptionBody = (await transcription.json()) as {
+      text: string;
+      metadata: { language?: string };
+    };
+    assert.equal(transcriptionBody.text, "hello transcript");
+    assert.equal(transcriptionBody.metadata.language, "en");
+
+    const video = await postMedia(app, {
+      kind: "video",
+      model: "mock/video",
+      prompt: "make video",
+    });
+    assert.equal(video.status, 200);
+    const videoBody = (await video.json()) as { files: Array<{ mediaType: string }> };
+    assert.equal(videoBody.files[0]?.mediaType, "video/mp4");
+  });
+});
+
+function postMedia(app: ReturnType<typeof createApp>, body: unknown): Promise<Response> {
+  return Promise.resolve(
+    app.request("/api/media/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+function mockResponse(modelId: string): {
+  modelId: string;
+  timestamp: Date;
+  headers: Record<string, string>;
+} {
+  return { modelId, timestamp: new Date(0), headers: {} };
+}
 
 void describe("local chat server /api/title", () => {
   void it("rejects title posts without the active session token", async () => {

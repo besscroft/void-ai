@@ -34,7 +34,9 @@ export function ModelSelector({
       providers
         .map((provider) => ({
           ...provider,
-          models: provider.models.filter((model) => model.enabled),
+          models: provider.models.filter(
+            (model) => model.enabled && model.capabilities.textGeneration !== false,
+          ),
         }))
         .filter((provider) => provider.models.length > 0),
     [providers],

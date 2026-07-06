@@ -24,8 +24,12 @@ before(async () => {
 });
 
 const capabilities = {
+  textGeneration: true,
   vision: false,
   imageOutput: false,
+  speechOutput: false,
+  transcription: false,
+  videoOutput: false,
   toolCalling: true,
   reasoning: false,
   embedding: false,
@@ -64,6 +68,61 @@ void describe("provider helpers", () => {
     assert.deepEqual(
       googleModels.map((model) => model.id),
       ["gemini-2.5-pro"],
+    );
+  });
+
+  void it("infers media capabilities for known provider model families", () => {
+    assert.deepEqual(pickMediaCapabilities(providerHelpers.inferModelCapabilities("gpt-image-1")), {
+      textGeneration: false,
+      imageOutput: true,
+      speechOutput: false,
+      transcription: false,
+      videoOutput: false,
+    });
+    assert.deepEqual(
+      pickMediaCapabilities(providerHelpers.inferModelCapabilities("gpt-4o-mini-tts")),
+      {
+        textGeneration: false,
+        imageOutput: false,
+        speechOutput: true,
+        transcription: false,
+        videoOutput: false,
+      },
+    );
+    assert.deepEqual(pickMediaCapabilities(providerHelpers.inferModelCapabilities("whisper-1")), {
+      textGeneration: false,
+      imageOutput: false,
+      speechOutput: false,
+      transcription: true,
+      videoOutput: false,
+    });
+    assert.deepEqual(
+      pickMediaCapabilities(providerHelpers.inferModelCapabilities("veo-3.0-generate-preview")),
+      {
+        textGeneration: false,
+        imageOutput: false,
+        speechOutput: false,
+        transcription: false,
+        videoOutput: true,
+      },
+    );
+  });
+
+  void it("keeps Google media models that do not expose generateContent", () => {
+    const googleModels = providerHelpers.parseGoogleModelListResponse({
+      models: [
+        { name: "models/imagen-4.0", supportedGenerationMethods: ["predict"] },
+        {
+          name: "models/veo-3.0-generate-preview",
+          supportedGenerationMethods: ["predictLongRunning"],
+        },
+        { name: "models/text-embedding-004", supportedGenerationMethods: ["embedContent"] },
+      ],
+    });
+
+    assert.deepEqual(
+      googleModels.map((model) => model.id),
+      ["imagen-4.0", "veo-3.0-generate-preview"],
     );
   });
 
@@ -167,3 +226,18 @@ void describe("provider helpers", () => {
     );
   });
 });
+function pickMediaCapabilities(capabilities: import("../../shared/types").ModelCapabilities): {
+  textGeneration: boolean;
+  imageOutput: boolean;
+  speechOutput: boolean;
+  transcription: boolean;
+  videoOutput: boolean;
+} {
+  return {
+    textGeneration: capabilities.textGeneration,
+    imageOutput: capabilities.imageOutput,
+    speechOutput: capabilities.speechOutput,
+    transcription: capabilities.transcription,
+    videoOutput: capabilities.videoOutput,
+  };
+}

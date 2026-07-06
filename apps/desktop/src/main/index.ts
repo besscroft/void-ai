@@ -1,12 +1,23 @@
-import { app, shell, BrowserWindow, ipcMain } from "electron";
+import { app, shell, BrowserWindow, ipcMain, protocol } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import icon from "../../resources/icon.png?asset";
 import { initDb, closeDb } from "./lib/db";
 import { startServer, stopServer } from "./server";
 import { migrateProviderApiKeysToModelKeys } from "./lib/providers";
+import { registerVoidMediaProtocol } from "./lib/media-assets";
 import { registerIpcHandlers } from "./ipc";
-
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "void-media",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+]);
 function createWindow(): BrowserWindow {
   // 创建浏览器窗口
   const mainWindow = new BrowserWindow({
@@ -62,6 +73,8 @@ void app.whenReady().then(async () => {
     // 注意：electron-vite dev 下 stderr 偶发不刷新，改用 console.log 确保可见
     console.log("[main] 数据库初始化失败:", err);
   }
+
+  registerVoidMediaProtocol();
 
   // 2. 启动本地 HTTP 服务（用于 AI SDK 流式通信）
   try {

@@ -1001,7 +1001,9 @@ function LegacyModelTab({
   const enabledProviders = providers
     .map((provider) => ({
       ...provider,
-      models: provider.models.filter((model) => model.enabled),
+      models: provider.models.filter(
+        (model) => model.enabled && model.capabilities.textGeneration !== false,
+      ),
     }))
     .filter((provider) => provider.models.length > 0);
 
@@ -1751,8 +1753,12 @@ function ModelEditorDialog({
 // 回收站 Tab
 // ============================================================
 const DEFAULT_MODEL_CAPABILITIES: ModelCapabilities = {
+  textGeneration: true,
   vision: false,
   imageOutput: false,
+  speechOutput: false,
+  transcription: false,
+  videoOutput: false,
   toolCalling: true,
   reasoning: false,
   embedding: false,
@@ -1924,7 +1930,9 @@ function ProviderModelWorkbench({
       providers
         .map((provider) => ({
           ...provider,
-          models: provider.models.filter((model) => model.enabled),
+          models: provider.models.filter(
+            (model) => model.enabled && model.capabilities.textGeneration !== false,
+          ),
         }))
         .filter((provider) => provider.models.length > 0),
     [providers],
@@ -1949,8 +1957,12 @@ function ProviderModelWorkbench({
 
   const formatCapabilities = (model: ModelOption): string => {
     const caps = [
+      model.capabilities.textGeneration ? t("model.capability.textGeneration") : "",
       model.capabilities.vision ? t("model.capability.vision") : "",
       model.capabilities.imageOutput ? t("model.capability.imageOutput") : "",
+      model.capabilities.speechOutput ? t("model.capability.speechOutput") : "",
+      model.capabilities.transcription ? t("model.capability.transcription") : "",
+      model.capabilities.videoOutput ? t("model.capability.videoOutput") : "",
       model.capabilities.toolCalling ? t("model.capability.toolCalling") : "",
       model.capabilities.reasoning ? t("model.capability.reasoning") : "",
       model.capabilities.embedding ? t("model.capability.embedding") : "",
@@ -3052,8 +3064,12 @@ function ModelOptionsDialog({
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {(
                       [
+                        ["textGeneration", "model.capability.textGeneration"],
                         ["vision", "model.capability.vision"],
                         ["imageOutput", "model.capability.imageOutput"],
+                        ["speechOutput", "model.capability.speechOutput"],
+                        ["transcription", "model.capability.transcription"],
+                        ["videoOutput", "model.capability.videoOutput"],
                         ["toolCalling", "model.capability.toolCalling"],
                         ["reasoning", "model.capability.reasoning"],
                         ["embedding", "model.capability.embedding"],

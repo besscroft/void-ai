@@ -1,7 +1,14 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogle } from "@ai-sdk/google";
-import type { LanguageModel, streamText } from "ai";
+import type {
+  experimental_generateVideo,
+  ImageModel,
+  LanguageModel,
+  SpeechModel,
+  streamText,
+  TranscriptionModel,
+} from "ai";
 import {
   deleteApiKey,
   deleteModelApiKey,
@@ -22,6 +29,7 @@ import {
   type ChatToolId,
   type JsonObject,
   type ManagedModelInfo,
+  type MediaGenerationKind,
   type ModelCapabilities,
   type ModelCatalogSettings,
   type ModelOption,
@@ -32,6 +40,7 @@ import {
 
 type ProviderConfig = Omit<ProviderInfo, "hasApiKey"> & { hasApiKey?: boolean };
 type ProviderOptions = NonNullable<Parameters<typeof streamText>[0]["providerOptions"]>;
+type VideoModel = Parameters<typeof experimental_generateVideo>[0]["model"];
 
 const DEFAULT_MODEL_TEMPERATURE = 0.7;
 const DEFAULT_MODEL_TOP_P = 1;
@@ -39,8 +48,12 @@ const DEFAULT_MODEL_MAX_OUTPUT_TOKENS = 4096;
 const DEFAULT_MODEL_CONTEXT_WINDOW = 32_000;
 
 const DEFAULT_CAPABILITIES: ModelCapabilities = {
+  textGeneration: true,
   vision: false,
   imageOutput: false,
+  speechOutput: false,
+  transcription: false,
+  videoOutput: false,
   toolCalling: true,
   reasoning: false,
   embedding: false,
@@ -66,6 +79,43 @@ export interface NativeChatTool {
   providerExecuted: true;
 }
 
+export type ResolvedMediaModelConfig =
+  | {
+      kind: "image";
+      model: ImageModel;
+      providerId: string;
+      providerKind: ProviderInfo["kind"];
+      modelId: string;
+      capabilities: ModelCapabilities;
+      providerOptions?: ProviderOptions;
+    }
+  | {
+      kind: "speech";
+      model: SpeechModel;
+      providerId: string;
+      providerKind: ProviderInfo["kind"];
+      modelId: string;
+      capabilities: ModelCapabilities;
+      providerOptions?: ProviderOptions;
+    }
+  | {
+      kind: "transcription";
+      model: TranscriptionModel;
+      providerId: string;
+      providerKind: ProviderInfo["kind"];
+      modelId: string;
+      capabilities: ModelCapabilities;
+      providerOptions?: ProviderOptions;
+    }
+  | {
+      kind: "video";
+      model: VideoModel;
+      providerId: string;
+      providerKind: ProviderInfo["kind"];
+      modelId: string;
+      capabilities: ModelCapabilities;
+      providerOptions?: ProviderOptions;
+    };
 function emptyCatalog(): ModelCatalogSettings {
   return { providers: [], models: [], modelStates: [] };
 }
@@ -290,12 +340,25 @@ function normalizeContextWindow(raw: unknown): number {
 function normalizeCapabilities(raw: unknown): ModelCapabilities {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_CAPABILITIES };
   const value = raw as Partial<Record<keyof ModelCapabilities, unknown>>;
+  const embedding = value.embedding === true;
+  const imageOutput = value.imageOutput === true;
+  const speechOutput = value.speechOutput === true;
+  const transcription = value.transcription === true;
+  const videoOutput = value.videoOutput === true;
+  const textGeneration =
+    typeof value.textGeneration === "boolean"
+      ? value.textGeneration
+      : !embedding && !imageOutput && !speechOutput && !transcription && !videoOutput;
   return {
+    textGeneration,
     vision: value.vision === true,
-    imageOutput: value.imageOutput === true,
-    toolCalling: value.toolCalling !== false,
+    imageOutput,
+    speechOutput,
+    transcription,
+    videoOutput,
+    toolCalling: textGeneration && value.toolCalling !== false,
     reasoning: value.reasoning === true,
-    embedding: value.embedding === true,
+    embedding,
   };
 }
 
@@ -580,16 +643,32 @@ export interface RemoteModelInfo {
   capabilities?: Partial<ModelCapabilities>;
 }
 
-function inferModelCapabilities(modelId: string): ModelCapabilities {
+export function inferModelCapabilities(modelId: string): ModelCapabilities {
   const lower = modelId.toLowerCase();
+  const embedding = /embed|embedding/.test(lower);
+  const speechOutput = /(^|[-_/])tts([-_/]|$)|gpt-4o-mini-tts|gemini[-_.\w]*tts/.test(lower);
+  const transcription = /whisper|transcribe|transcription/.test(lower);
+  const videoOutput = /(^|[-_/])veo([-_/]|$)|video/.test(lower);
+  const imageOutput = /gpt-image|dall-e|imagen|gemini[-_.\w]*image|(^|[-_/])image([-_/]|$)/.test(
+    lower,
+  );
+  const pureImage = /gpt-image|dall-e|imagen/.test(lower);
+  const textGeneration =
+    !embedding && !speechOutput && !transcription && !videoOutput && !pureImage;
   return {
+    textGeneration,
     vision:
-      /\bvision\b|gpt-4o|gpt-5|gemini|claude-3|claude-sonnet|claude-opus/.test(lower) &&
-      !lower.includes("embedding"),
-    imageOutput: /image|dall-e|gpt-image|imagen/.test(lower),
-    toolCalling: !lower.includes("embedding") && !lower.includes("image"),
-    reasoning: /(^|[-_/])(o1|o3|o4)([-_/]|$)|reason|thinking|deepseek-reasoner|gpt-5/.test(lower),
-    embedding: /embed|embedding/.test(lower),
+      textGeneration &&
+      /\bvision\b|gpt-4o|gpt-5|gemini|claude-3|claude-sonnet|claude-opus/.test(lower),
+    imageOutput,
+    speechOutput,
+    transcription,
+    videoOutput,
+    toolCalling: textGeneration && !imageOutput,
+    reasoning:
+      textGeneration &&
+      /(^|[-_/])(o1|o3|o4)([-_/]|$)|reason|thinking|deepseek-reasoner|gpt-5/.test(lower),
+    embedding,
   };
 }
 
@@ -651,17 +730,28 @@ export function parseGoogleModelListResponse(json: unknown): RemoteModelInfo[] {
   ).models;
   return normalizeRemoteModels(
     (Array.isArray(models) ? models : [])
-      .filter((item) => {
-        const methods = item.supportedGenerationMethods;
-        return !Array.isArray(methods) || methods.includes("generateContent");
-      })
       .map((item) => {
         const name = primitiveToString(item.name).replace(/^models\//, "");
         return {
           id: name,
           label: normalizeOptionalText(item.displayName),
+          supportedGenerationMethods: item.supportedGenerationMethods,
         };
-      }),
+      })
+      .filter((item) => {
+        if (!item.id) return false;
+        const methods = item.supportedGenerationMethods;
+        if (!Array.isArray(methods)) return true;
+        const lowerMethods = methods.map((method) => primitiveToString(method).toLowerCase());
+        const capabilities = inferModelCapabilities(item.id);
+        return (
+          lowerMethods.includes("generatecontent") ||
+          capabilities.imageOutput ||
+          capabilities.speechOutput ||
+          capabilities.videoOutput
+        );
+      })
+      .map(({ supportedGenerationMethods: _methods, ...item }) => item),
   );
 }
 
@@ -911,7 +1001,57 @@ export function migrateProviderApiKeysToModelKeys(): void {
   clearInvalidSelectedModel();
 }
 
-export function resolveModel(modelRef: string): ResolvedModelConfig {
+export function resolveMediaModel(
+  modelRef: string,
+  kind: "image",
+): Extract<ResolvedMediaModelConfig, { kind: "image" }>;
+export function resolveMediaModel(
+  modelRef: string,
+  kind: "speech",
+): Extract<ResolvedMediaModelConfig, { kind: "speech" }>;
+export function resolveMediaModel(
+  modelRef: string,
+  kind: "transcription",
+): Extract<ResolvedMediaModelConfig, { kind: "transcription" }>;
+export function resolveMediaModel(
+  modelRef: string,
+  kind: "video",
+): Extract<ResolvedMediaModelConfig, { kind: "video" }>;
+
+export function resolveMediaModel(
+  modelRef: string,
+  kind: MediaGenerationKind,
+): ResolvedMediaModelConfig {
+  const { providerId, modelId } = parseModelRef(modelRef);
+  const config = getProviderConfig(providerId);
+  if (!config) throw new Error("Unknown provider: " + providerId);
+
+  const model = config.models.find((item) => item.id === modelId);
+  if (!model) throw new Error("Unknown model: " + modelRef);
+  if (!model.enabled) throw new Error((model.label ?? model.id) + " is disabled.");
+  if (!modelSupportsMediaKind(model.capabilities, kind)) {
+    throw new Error((model.label ?? model.id) + " does not support " + kind + ".");
+  }
+
+  const apiKey = getProviderOrLegacyModelApiKey(providerId, modelId);
+  if (!apiKey) {
+    throw new Error(
+      config.label + " API key is not configured. Please add it in model management.",
+    );
+  }
+
+  return {
+    kind,
+    model: createMediaModel(config, apiKey, modelId, kind),
+    providerId,
+    providerKind: config.kind,
+    modelId,
+    capabilities: model.capabilities,
+    providerOptions: model.providerOptions as ProviderOptions,
+  } as ResolvedMediaModelConfig;
+}
+
+function parseModelRef(modelRef: string): { providerId: string; modelId: string } {
   const slashIdx = modelRef.indexOf("/");
   if (slashIdx <= 0) {
     throw new Error(
@@ -920,6 +1060,74 @@ export function resolveModel(modelRef: string): ResolvedModelConfig {
   }
   const providerId = normalizeProviderId(modelRef.slice(0, slashIdx));
   const modelId = modelRef.slice(slashIdx + 1).trim();
+  if (!modelId) {
+    throw new Error(
+      "Invalid model reference " + JSON.stringify(modelRef) + "; expected provider/model",
+    );
+  }
+  return { providerId, modelId };
+}
+
+function modelSupportsMediaKind(
+  capabilities: ModelCapabilities,
+  kind: MediaGenerationKind,
+): boolean {
+  switch (kind) {
+    case "image":
+      return capabilities.imageOutput;
+    case "speech":
+      return capabilities.speechOutput;
+    case "transcription":
+      return capabilities.transcription;
+    case "video":
+      return capabilities.videoOutput;
+  }
+}
+
+function createMediaModel(
+  config: ProviderInfo,
+  apiKey: string,
+  modelId: string,
+  kind: MediaGenerationKind,
+): ImageModel | SpeechModel | TranscriptionModel | VideoModel {
+  switch (config.kind) {
+    case "openai":
+    case "openai-compatible": {
+      if (!config.baseUrl) throw new Error(config.label + " base URL is not configured.");
+      const provider = createOpenAI({ apiKey, baseURL: config.baseUrl, name: config.id });
+      switch (kind) {
+        case "image":
+          return provider.image(modelId);
+        case "speech":
+          return provider.speech(modelId);
+        case "transcription":
+          return provider.transcription(modelId);
+        case "video":
+          throw new Error(config.label + " does not support video generation.");
+      }
+      break;
+    }
+    case "google": {
+      const provider = createGoogle({ apiKey });
+      switch (kind) {
+        case "image":
+          return provider.image(modelId);
+        case "speech":
+          return provider.speech(modelId);
+        case "video":
+          return provider.video(modelId);
+        case "transcription":
+          throw new Error("Google transcription is not available in this build.");
+      }
+      break;
+    }
+    case "anthropic":
+      throw new Error("Anthropic does not support media generation in this build.");
+  }
+}
+
+export function resolveModel(modelRef: string): ResolvedModelConfig {
+  const { providerId, modelId } = parseModelRef(modelRef);
 
   const config = getProviderConfig(providerId);
   if (!config) throw new Error("Unknown provider: " + providerId);
@@ -927,6 +1135,9 @@ export function resolveModel(modelRef: string): ResolvedModelConfig {
   const model = config.models.find((item) => item.id === modelId);
   if (!model) throw new Error("Unknown model: " + modelRef);
   if (!model.enabled) throw new Error((model.label ?? model.id) + " is disabled.");
+  if (!model.capabilities.textGeneration) {
+    throw new Error((model.label ?? model.id) + " does not support text generation.");
+  }
 
   const apiKey = getProviderOrLegacyModelApiKey(providerId, modelId);
   if (!apiKey) {

@@ -54,6 +54,7 @@ interface MessageListProps {
   /** 后备建议（empty 状态） */
   emptySuggestions?: string[];
   onRetry?: () => void;
+  onRetryMessage?: (messageId: string) => Promise<void> | void;
   onDismissError?: () => void;
   /** 用户消息编辑回调：编辑后重新发送 */
   onEditMessage?: (messageId: string, newText: string) => Promise<void> | void;
@@ -91,6 +92,7 @@ export function MessageList({
   errorDetail,
   emptySuggestions,
   onRetry,
+  onRetryMessage,
   onDismissError,
   onEditMessage,
   onResendMessage,
@@ -136,6 +138,7 @@ export function MessageList({
             onEdit={onEditMessage}
             onResend={onResendMessage}
             onDelete={onDeleteMessage}
+            onRetry={onRetryMessage}
             onToolApprovalResponse={onToolApprovalResponse}
           />
         ))}
@@ -181,6 +184,7 @@ interface MessageItemProps {
   onEdit?: (messageId: string, newText: string) => Promise<void> | void;
   onResend?: (messageId: string) => Promise<void> | void;
   onDelete?: (messageId: string) => void;
+  onRetry?: (messageId: string) => Promise<void> | void;
   onToolApprovalResponse?: ChatAddToolApproveResponseFunction;
 }
 
@@ -197,6 +201,7 @@ function MessageItem({
   onEdit,
   onResend,
   onDelete,
+  onRetry,
   onToolApprovalResponse,
 }: MessageItemProps): React.JSX.Element {
   const { t, f } = useT();
@@ -217,6 +222,7 @@ function MessageItem({
   const textParts = parts.filter(isTextPart).map((part) => part.text);
   const fullText = textParts.join("\n\n");
   const isUser = message.role === "user";
+  const isMediaError = message.role === "assistant" && isMediaGenerationError(message);
   // 是否允许 hover 动作（仅在非流式中）
   const actionsEnabled = !messageStreaming;
 
@@ -273,6 +279,16 @@ function MessageItem({
       await onResend(message.id);
     } catch (err) {
       console.error("[chat] resend failed:", err);
+    }
+  };
+
+  /* ---------- 重试媒体生成：仅媒体错误 assistant 消息 ---------- */
+  const handleMediaRetry = async (): Promise<void> => {
+    if (!onRetry || !isMediaError) return;
+    try {
+      await onRetry(message.id);
+    } catch (err) {
+      console.error("[chat] media retry failed:", err);
     }
   };
 
@@ -430,7 +446,13 @@ function MessageItem({
           placement={isUser ? "left" : "right"}
           onCopy={handleCopy}
           onEdit={isUser && onEdit ? startEdit : undefined}
-          onResend={isUser && onResend ? handleResend : undefined}
+          onResend={
+            isUser && onResend
+              ? handleResend
+              : isMediaError && onRetry
+                ? handleMediaRetry
+                : undefined
+          }
           onDelete={onDelete ? handleDelete : undefined}
         />
       )}
@@ -494,6 +516,14 @@ function ToolApprovalActions({
       </div>
     </div>
   );
+}
+
+function isMediaGenerationError(message: UIMessage): boolean {
+  const metadata = message.metadata as
+    | { mediaGeneration?: { status?: unknown } }
+    | null
+    | undefined;
+  return metadata?.mediaGeneration?.status === "error";
 }
 
 function isTextPart(part: MessagePart): part is Extract<MessagePart, { type: "text" }> {

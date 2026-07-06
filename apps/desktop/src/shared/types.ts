@@ -264,8 +264,12 @@ export function isChatReasoningLevel(value: unknown): value is ChatReasoningLeve
 }
 
 export interface ModelCapabilities {
+  textGeneration: boolean;
   vision: boolean;
   imageOutput: boolean;
+  speechOutput: boolean;
+  transcription: boolean;
+  videoOutput: boolean;
   toolCalling: boolean;
   reasoning: boolean;
   embedding: boolean;
@@ -385,6 +389,106 @@ export interface ProviderModelSyncResult {
   updated: number;
 }
 
+export type MediaGenerationKind = "image" | "speech" | "transcription" | "video";
+
+export interface MediaGenerationFile {
+  type: "file";
+  mediaType: string;
+  filename: string;
+  url: string;
+  size?: number;
+}
+
+export interface MediaGenerationOptions {
+  size?: string;
+  aspectRatio?: string;
+  count?: number;
+  seed?: number;
+  voice?: string;
+  outputFormat?: string;
+  speed?: number;
+  language?: string;
+  instructions?: string;
+  resolution?: string;
+  duration?: number;
+  fps?: number;
+  generateAudio?: boolean;
+}
+
+export type MediaGenerationRequest =
+  | {
+      kind: "image";
+      model: string;
+      prompt: string;
+      options?: Pick<MediaGenerationOptions, "size" | "aspectRatio" | "count" | "seed">;
+    }
+  | {
+      kind: "speech";
+      model: string;
+      text: string;
+      options?: Pick<
+        MediaGenerationOptions,
+        "voice" | "outputFormat" | "speed" | "language" | "instructions"
+      >;
+    }
+  | {
+      kind: "transcription";
+      model: string;
+      audio: {
+        url: string;
+        mediaType?: string;
+        filename?: string;
+      };
+      options?: Pick<MediaGenerationOptions, "language">;
+    }
+  | {
+      kind: "video";
+      model: string;
+      prompt: string;
+      options?: Pick<
+        MediaGenerationOptions,
+        "aspectRatio" | "resolution" | "duration" | "fps" | "generateAudio" | "count" | "seed"
+      >;
+    };
+
+export interface MediaGenerationResponse {
+  kind: MediaGenerationKind;
+  text: string;
+  files: MediaGenerationFile[];
+  metadata?: JsonObject;
+}
+
+export interface MediaGenerationKindSettings {
+  modelRef: string | null;
+  options: MediaGenerationOptions;
+}
+
+export interface MediaGenerationSettings {
+  version: 1;
+  defaults: Record<MediaGenerationKind, MediaGenerationKindSettings>;
+}
+
+export const DEFAULT_MEDIA_GENERATION_SETTINGS: MediaGenerationSettings = {
+  version: 1,
+  defaults: {
+    image: {
+      modelRef: null,
+      options: {},
+    },
+    speech: {
+      modelRef: null,
+      options: {},
+    },
+    transcription: {
+      modelRef: null,
+      options: {},
+    },
+    video: {
+      modelRef: null,
+      options: {},
+    },
+  },
+};
 /**
  * 应用设置键名枚举（避免拼写错误）
  *
@@ -437,6 +541,8 @@ export const SettingKey = {
   ChatReasoningLevel: "chat_reasoning_level",
   /** Per-conversation chat tool mode and manual selections. */
   ChatTools: "chat_tools",
+  /** Chat media generation defaults. */
+  MediaGeneration: "media_generation",
   /** 缓存上限（MB），默认 200 */
   CacheSizeMb: "cache_size_mb",
   /** Custom provider and model catalog JSON. */

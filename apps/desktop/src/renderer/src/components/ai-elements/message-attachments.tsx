@@ -1,29 +1,14 @@
-/**
- * AI Elements - MessageAttachments 组件
- *
- * 设计目标：
- *  - 渲染已发送消息中的附件列表（图片网格 / 文件列表）
- *  - 适配 ai-sdk 的 UIMessage.parts 中的 file 类型 part
- *  - 图片：3 列网格，点击可放大（这里只展示，不做全屏预览）
- *
- * 用法：
- *   const parts = message.parts.filter(p => p.type === 'file');
- *   <MessageAttachments parts={parts} />
- */
 import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { useT } from "../../lib/i18n";
 import { AttachmentChip } from "./attachment-chip";
 import type { AttachmentItem } from "./attachment-chip";
 
-/** 简化的 file part 类型（不直接 import ai-sdk，便于解耦） */
 export interface FilePartLike {
   type: string;
   mediaType?: string;
   filename?: string;
-  /** dataURL 字符串（与 ai-sdk FileUIPart.url 协议一致） */
   url?: string;
-  /** 兼容旧字段命名 */
   data?: string;
 }
 
@@ -44,7 +29,6 @@ export function MessageAttachments({
     name: p.filename ?? t("attachment.file"),
     mediaType: p.mediaType ?? "application/octet-stream",
     size: 0,
-    // 兼容 url 字段（ai-sdk FileUIPart 标准）和 data 字段（历史/旧版本）
     url: p.url ?? p.data,
     variant: p.mediaType?.startsWith("image/")
       ? "image"
@@ -56,7 +40,11 @@ export function MessageAttachments({
   }));
 
   const images = items.filter((it) => it.variant === "image");
-  const others = items.filter((it) => it.variant !== "image");
+  const audio = items.filter((it) => it.variant === "audio");
+  const videos = items.filter((it) => it.variant === "video");
+  const files = items.filter(
+    (it) => it.variant !== "image" && it.variant !== "audio" && it.variant !== "video",
+  );
 
   return (
     <div data-slot="message-attachments" className={cn("flex w-full flex-col gap-2", className)}>
@@ -76,9 +64,26 @@ export function MessageAttachments({
           ))}
         </div>
       )}
-      {others.length > 0 && (
+
+      {audio.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {audio.map((item) => (
+            <AudioAttachment key={item.id} item={item} />
+          ))}
+        </div>
+      )}
+
+      {videos.length > 0 && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {videos.map((item) => (
+            <VideoAttachment key={item.id} item={item} />
+          ))}
+        </div>
+      )}
+
+      {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {others.map((it) => (
+          {files.map((it) => (
             <AttachmentChip key={it.id} item={it} compact />
           ))}
         </div>
@@ -109,6 +114,39 @@ function ImageTile({ item }: { item: AttachmentItem }): ReactNode {
         className="size-full object-cover transition group-hover/tile:scale-105"
         loading="lazy"
       />
+    </a>
+  );
+}
+
+function AudioAttachment({ item }: { item: AttachmentItem }): React.JSX.Element {
+  if (!item.url) return <AttachmentChip item={item} compact />;
+  return (
+    <div className="rounded-lg border border-foreground/10 bg-foreground/[0.035] p-2">
+      <div className="mb-1 truncate text-xs font-medium text-foreground/65" title={item.name}>
+        {item.name}
+      </div>
+      <audio controls src={item.url} className="w-full" preload="metadata" />
+    </div>
+  );
+}
+
+function VideoAttachment({ item }: { item: AttachmentItem }): React.JSX.Element {
+  if (!item.url) return <AttachmentChip item={item} compact />;
+  return (
+    <a
+      href={item.url}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="block overflow-hidden rounded-lg border border-foreground/10 bg-foreground/[0.035]"
+      title={item.name}
+    >
+      <video
+        controls
+        src={item.url}
+        className="aspect-video w-full bg-black object-contain"
+        preload="metadata"
+      />
+      <div className="truncate px-2 py-1.5 text-xs font-medium text-foreground/65">{item.name}</div>
     </a>
   );
 }

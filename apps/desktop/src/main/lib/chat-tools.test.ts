@@ -19,8 +19,12 @@ electronModule.exports = {
 require.cache[electronPath] = electronModule;
 
 const capabilities: ModelCapabilities = {
+  textGeneration: true,
   vision: false,
   imageOutput: false,
+  speechOutput: false,
+  transcription: false,
+  videoOutput: false,
   toolCalling: true,
   reasoning: false,
   embedding: false,
