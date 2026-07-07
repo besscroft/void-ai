@@ -38,6 +38,18 @@ import {
   listInteractionProfiles,
   getSyncState,
   getWorkspaceSnapshot,
+  getExtensionsSnapshot,
+  createMcpServer,
+  updateMcpServer,
+  deleteMcpServer,
+  setMcpServerEnabled,
+  updateMcpTool,
+  createExtensionSkill,
+  updateExtensionSkill,
+  deleteExtensionSkill,
+  setExtensionSkillEnabled,
+  setExtensionSecret,
+  deleteExtensionSecret,
 } from "../lib/db";
 import {
   clearProviderApiKey,
@@ -61,10 +73,15 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  ExtensionSecretInput,
+  ExtensionSkillInput,
   MemoryRecord,
   MessageRow,
+  McpServerInput,
 } from "../../shared/types";
 import { queueAgentLearning } from "../lib/agent-learning";
+import { closeMcpClient, discoverMcpServer, testMcpServer } from "../lib/mcp-manager";
+import { runExtensionSkill } from "../lib/skill-runtime";
 
 /**
  * IPC handlers 注册
@@ -192,6 +209,74 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   ipcMain.handle("serverNodes:list", () => listServerNodes());
   ipcMain.handle("interactions:list", () => listInteractionProfiles());
   ipcMain.handle("sync:get", () => getSyncState());
+
+  // ---------- Extensions: MCP + Workflow Skills ----------
+  ipcMain.handle("extensions:snapshot", () => getExtensionsSnapshot());
+  ipcMain.handle("extensions:mcp:create", (_e, input: McpServerInput) => createMcpServer(input));
+  ipcMain.handle(
+    "extensions:mcp:update",
+    async (_e, id: string, input: Partial<McpServerInput>) => {
+      const server = updateMcpServer(id, input);
+      await closeMcpClient(id);
+      return server;
+    },
+  );
+  ipcMain.handle("extensions:mcp:delete", async (_e, id: string) => {
+    await closeMcpClient(id);
+    deleteMcpServer(id);
+    return true;
+  });
+  ipcMain.handle("extensions:mcp:setEnabled", async (_e, id: string, enabled: boolean) => {
+    const server = setMcpServerEnabled(id, enabled);
+    if (!enabled) await closeMcpClient(id);
+    return server;
+  });
+  ipcMain.handle("extensions:mcp:test", (_e, id: string) => testMcpServer(id));
+  ipcMain.handle("extensions:mcp:discover", (_e, id: string) => discoverMcpServer(id));
+  ipcMain.handle(
+    "extensions:mcp:updateTool",
+    (
+      _e,
+      id: string,
+      patch: {
+        enabled?: boolean | number;
+        auto_use?: boolean | number;
+        requires_approval?: boolean | number;
+      },
+    ) => updateMcpTool(id, patch),
+  );
+  ipcMain.handle("extensions:mcp:setSecret", (_e, input: ExtensionSecretInput) =>
+    setExtensionSecret({ ...input, ownerType: "mcp" }),
+  );
+  ipcMain.handle("extensions:mcp:deleteSecret", (_e, id: string) => {
+    deleteExtensionSecret(id);
+    return true;
+  });
+
+  ipcMain.handle("extensions:skills:create", (_e, input: ExtensionSkillInput) =>
+    createExtensionSkill(input),
+  );
+  ipcMain.handle(
+    "extensions:skills:update",
+    (_e, id: string, input: Partial<ExtensionSkillInput>) => updateExtensionSkill(id, input),
+  );
+  ipcMain.handle("extensions:skills:delete", (_e, id: string) => {
+    deleteExtensionSkill(id);
+    return true;
+  });
+  ipcMain.handle("extensions:skills:setEnabled", (_e, id: string, enabled: boolean) =>
+    setExtensionSkillEnabled(id, enabled),
+  );
+  ipcMain.handle("extensions:skills:run", (_e, skillId: string, input?: unknown) =>
+    runExtensionSkill({ skillId, input }),
+  );
+  ipcMain.handle("extensions:skills:setSecret", (_e, input: ExtensionSecretInput) =>
+    setExtensionSecret({ ...input, ownerType: "skill" }),
+  );
+  ipcMain.handle("extensions:skills:deleteSecret", (_e, id: string) => {
+    deleteExtensionSecret(id);
+    return true;
+  });
   // ---------- Provider metadata ----------
   ipcMain.handle("providers:list", () => listProviders());
 

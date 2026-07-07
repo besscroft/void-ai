@@ -27,8 +27,15 @@ import {
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
   DEFAULT_AGENT_ID as SHARED_DEFAULT_AGENT_ID,
+  type ExtensionOwnerType,
+  type ExtensionSecretInput,
+  type ExtensionSecretPublic,
+  type ExtensionSkillInput,
+  type ExtensionSkillStep,
+  type ExtensionsSnapshot,
   type AgentInput,
   type AgentRuntimeStatus,
+  type McpServerInput,
 } from "../../shared/types";
 import {
   schema,
@@ -50,6 +57,10 @@ import {
   sandboxSnapshots,
   sandboxArtifacts,
   serverNodes,
+  mcpServers,
+  mcpTools,
+  extensionSkills,
+  extensionSecrets,
   interactionProfiles,
   syncState,
   type Conversation,
@@ -64,6 +75,7 @@ import {
   type MemoryRecord,
   type WorkflowDefinition,
   type WorkflowRun,
+  type NewWorkflowRun,
   type HarnessEvent,
   type SandboxSession,
   type NewSandboxSession,
@@ -72,6 +84,11 @@ import {
   type SandboxArtifact,
   type NewSandboxArtifact,
   type ServerNode,
+  type McpServer,
+  type McpTool,
+  type NewMcpTool,
+  type ExtensionSkill,
+  type ExtensionSecret,
   type InteractionProfile,
   type SyncState,
 } from "./schema";
@@ -92,6 +109,9 @@ export type {
   SandboxSnapshot,
   SandboxArtifact,
   ServerNode,
+  McpServer,
+  McpTool,
+  ExtensionSkill,
   InteractionProfile,
   SyncState,
 };
@@ -1156,6 +1176,285 @@ function normalizeJsonObjectString(raw: unknown, fallback: unknown): string {
   return JSON.stringify(fallback);
 }
 
+function normalizeJsonArrayString(raw: unknown, fallback: unknown[] = []): string {
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return JSON.stringify(parsed);
+    } catch {
+      const split = raw
+        .split(/\r?\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (split.length) return JSON.stringify(split);
+    }
+  }
+  if (Array.isArray(raw)) return JSON.stringify(raw);
+  return JSON.stringify(fallback);
+}
+
+function normalizeStringRecord(raw: unknown): Record<string, string> {
+  let value: unknown = raw;
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      value = JSON.parse(raw) as unknown;
+    } catch {
+      return {};
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key.trim(), coercePlainText(item).trim()] as const)
+      .filter(([key, item]) => key && item),
+  );
+}
+
+function normalizeMcpServerInput(
+  id: string,
+  input: Partial<McpServerInput>,
+  existing: McpServer | null,
+  now: number,
+): McpServer {
+  const transport = normalizeMcpTransport(input.transport ?? existing?.transport ?? "stdio");
+  const enabled = normalizeEnabled(input.enabled ?? existing?.enabled ?? 1);
+  const name = truncateText(
+    coercePlainText(input.name, existing?.name ?? "MCP Server").trim(),
+    120,
+  );
+  const description = truncateText(
+    coercePlainText(input.description, existing?.description ?? "").trim(),
+    1_000,
+  );
+  const headers =
+    input.headers === undefined
+      ? safeParseRecord(existing?.headers_json, {})
+      : normalizeStringRecord(input.headers);
+  const env =
+    input.env === undefined
+      ? safeParseRecord(existing?.env_json, {})
+      : normalizeStringRecord(input.env);
+  const args =
+    input.args === undefined
+      ? safeParseArray(existing?.args_json, [])
+      : safeParseArray(normalizeJsonArrayString(input.args), []);
+  return {
+    id,
+    name: name || "MCP Server",
+    description,
+    transport,
+    enabled,
+    auto_use: normalizeEnabled(input.auto_use ?? existing?.auto_use ?? 0),
+    requires_approval: normalizeEnabled(
+      input.requires_approval ?? existing?.requires_approval ?? 1,
+    ),
+    status: enabled ? (existing?.status ?? "unknown") : "disabled",
+    command:
+      transport === "stdio" ? normalizeNullableText(input.command ?? existing?.command, 500) : null,
+    args_json:
+      transport === "stdio" ? JSON.stringify(args.map((item) => coercePlainText(item))) : "[]",
+    url:
+      transport === "http" || transport === "sse"
+        ? normalizeNullableText(input.url ?? existing?.url, 1_000)
+        : null,
+    headers_json: JSON.stringify(headers),
+    env_json: JSON.stringify(env),
+    cwd: transport === "stdio" ? normalizeNullableText(input.cwd ?? existing?.cwd, 1_000) : null,
+    last_error: existing?.last_error ?? null,
+    last_connected_at: existing?.last_connected_at ?? null,
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  };
+}
+
+function normalizeExtensionSkillInput(
+  id: string,
+  input: Partial<ExtensionSkillInput>,
+  existing: ExtensionSkill | null,
+  now: number,
+): ExtensionSkill {
+  const stepsRaw =
+    input.steps === undefined
+      ? safeParseArray(existing?.steps_json, [])
+      : normalizeSkillSteps(input.steps);
+  const steps = normalizeSkillStepList(stepsRaw);
+  return {
+    id,
+    name: truncateText(coercePlainText(input.name, existing?.name ?? "Workflow Skill").trim(), 120),
+    description: truncateText(
+      coercePlainText(input.description, existing?.description ?? "").trim(),
+      1_000,
+    ),
+    category: truncateText(
+      coercePlainText(input.category, existing?.category ?? "general").trim(),
+      80,
+    ),
+    enabled: normalizeEnabled(input.enabled ?? existing?.enabled ?? 1),
+    auto_use: normalizeEnabled(input.auto_use ?? existing?.auto_use ?? 0),
+    requires_approval: normalizeEnabled(
+      input.requires_approval ?? existing?.requires_approval ?? 1,
+    ),
+    trigger_keywords_json:
+      input.triggerKeywords === undefined
+        ? (existing?.trigger_keywords_json ?? "[]")
+        : normalizeJsonArrayString(input.triggerKeywords),
+    tags_json:
+      input.tags === undefined
+        ? (existing?.tags_json ?? "[]")
+        : normalizeJsonArrayString(input.tags),
+    config_schema_json:
+      input.configSchema === undefined
+        ? (existing?.config_schema_json ?? "{}")
+        : normalizeJsonObjectString(input.configSchema, {}),
+    config_json:
+      input.config === undefined
+        ? (existing?.config_json ?? "{}")
+        : normalizeJsonObjectString(input.config, {}),
+    steps_json: JSON.stringify(steps),
+    workflow_id:
+      input.workflow_id === undefined
+        ? (existing?.workflow_id ?? skillWorkflowId(id))
+        : input.workflow_id,
+    last_run_at: existing?.last_run_at ?? null,
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  };
+}
+
+function ensureSkillWorkflow(skill: ExtensionSkill): WorkflowDefinition {
+  const now = Date.now();
+  const id = skill.workflow_id ?? skillWorkflowId(skill.id);
+  const row: WorkflowDefinition = {
+    id,
+    name: skill.name,
+    description: skill.description || "Workflow skill",
+    status: skill.enabled ? "enabled" : "paused",
+    steps_json: skill.steps_json,
+    trigger: "skill:" + skill.id,
+    created_at: now,
+    updated_at: now,
+  };
+  const existing = getDb().select().from(workflows).where(eq(workflows.id, id)).get();
+  if (existing) {
+    getDb()
+      .update(workflows)
+      .set({
+        name: row.name,
+        description: row.description,
+        status: row.status,
+        steps_json: row.steps_json,
+        trigger: row.trigger,
+        updated_at: now,
+      })
+      .where(eq(workflows.id, id))
+      .run();
+    return getDb().select().from(workflows).where(eq(workflows.id, id)).get() ?? row;
+  }
+  getDb().insert(workflows).values(row).run();
+  return row;
+}
+
+function normalizeSkillSteps(raw: ExtensionSkillInput["steps"]): unknown[] {
+  if (typeof raw === "string") return safeParseArray(raw, []);
+  return Array.isArray(raw) ? raw : [];
+}
+
+function normalizeSkillStepList(raw: unknown[]): ExtensionSkillStep[] {
+  return raw
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Partial<ExtensionSkillStep>;
+      const type = normalizeSkillStepType(record.type);
+      return {
+        id: coercePlainText(record.id, "step-" + (index + 1)).trim() || "step-" + (index + 1),
+        type,
+        title: truncateText(coercePlainText(record.title, type).trim() || type, 120),
+        detail: truncateText(coercePlainText(record.detail).trim(), 2_000),
+      } satisfies ExtensionSkillStep;
+    })
+    .filter((item): item is ExtensionSkillStep => item !== null)
+    .slice(0, 20);
+}
+
+function normalizeSkillStepType(raw: unknown): ExtensionSkillStep["type"] {
+  return raw === "tool" || raw === "approval" || raw === "memory" || raw === "handoff"
+    ? raw
+    : "prompt";
+}
+
+function normalizeMcpTransport(raw: unknown): McpServer["transport"] {
+  return raw === "http" || raw === "sse" ? raw : "stdio";
+}
+
+function normalizeOwnerType(raw: unknown): ExtensionOwnerType {
+  if (raw === "skill") return "skill";
+  return "mcp";
+}
+
+function normalizeSecretKey(raw: unknown): string {
+  const key = coercePlainText(raw)
+    .trim()
+    .replace(/[^A-Za-z0-9_.-]/g, "_")
+    .slice(0, 120);
+  if (!key) throw new Error("Secret key is required.");
+  return key;
+}
+
+function parseSecretReference(value: string): string | null {
+  const match = value.match(/^\$secret:([A-Za-z0-9_.-]+)$/);
+  return match?.[1] ?? null;
+}
+
+function publicSecret(secret: ExtensionSecret): ExtensionSecretPublic {
+  return {
+    id: secret.id,
+    owner_type: secret.owner_type,
+    owner_id: secret.owner_id,
+    key: secret.key,
+    label: secret.label,
+    updated_at: secret.updated_at,
+  };
+}
+
+function extensionSecretId(ownerType: ExtensionOwnerType, ownerId: string, key: string): string {
+  return [ownerType, ownerId, key].map((part) => part.replace(/[^A-Za-z0-9_.-]/g, "_")).join(":");
+}
+
+function mcpToolRowId(serverId: string, name: string): string {
+  return "mcp-tool-" + slugPart(serverId) + "-" + slugPart(name);
+}
+
+function skillWorkflowId(skillId: string): string {
+  return "workflow-skill-" + slugPart(skillId);
+}
+
+function slugPart(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function safeParseRecord(
+  raw: string | null | undefined,
+  fallback: Record<string, string>,
+): Record<string, string> {
+  if (!raw) return fallback;
+  return normalizeStringRecord(raw);
+}
+
+function safeParseArray(raw: string | null | undefined, fallback: unknown[]): unknown[] {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function truncateText(text: string, maxLength: number): string {
   return text.length > maxLength ? text.slice(0, maxLength - 3) + "..." : text;
 }
@@ -1260,6 +1559,444 @@ export function upsertServerNode(node: ServerNode): void {
     .run();
 }
 
+export function listMcpServers(): McpServer[] {
+  return getDb().select().from(mcpServers).orderBy(desc(mcpServers.updated_at)).all();
+}
+
+export function getMcpServer(id: string): McpServer | null {
+  return getDb().select().from(mcpServers).where(eq(mcpServers.id, id)).get() ?? null;
+}
+
+export function createMcpServer(input: McpServerInput): McpServer {
+  const now = Date.now();
+  const row = normalizeMcpServerInput(randomUUID(), input, null, now);
+  getDb().insert(mcpServers).values(row).run();
+  insertHarnessEvent({
+    kind: "automation",
+    title: "MCP server created: " + row.name,
+    status: "succeeded",
+    detail: { serverId: row.id, transport: row.transport },
+  });
+  return row;
+}
+
+export function updateMcpServer(id: string, input: Partial<McpServerInput>): McpServer {
+  const existing = getMcpServer(id);
+  if (!existing) throw new Error("MCP server not found: " + id);
+  const now = Date.now();
+  const row = normalizeMcpServerInput(id, input, existing, now);
+  getDb()
+    .update(mcpServers)
+    .set({
+      name: row.name,
+      description: row.description,
+      transport: row.transport,
+      enabled: row.enabled,
+      auto_use: row.auto_use,
+      requires_approval: row.requires_approval,
+      status: row.enabled ? row.status : "disabled",
+      command: row.command,
+      args_json: row.args_json,
+      url: row.url,
+      headers_json: row.headers_json,
+      env_json: row.env_json,
+      cwd: row.cwd,
+      last_error: row.last_error,
+      last_connected_at: row.last_connected_at,
+      updated_at: now,
+    })
+    .where(eq(mcpServers.id, id))
+    .run();
+  return getMcpServer(id) ?? row;
+}
+
+export function deleteMcpServer(id: string): void {
+  const existing = getMcpServer(id);
+  getDb().delete(mcpServers).where(eq(mcpServers.id, id)).run();
+  deleteExtensionSecretsForOwner("mcp", id);
+  if (existing) {
+    insertHarnessEvent({
+      kind: "automation",
+      title: "MCP server deleted: " + existing.name,
+      status: "succeeded",
+      detail: { serverId: id },
+    });
+  }
+}
+
+export function setMcpServerEnabled(id: string, enabled: boolean): McpServer {
+  const existing = getMcpServer(id);
+  if (!existing) throw new Error("MCP server not found: " + id);
+  getDb()
+    .update(mcpServers)
+    .set({
+      enabled: enabled ? 1 : 0,
+      status: enabled ? "unknown" : "disabled",
+      updated_at: Date.now(),
+    })
+    .where(eq(mcpServers.id, id))
+    .run();
+  return getMcpServer(id) ?? { ...existing, enabled: enabled ? 1 : 0 };
+}
+
+export function updateMcpServerStatus(
+  id: string,
+  patch: Pick<Partial<McpServer>, "status" | "last_error" | "last_connected_at">,
+): McpServer | null {
+  const existing = getMcpServer(id);
+  if (!existing) return null;
+  getDb()
+    .update(mcpServers)
+    .set({
+      status: patch.status ?? existing.status,
+      last_error: patch.last_error === undefined ? existing.last_error : patch.last_error,
+      last_connected_at:
+        patch.last_connected_at === undefined
+          ? existing.last_connected_at
+          : patch.last_connected_at,
+      updated_at: Date.now(),
+    })
+    .where(eq(mcpServers.id, id))
+    .run();
+  return getMcpServer(id);
+}
+
+export function listMcpTools(serverId?: string): McpTool[] {
+  const query = getDb().select().from(mcpTools);
+  if (serverId) {
+    return query.where(eq(mcpTools.server_id, serverId)).orderBy(asc(mcpTools.name)).all();
+  }
+  return query.orderBy(asc(mcpTools.server_id), asc(mcpTools.name)).all();
+}
+
+export function getMcpToolByReference(serverId: string, toolName: string): McpTool | null {
+  return (
+    getDb()
+      .select()
+      .from(mcpTools)
+      .where(and(eq(mcpTools.server_id, serverId), eq(mcpTools.name, toolName)))
+      .get() ?? null
+  );
+}
+
+export function upsertMcpToolDefinitions(
+  serverId: string,
+  definitions: Array<{
+    name: string;
+    title?: string;
+    description?: string;
+    inputSchema?: unknown;
+    outputSchema?: unknown;
+  }>,
+): McpTool[] {
+  const db = getDb();
+  const now = Date.now();
+  db.transaction((tx) => {
+    for (const definition of definitions) {
+      const name = coercePlainText(definition.name).trim();
+      if (!name) continue;
+      const existing = getMcpToolByReference(serverId, name);
+      const row: NewMcpTool = {
+        id: mcpToolRowId(serverId, name),
+        server_id: serverId,
+        name,
+        title: normalizeNullableText(definition.title, 160),
+        description: truncateText(
+          coercePlainText(definition.description, "MCP tool " + name).trim(),
+          1_000,
+        ),
+        input_schema_json: normalizeJsonObjectString(definition.inputSchema, {}),
+        output_schema_json: normalizeJsonObjectString(definition.outputSchema, {}),
+        enabled: existing?.enabled ?? 1,
+        auto_use: existing?.auto_use ?? 0,
+        requires_approval: existing?.requires_approval ?? 1,
+        discovered_at: existing?.discovered_at ?? now,
+        updated_at: now,
+      };
+      tx.insert(mcpTools)
+        .values(row)
+        .onConflictDoUpdate({
+          target: mcpTools.id,
+          set: {
+            title: row.title,
+            description: row.description,
+            input_schema_json: row.input_schema_json,
+            output_schema_json: row.output_schema_json,
+            updated_at: now,
+          },
+        })
+        .run();
+    }
+  });
+  return listMcpTools(serverId);
+}
+
+export function updateMcpTool(
+  id: string,
+  patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
+): McpTool {
+  const existing = getDb().select().from(mcpTools).where(eq(mcpTools.id, id)).get();
+  if (!existing) throw new Error("MCP tool not found: " + id);
+  getDb()
+    .update(mcpTools)
+    .set({
+      enabled: patch.enabled === undefined ? existing.enabled : normalizeEnabled(patch.enabled),
+      auto_use: patch.auto_use === undefined ? existing.auto_use : normalizeEnabled(patch.auto_use),
+      requires_approval:
+        patch.requires_approval === undefined
+          ? existing.requires_approval
+          : normalizeEnabled(patch.requires_approval),
+      updated_at: Date.now(),
+    })
+    .where(eq(mcpTools.id, id))
+    .run();
+  return getDb().select().from(mcpTools).where(eq(mcpTools.id, id)).get() ?? existing;
+}
+
+export function listExtensionSkills(): ExtensionSkill[] {
+  return getDb().select().from(extensionSkills).orderBy(desc(extensionSkills.updated_at)).all();
+}
+
+export function getExtensionSkill(id: string): ExtensionSkill | null {
+  return getDb().select().from(extensionSkills).where(eq(extensionSkills.id, id)).get() ?? null;
+}
+
+export function createExtensionSkill(input: ExtensionSkillInput): ExtensionSkill {
+  const now = Date.now();
+  const id = randomUUID();
+  const row = normalizeExtensionSkillInput(id, input, null, now);
+  const workflow = ensureSkillWorkflow({
+    ...row,
+    workflow_id: row.workflow_id ?? skillWorkflowId(id),
+  });
+  const saved = { ...row, workflow_id: workflow.id };
+  getDb().insert(extensionSkills).values(saved).run();
+  insertHarnessEvent({
+    kind: "automation",
+    title: "Skill created: " + saved.name,
+    status: "succeeded",
+    detail: { skillId: saved.id, workflowId: saved.workflow_id },
+  });
+  return saved;
+}
+
+export function updateExtensionSkill(
+  id: string,
+  input: Partial<ExtensionSkillInput>,
+): ExtensionSkill {
+  const existing = getExtensionSkill(id);
+  if (!existing) throw new Error("Skill not found: " + id);
+  const now = Date.now();
+  const row = normalizeExtensionSkillInput(id, input, existing, now);
+  const workflow = ensureSkillWorkflow({
+    ...row,
+    workflow_id: row.workflow_id ?? skillWorkflowId(id),
+  });
+  getDb()
+    .update(extensionSkills)
+    .set({
+      name: row.name,
+      description: row.description,
+      category: row.category,
+      enabled: row.enabled,
+      auto_use: row.auto_use,
+      requires_approval: row.requires_approval,
+      trigger_keywords_json: row.trigger_keywords_json,
+      tags_json: row.tags_json,
+      config_schema_json: row.config_schema_json,
+      config_json: row.config_json,
+      steps_json: row.steps_json,
+      workflow_id: workflow.id,
+      updated_at: now,
+    })
+    .where(eq(extensionSkills.id, id))
+    .run();
+  return getExtensionSkill(id) ?? { ...row, workflow_id: workflow.id };
+}
+
+export function deleteExtensionSkill(id: string): void {
+  const existing = getExtensionSkill(id);
+  getDb().delete(extensionSkills).where(eq(extensionSkills.id, id)).run();
+  deleteExtensionSecretsForOwner("skill", id);
+  if (existing) {
+    insertHarnessEvent({
+      kind: "automation",
+      title: "Skill deleted: " + existing.name,
+      status: "succeeded",
+      detail: { skillId: id, workflowId: existing.workflow_id },
+    });
+  }
+}
+
+export function setExtensionSkillEnabled(id: string, enabled: boolean): ExtensionSkill {
+  const existing = getExtensionSkill(id);
+  if (!existing) throw new Error("Skill not found: " + id);
+  getDb()
+    .update(extensionSkills)
+    .set({ enabled: enabled ? 1 : 0, updated_at: Date.now() })
+    .where(eq(extensionSkills.id, id))
+    .run();
+  return getExtensionSkill(id) ?? { ...existing, enabled: enabled ? 1 : 0 };
+}
+
+export function markExtensionSkillRun(id: string, at = Date.now()): void {
+  getDb()
+    .update(extensionSkills)
+    .set({ last_run_at: at, updated_at: at })
+    .where(eq(extensionSkills.id, id))
+    .run();
+}
+
+export function createWorkflowRun(
+  input: Omit<NewWorkflowRun, "id" | "started_at"> & { id?: string; started_at?: number },
+): WorkflowRun {
+  const row: NewWorkflowRun = {
+    id: input.id ?? randomUUID(),
+    workflow_id: input.workflow_id,
+    status: input.status,
+    input_json: input.input_json ?? null,
+    output_json: input.output_json ?? null,
+    started_at: input.started_at ?? Date.now(),
+    finished_at: input.finished_at ?? null,
+  };
+  getDb().insert(workflowRuns).values(row).run();
+  return row as WorkflowRun;
+}
+
+export function updateWorkflowRun(
+  id: string,
+  patch: Partial<Omit<WorkflowRun, "id" | "workflow_id" | "started_at">>,
+): WorkflowRun | null {
+  const existing = getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id)).get();
+  if (!existing) return null;
+  getDb()
+    .update(workflowRuns)
+    .set({
+      status: patch.status ?? existing.status,
+      input_json: patch.input_json === undefined ? existing.input_json : patch.input_json,
+      output_json: patch.output_json === undefined ? existing.output_json : patch.output_json,
+      finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
+    })
+    .where(eq(workflowRuns.id, id))
+    .run();
+  return getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id)).get() ?? null;
+}
+
+export function setExtensionSecret(input: ExtensionSecretInput): ExtensionSecretPublic {
+  const key = normalizeSecretKey(input.key);
+  const ownerType = normalizeOwnerType(input.ownerType);
+  const ownerId = coercePlainText(input.ownerId).trim();
+  if (!ownerId) throw new Error("Secret owner id is required.");
+  const now = Date.now();
+  const payload = encrypt(input.value);
+  const row: ExtensionSecret = {
+    id: extensionSecretId(ownerType, ownerId, key),
+    owner_type: ownerType,
+    owner_id: ownerId,
+    key,
+    label: truncateText(coercePlainText(input.label, key).trim() || key, 120),
+    ciphertext: JSON.stringify(payload),
+    updated_at: now,
+  };
+  getDb()
+    .insert(extensionSecrets)
+    .values(row)
+    .onConflictDoUpdate({
+      target: extensionSecrets.id,
+      set: {
+        label: row.label,
+        ciphertext: row.ciphertext,
+        updated_at: now,
+      },
+    })
+    .run();
+  return publicSecret(row);
+}
+
+export function listExtensionSecretsPublic(
+  ownerType?: ExtensionOwnerType,
+  ownerId?: string,
+): ExtensionSecretPublic[] {
+  let rows: ExtensionSecret[];
+  if (ownerType && ownerId) {
+    rows = getDb()
+      .select()
+      .from(extensionSecrets)
+      .where(
+        and(eq(extensionSecrets.owner_type, ownerType), eq(extensionSecrets.owner_id, ownerId)),
+      )
+      .orderBy(asc(extensionSecrets.key))
+      .all();
+  } else {
+    rows = getDb().select().from(extensionSecrets).orderBy(asc(extensionSecrets.key)).all();
+  }
+  return rows.map(publicSecret);
+}
+
+export function deleteExtensionSecret(id: string): void {
+  getDb().delete(extensionSecrets).where(eq(extensionSecrets.id, id)).run();
+}
+
+export function deleteExtensionSecretsForOwner(
+  ownerType: ExtensionOwnerType,
+  ownerId: string,
+): void {
+  getDb()
+    .delete(extensionSecrets)
+    .where(and(eq(extensionSecrets.owner_type, ownerType), eq(extensionSecrets.owner_id, ownerId)))
+    .run();
+}
+
+export function getExtensionSecretValue(
+  ownerType: ExtensionOwnerType,
+  ownerId: string,
+  key: string,
+): string | null {
+  const row = getDb()
+    .select()
+    .from(extensionSecrets)
+    .where(
+      and(
+        eq(extensionSecrets.owner_type, ownerType),
+        eq(extensionSecrets.owner_id, ownerId),
+        eq(extensionSecrets.key, normalizeSecretKey(key)),
+      ),
+    )
+    .get();
+  if (!row) return null;
+  try {
+    return decrypt(JSON.parse(row.ciphertext) as EncryptedPayload);
+  } catch (error) {
+    console.error("[db] Failed to decrypt extension secret:", error);
+    return null;
+  }
+}
+
+export function resolveExtensionSecretReferences(
+  ownerType: ExtensionOwnerType,
+  ownerId: string,
+  values: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => {
+      const secretKey = parseSecretReference(value);
+      if (!secretKey) return [key, value];
+      return [key, getExtensionSecretValue(ownerType, ownerId, secretKey) ?? ""];
+    }),
+  );
+}
+
+export function getExtensionsSnapshot(): ExtensionsSnapshot {
+  return {
+    mcpServers: listMcpServers(),
+    mcpTools: listMcpTools(),
+    skills: listExtensionSkills(),
+    secrets: listExtensionSecretsPublic(),
+    workflowRuns: listWorkflowRuns(),
+    harnessEvents: listHarnessEvents(),
+  };
+}
+
 export function listInteractionProfiles(): InteractionProfile[] {
   return getDb().select().from(interactionProfiles).orderBy(asc(interactionProfiles.id)).all();
 }
@@ -1354,6 +2091,7 @@ function seedWorkspaceDefaults(): void {
   if (db.select({ id: agents.id }).from(agents).limit(1).get()) {
     backfillAgentOrchestrationDefaults(now);
     ensureAllAgentRuntimeStates();
+    backfillExtensionDefaults(now);
     return;
   }
 
@@ -1673,6 +2411,7 @@ function seedWorkspaceDefaults(): void {
       .run();
   });
   ensureAllAgentRuntimeStates();
+  backfillExtensionDefaults(now);
 }
 
 function backfillAgentOrchestrationDefaults(now: number): void {
@@ -1701,6 +2440,127 @@ function backfillAgentOrchestrationDefaults(now: number): void {
         updated_at: agent.updated_at || now,
       })
       .where(eq(agents.id, agent.id))
+      .run();
+  }
+}
+
+function backfillExtensionDefaults(now: number): void {
+  const db = getDb();
+  const existingMcpIds = new Set(
+    db
+      .select({ id: mcpServers.id })
+      .from(mcpServers)
+      .all()
+      .map((row) => row.id),
+  );
+  const legacyMcpNodes = db.select().from(serverNodes).where(eq(serverNodes.kind, "mcp")).all();
+  for (const node of legacyMcpNodes) {
+    const id = "legacy-" + slugPart(node.id);
+    if (existingMcpIds.has(id)) continue;
+    db.insert(mcpServers)
+      .values({
+        id,
+        name: node.name,
+        description: "Imported from legacy server node.",
+        transport: "http",
+        enabled: 0,
+        auto_use: 0,
+        requires_approval: 1,
+        status: "disabled",
+        command: null,
+        args_json: "[]",
+        url: node.url,
+        headers_json: "{}",
+        env_json: "{}",
+        cwd: null,
+        last_error: null,
+        last_connected_at: node.last_seen_at,
+        created_at: node.created_at || now,
+        updated_at: node.updated_at || now,
+      })
+      .run();
+  }
+
+  const existingSkillIds = new Set(
+    db
+      .select({ id: extensionSkills.id })
+      .from(extensionSkills)
+      .all()
+      .map((row) => row.id),
+  );
+  const legacySkillMemories = db.select().from(memories).where(eq(memories.kind, "skill")).all();
+  for (const memory of legacySkillMemories) {
+    const id = "memory-" + slugPart(memory.id);
+    if (existingSkillIds.has(id)) continue;
+    const skill = normalizeExtensionSkillInput(
+      id,
+      {
+        name: memory.title,
+        description: memory.content,
+        category: "memory",
+        enabled: false,
+        auto_use: false,
+        requires_approval: true,
+        tags: ["legacy", "memory"],
+        triggerKeywords: [memory.title],
+        steps: [
+          {
+            id: "legacy-context",
+            type: "memory",
+            title: memory.title,
+            detail: memory.content,
+          },
+        ],
+      },
+      null,
+      now,
+    );
+    const workflow = ensureSkillWorkflow(skill);
+    db.insert(extensionSkills)
+      .values({ ...skill, workflow_id: workflow.id })
+      .run();
+  }
+
+  if (!db.select({ id: extensionSkills.id }).from(extensionSkills).limit(1).get()) {
+    const skill = normalizeExtensionSkillInput(
+      "skill-research-brief",
+      {
+        name: "Research Brief",
+        description:
+          "Turn a request into a concise workflow with context, checkpoints, and output.",
+        category: "productivity",
+        enabled: true,
+        auto_use: false,
+        requires_approval: true,
+        tags: ["research", "brief"],
+        triggerKeywords: ["research", "brief", "plan"],
+        steps: [
+          {
+            id: "scope",
+            type: "prompt",
+            title: "Clarify scope",
+            detail: "Restate the user goal, constraints, and expected output.",
+          },
+          {
+            id: "memory",
+            type: "memory",
+            title: "Check local context",
+            detail: "Look for relevant local memory and workspace context before proposing output.",
+          },
+          {
+            id: "approval",
+            type: "approval",
+            title: "Approval checkpoint",
+            detail: "Ask before using external or sensitive tools.",
+          },
+        ],
+      },
+      null,
+      now,
+    );
+    const workflow = ensureSkillWorkflow(skill);
+    db.insert(extensionSkills)
+      .values({ ...skill, workflow_id: workflow.id })
       .run();
   }
 }

@@ -14,6 +14,7 @@ import {
   DEFAULT_AGENT_ID,
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
+  isChatToolReference,
   normalizeChatToolSelection,
   type AgentHandoffConfig,
   type AgentProfile,
@@ -318,7 +319,7 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
     tools,
     activeTools: names,
     toolChoice: names.length ? "auto" : "none",
-    toolApproval: createGuardrailApproval(context),
+    toolApproval: createGuardrailApproval(context, new Set(base.approvalToolNames ?? [])),
     stopWhen: isStepCount(readRuntimeConfig(context.rootAgent.runtime_config_json).maxTurns),
     onStepEnd: (event) => {
       base.onStepEnd?.(event);
@@ -759,11 +760,12 @@ async function runSandboxStep<T>(
 
 function createGuardrailApproval(
   context: RuntimeContext,
+  extensionApprovalToolNames = new Set<string>(),
 ): ToolApprovalConfiguration<ToolSet, unknown> {
   return ({ toolCall }) => {
     const toolName = String(toolCall.toolName);
     const input = (toolCall as { input?: unknown }).input;
-    const decision = evaluateToolGuardrail(context, toolName, input);
+    const decision = evaluateToolGuardrail(context, toolName, input, extensionApprovalToolNames);
     const step = createAgentRunStep({
       run_id: context.runId,
       agent_id: DEFAULT_AGENT_ID,
@@ -818,6 +820,7 @@ function evaluateToolGuardrail(
   context: RuntimeContext,
   toolName: string,
   input: unknown,
+  extensionApprovalToolNames = new Set<string>(),
 ): {
   decision: "allow" | "deny" | "require_review";
   risk: "low" | "medium" | "high";
@@ -842,6 +845,7 @@ function evaluateToolGuardrail(
     readRuntimeConfig(context.rootAgent.runtime_config_json).reviewPolicy === "review_all";
   if (
     reviewAll ||
+    extensionApprovalToolNames.has(toolName) ||
     (mappedTool && policy.requireApprovalToolIds.includes(mappedTool)) ||
     toolName === "memory_save" ||
     toolName === "conversation_search"
@@ -1143,10 +1147,10 @@ function readToolPolicy(raw: string): AgentToolPolicy {
   return readJsonObject(raw, DEFAULT_AGENT_TOOL_POLICY, (value) => ({
     mode: value.mode === "custom" ? "custom" : "inherit",
     allowedToolIds: Array.isArray(value.allowedToolIds)
-      ? value.allowedToolIds.filter(isChatToolId)
+      ? value.allowedToolIds.filter(isChatToolReference)
       : [],
     requireApprovalToolIds: Array.isArray(value.requireApprovalToolIds)
-      ? value.requireApprovalToolIds.filter(isChatToolId)
+      ? value.requireApprovalToolIds.filter(isChatToolReference)
       : DEFAULT_AGENT_TOOL_POLICY.requireApprovalToolIds,
   }));
 }
@@ -1248,12 +1252,12 @@ function toolSlug(profile: AgentProfile): string {
     .replace(/^_+|_+$/g, "");
 }
 
-function isBaseChatTool(id: ChatToolId): boolean {
-  return !isSandboxToolId(id);
+function isBaseChatTool(value: unknown): value is ChatToolId {
+  return isChatToolId(value) && !isSandboxToolId(value);
 }
 
-function isSandboxToolId(id: ChatToolId): boolean {
-  return id.startsWith("sandbox_");
+function isSandboxToolId(value: unknown): value is ChatToolId {
+  return isChatToolId(value) && value.startsWith("sandbox_");
 }
 
 function isChatToolId(value: unknown): value is ChatToolId {

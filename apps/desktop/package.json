@@ -29,6 +29,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "catalog:",
     "@ai-sdk/google": "catalog:",
+    "@ai-sdk/mcp": "catalog:",
     "@ai-sdk/openai": "catalog:",
     "@ai-sdk/react": "catalog:",
     "@electron-toolkit/preload": "^3.0.2",

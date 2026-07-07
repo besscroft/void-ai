@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   getChatToolSelectionForConversation,
   withChatToolSelectionForConversation,
+  type ExtensionsSnapshot,
   type ModelCapabilities,
   type ProviderInfo,
 } from "@shared/types";
@@ -98,6 +99,37 @@ void describe("chat tool UI helpers", () => {
       [],
     );
   });
+
+  void it("mixes MCP and Skill extension descriptors with built-in tools", () => {
+    const providers = [provider("custom", "openai-compatible")];
+    const descriptors = createClientChatToolDescriptors({
+      selectedModel: "custom/local-model",
+      providers,
+      extensions: extensionSnapshot(),
+    });
+
+    const mcp = descriptors.find((descriptor) => descriptor.id === "mcp:srv-1:search");
+    const skill = descriptors.find((descriptor) => descriptor.id === "skill:skill-1");
+
+    assert.equal(mcp?.available, true);
+    assert.equal(mcp?.defaultAuto, true);
+    assert.equal(mcp?.requiresApproval, true);
+    assert.equal(skill?.available, true);
+    assert.equal(skill?.defaultAuto, true);
+    assert.deepEqual(
+      getActiveChatToolIds(
+        { mode: "manual", selectedToolIds: ["memory_search", mcp!.id, skill!.id] },
+        descriptors,
+      ),
+      ["memory_search", "mcp:srv-1:search", "skill:skill-1"],
+    );
+    assert.equal(
+      getActiveChatToolIds({ mode: "auto", selectedToolIds: [] }, descriptors).includes(
+        "mcp:srv-1:search",
+      ),
+      true,
+    );
+  });
 });
 
 function provider(
@@ -127,5 +159,72 @@ function provider(
     ],
     helpUrl: "https://example.com",
     hasApiKey: true,
+  };
+}
+
+function extensionSnapshot(): ExtensionsSnapshot {
+  const now = Date.now();
+  return {
+    mcpServers: [
+      {
+        id: "srv-1",
+        name: "Search MCP",
+        description: "Search tools",
+        transport: "http",
+        enabled: 1,
+        auto_use: 1,
+        requires_approval: 1,
+        status: "ready",
+        command: null,
+        args_json: "[]",
+        url: "https://example.com/mcp",
+        headers_json: "{}",
+        env_json: "{}",
+        cwd: null,
+        last_error: null,
+        last_connected_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    mcpTools: [
+      {
+        id: "tool-1",
+        server_id: "srv-1",
+        name: "search",
+        title: "Search",
+        description: "Search through an MCP server.",
+        input_schema_json: "{}",
+        output_schema_json: "{}",
+        enabled: 1,
+        auto_use: 1,
+        requires_approval: 1,
+        discovered_at: now,
+        updated_at: now,
+      },
+    ],
+    skills: [
+      {
+        id: "skill-1",
+        name: "Research Skill",
+        description: "Run a research workflow.",
+        category: "research",
+        enabled: 1,
+        auto_use: 1,
+        requires_approval: 1,
+        trigger_keywords_json: "[]",
+        tags_json: "[]",
+        config_schema_json: "{}",
+        config_json: "{}",
+        steps_json: "[]",
+        workflow_id: "workflow-skill-1",
+        last_run_at: null,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    secrets: [],
+    workflowRuns: [],
+    harnessEvents: [],
   };
 }

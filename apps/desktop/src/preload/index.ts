@@ -76,6 +76,35 @@ const api = {
   sync: {
     get: () => ipcRenderer.invoke("sync:get"),
   },
+  extensions: {
+    snapshot: () => ipcRenderer.invoke("extensions:snapshot"),
+    mcp: {
+      create: (input: unknown) => ipcRenderer.invoke("extensions:mcp:create", input),
+      update: (id: string, input: unknown) =>
+        ipcRenderer.invoke("extensions:mcp:update", id, input),
+      delete: (id: string) => ipcRenderer.invoke("extensions:mcp:delete", id),
+      setEnabled: (id: string, enabled: boolean) =>
+        ipcRenderer.invoke("extensions:mcp:setEnabled", id, enabled),
+      test: (id: string) => ipcRenderer.invoke("extensions:mcp:test", id),
+      discover: (id: string) => ipcRenderer.invoke("extensions:mcp:discover", id),
+      updateTool: (id: string, patch: unknown) =>
+        ipcRenderer.invoke("extensions:mcp:updateTool", id, patch),
+      setSecret: (input: unknown) => ipcRenderer.invoke("extensions:mcp:setSecret", input),
+      deleteSecret: (id: string) => ipcRenderer.invoke("extensions:mcp:deleteSecret", id),
+    },
+    skills: {
+      create: (input: unknown) => ipcRenderer.invoke("extensions:skills:create", input),
+      update: (id: string, input: unknown) =>
+        ipcRenderer.invoke("extensions:skills:update", id, input),
+      delete: (id: string) => ipcRenderer.invoke("extensions:skills:delete", id),
+      setEnabled: (id: string, enabled: boolean) =>
+        ipcRenderer.invoke("extensions:skills:setEnabled", id, enabled),
+      run: (skillId: string, input?: unknown) =>
+        ipcRenderer.invoke("extensions:skills:run", skillId, input),
+      setSecret: (input: unknown) => ipcRenderer.invoke("extensions:skills:setSecret", input),
+      deleteSecret: (id: string) => ipcRenderer.invoke("extensions:skills:deleteSecret", id),
+    },
+  },
   providers: {
     list: () => ipcRenderer.invoke("providers:list"),
     listManagedModels: () => ipcRenderer.invoke("providers:listManagedModels"),

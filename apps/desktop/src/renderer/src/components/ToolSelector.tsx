@@ -1,15 +1,19 @@
-import { useMemo, type SVGProps } from "react";
+import { useEffect, useMemo, useState, type SVGProps } from "react";
 import { Button, Chip, Popover, ToggleButton, ToggleButtonGroup, Tooltip } from "@heroui/react";
 import {
   CHAT_TOOL_IDS,
+  isChatToolId,
   isChatToolMode,
   normalizeChatToolSelection,
+  type ChatToolReference,
   type ChatToolDescriptor,
   type ChatToolId,
   type ChatToolMode,
   type ChatToolSelectionRequest,
+  type ExtensionsSnapshot,
   type ProviderInfo,
 } from "@shared/types";
+import { api } from "../lib/api";
 import { createClientChatToolDescriptors, getActiveChatToolIds } from "../lib/chat-tools";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/utils";
@@ -33,8 +37,6 @@ interface ToolSelectorProps {
   providers: ProviderInfo[];
   disabled?: boolean;
 }
-
-const TOOL_ORDER = CHAT_TOOL_IDS;
 
 const ICONS: Record<ChatToolId, (props: SVGProps<SVGSVGElement>) => React.JSX.Element> = {
   web_search: IconGlobe,
@@ -62,11 +64,33 @@ export function ToolSelector({
   disabled = false,
 }: ToolSelectorProps): React.JSX.Element {
   const { t } = useT();
+  const [extensions, setExtensions] = useState<ExtensionsSnapshot | null>(null);
   const selection = normalizeChatToolSelection(value);
+
+  useEffect(() => {
+    let alive = true;
+    try {
+      void api.extensions
+        .snapshot()
+        .then((snapshot) => {
+          if (alive) setExtensions(snapshot);
+        })
+        .catch(() => {
+          if (alive) setExtensions(null);
+        });
+    } catch {
+      setExtensions(null);
+    }
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const descriptors = useMemo(
-    () => createClientChatToolDescriptors({ selectedModel, providers }),
-    [providers, selectedModel],
+    () => createClientChatToolDescriptors({ selectedModel, providers, extensions }),
+    [extensions, providers, selectedModel],
   );
+  const orderedDescriptors = useMemo(() => orderToolDescriptors(descriptors), [descriptors]);
   const activeToolIds = getActiveChatToolIds(selection, descriptors);
   const canUseAnyTool = descriptors.some((descriptor) => descriptor.available);
   const isDisabled = disabled || !canUseAnyTool;
@@ -76,7 +100,7 @@ export function ToolSelector({
     onChange({ ...selection, mode });
   };
 
-  const updateManualTool = (id: ChatToolId): void => {
+  const updateManualTool = (id: ChatToolReference): void => {
     const descriptor = descriptors.find((item) => item.id === id);
     if (!descriptor?.available) return;
     const availableIds = new Set(
@@ -164,12 +188,12 @@ export function ToolSelector({
             <div className="mt-3">
               {selection.mode === "manual" ? (
                 <ManualToolGroup
-                  descriptors={descriptors}
+                  orderedDescriptors={orderedDescriptors}
                   selectedIds={selection.selectedToolIds}
                   onToggle={updateManualTool}
                 />
               ) : (
-                <AutoToolList descriptors={descriptors} activeIds={activeToolIds} />
+                <AutoToolList descriptors={orderedDescriptors} activeIds={activeToolIds} />
               )}
             </div>
 
@@ -192,22 +216,21 @@ export function ToolSelector({
 }
 
 function ManualToolGroup({
-  descriptors,
+  orderedDescriptors,
   selectedIds,
   onToggle,
 }: {
-  descriptors: ChatToolDescriptor[];
-  selectedIds: ChatToolId[];
-  onToggle: (id: ChatToolId) => void;
+  orderedDescriptors: ChatToolDescriptor[];
+  selectedIds: ChatToolReference[];
+  onToggle: (id: ChatToolReference) => void;
 }): React.JSX.Element {
   const { t } = useT();
   const selectedSet = new Set(selectedIds);
   return (
     <div role="group" aria-label={t("chatTools.manual.label")} className="grid gap-1.5">
-      {TOOL_ORDER.map((id) => {
-        const descriptor = descriptors.find((item) => item.id === id);
-        if (!descriptor) return null;
-        const Icon = ICONS[id];
+      {orderedDescriptors.map((descriptor) => {
+        const id = descriptor.id;
+        const Icon = iconForTool(descriptor);
         const selected = descriptor.available && selectedSet.has(id);
         return (
           <button
@@ -235,7 +258,9 @@ function ManualToolGroup({
             <Icon className="mt-0.5 size-4 shrink-0" />
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 flex-wrap items-center gap-1.5 leading-5">
-                <span className="break-words text-xs font-semibold">{toolLabel(t, id)}</span>
+                <span className="break-words text-xs font-semibold">
+                  {toolLabel(t, id, descriptor)}
+                </span>
                 <ToolBadges descriptor={descriptor} />
               </span>
               <span className="mt-0.5 block break-words text-[11px] leading-snug text-foreground/55">
@@ -256,16 +281,15 @@ function AutoToolList({
   activeIds,
 }: {
   descriptors: ChatToolDescriptor[];
-  activeIds: ChatToolId[];
+  activeIds: ChatToolReference[];
 }): React.JSX.Element {
   const { t } = useT();
   const active = new Set(activeIds);
   return (
     <div className="grid gap-1">
-      {TOOL_ORDER.map((id) => {
-        const descriptor = descriptors.find((item) => item.id === id);
-        if (!descriptor) return null;
-        const Icon = ICONS[id];
+      {descriptors.map((descriptor) => {
+        const id = descriptor.id;
+        const Icon = iconForTool(descriptor);
         const enabled = active.has(id);
         return (
           <div
@@ -280,7 +304,9 @@ function AutoToolList({
             <Icon className="mt-0.5 size-3.5 shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="break-words text-xs font-semibold">{toolLabel(t, id)}</span>
+                <span className="break-words text-xs font-semibold">
+                  {toolLabel(t, id, descriptor)}
+                </span>
                 {enabled ? <IconCheck className="size-3 text-accent" /> : null}
                 <ToolBadges descriptor={descriptor} compact />
               </div>
@@ -304,7 +330,7 @@ function ActiveToolChips({
   ids,
 }: {
   descriptors: ChatToolDescriptor[];
-  ids: ChatToolId[];
+  ids: ChatToolReference[];
 }): React.JSX.Element | null {
   const { t } = useT();
   if (ids.length === 0) {
@@ -320,7 +346,13 @@ function ActiveToolChips({
     <div className="flex flex-wrap gap-1.5">
       {available.map((id) => (
         <Chip key={id} size="sm" variant="secondary">
-          <Chip.Label>{toolLabel(t, id)}</Chip.Label>
+          <Chip.Label>
+            {toolLabel(
+              t,
+              id,
+              descriptors.find((descriptor) => descriptor.id === id),
+            )}
+          </Chip.Label>
         </Chip>
       ))}
     </div>
@@ -337,13 +369,18 @@ function getSummaryLabel(
   return t("chatTools.summary.auto", { count: activeCount });
 }
 
-function toolLabel(t: (key: string) => string, id: ChatToolId): string {
+function toolLabel(
+  t: (key: string) => string,
+  id: ChatToolReference,
+  descriptor?: ChatToolDescriptor,
+): string {
+  if (!isChatToolId(id)) return descriptor?.label ?? id;
   return t(`chatTools.${id}.label`);
 }
 
 function toolDescription(
   t: (key: string) => string,
-  id: ChatToolId,
+  id: ChatToolReference,
   descriptor?: ChatToolDescriptor,
 ): string {
   if (id === "web_search" && descriptor?.execution === "host") {
@@ -352,6 +389,7 @@ function toolDescription(
   if (id === "web_search" && descriptor?.execution === "provider") {
     return t("chatTools.web_search.description.provider");
   }
+  if (!isChatToolId(id)) return descriptor?.description ?? "";
   return t(`chatTools.${id}.description`);
 }
 
@@ -384,6 +422,32 @@ function ToolBadges({
           {t("chatTools.badge.host")}
         </span>
       ) : null}
+      {descriptor.category === "mcp" ? (
+        <span className={cn(badgeClass, "bg-accent/10 text-accent")}>
+          {t("chatTools.badge.mcp")}
+        </span>
+      ) : null}
+      {descriptor.category === "skill" ? (
+        <span className={cn(badgeClass, "bg-success/10 text-success")}>
+          {t("chatTools.badge.skill")}
+        </span>
+      ) : null}
     </>
   );
+}
+
+function orderToolDescriptors(descriptors: ChatToolDescriptor[]): ChatToolDescriptor[] {
+  const byId = new Map(descriptors.map((descriptor) => [descriptor.id, descriptor]));
+  return [
+    ...CHAT_TOOL_IDS.map((id) => byId.get(id)).filter((item): item is ChatToolDescriptor => !!item),
+    ...descriptors.filter((descriptor) => !isChatToolId(descriptor.id)),
+  ];
+}
+
+function iconForTool(
+  descriptor: ChatToolDescriptor,
+): (props: SVGProps<SVGSVGElement>) => React.JSX.Element {
+  if (isChatToolId(descriptor.id)) return ICONS[descriptor.id];
+  if (descriptor.category === "skill") return IconCheckSquare;
+  return IconWrench;
 }

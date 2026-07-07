@@ -5,12 +5,21 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  ExtensionSecretInput,
+  ExtensionSecretPublic,
+  ExtensionSkill,
+  ExtensionSkillInput,
+  ExtensionsSnapshot,
   HarnessEvent,
   InteractionProfile,
   LocalServerInfo,
   ManagedModelInfo,
   MemoryRecord,
   MessageRow,
+  McpDiscoveryResult,
+  McpServer,
+  McpServerInput,
+  McpTool,
   ProviderModelSyncResult,
   ProviderInfo,
   ProviderTestResult,
@@ -121,6 +130,43 @@ export const api = {
   sync: {
     get: (): Promise<SyncState> => assertApi().sync.get(),
   },
+  extensions: {
+    snapshot: (): Promise<ExtensionsSnapshot> => assertApi().extensions.snapshot(),
+    mcp: {
+      create: (input: McpServerInput): Promise<McpServer> =>
+        assertApi().extensions.mcp.create(input),
+      update: (id: string, input: Partial<McpServerInput>): Promise<McpServer> =>
+        assertApi().extensions.mcp.update(id, input),
+      delete: (id: string): Promise<boolean> => assertApi().extensions.mcp.delete(id),
+      setEnabled: (id: string, enabled: boolean): Promise<McpServer> =>
+        assertApi().extensions.mcp.setEnabled(id, enabled),
+      test: (id: string): Promise<McpDiscoveryResult> => assertApi().extensions.mcp.test(id),
+      discover: (id: string): Promise<McpDiscoveryResult> =>
+        assertApi().extensions.mcp.discover(id),
+      updateTool: (
+        id: string,
+        patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
+      ): Promise<McpTool> => assertApi().extensions.mcp.updateTool(id, patch),
+      setSecret: (input: ExtensionSecretInput): Promise<ExtensionSecretPublic> =>
+        assertApi().extensions.mcp.setSecret(input),
+      deleteSecret: (id: string): Promise<boolean> => assertApi().extensions.mcp.deleteSecret(id),
+    },
+    skills: {
+      create: (input: ExtensionSkillInput): Promise<ExtensionSkill> =>
+        assertApi().extensions.skills.create(input),
+      update: (id: string, input: Partial<ExtensionSkillInput>): Promise<ExtensionSkill> =>
+        assertApi().extensions.skills.update(id, input),
+      delete: (id: string): Promise<boolean> => assertApi().extensions.skills.delete(id),
+      setEnabled: (id: string, enabled: boolean): Promise<ExtensionSkill> =>
+        assertApi().extensions.skills.setEnabled(id, enabled),
+      run: (skillId: string, input?: unknown): Promise<unknown> =>
+        assertApi().extensions.skills.run(skillId, input),
+      setSecret: (input: ExtensionSecretInput): Promise<ExtensionSecretPublic> =>
+        assertApi().extensions.skills.setSecret(input),
+      deleteSecret: (id: string): Promise<boolean> =>
+        assertApi().extensions.skills.deleteSecret(id),
+    },
+  },
   providers: {
     list: (): Promise<ProviderInfo[]> => assertApi().providers.list(),
     listManagedModels: (): Promise<ManagedModelInfo[]> => assertApi().providers.listManagedModels(),
@@ -166,11 +212,20 @@ export type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  ExtensionSecretInput,
+  ExtensionSecretPublic,
+  ExtensionSkill,
+  ExtensionSkillInput,
+  ExtensionsSnapshot,
   HarnessEvent,
   InteractionProfile,
   LocalServerInfo,
   MemoryRecord,
   MessageRow,
+  McpDiscoveryResult,
+  McpServer,
+  McpServerInput,
+  McpTool,
   ProviderModelSyncResult,
   ProviderInfo,
   ProviderTestResult,
