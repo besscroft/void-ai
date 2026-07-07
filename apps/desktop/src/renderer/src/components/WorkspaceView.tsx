@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import {
   Button,
   Card,
@@ -18,10 +18,10 @@ import { api, type WorkspaceSnapshot } from "../lib/api";
 import { useT, type TranslationKey } from "../lib/i18n";
 import {
   CHAT_TOOL_IDS,
-  DEFAULT_AGENT_HANDOFF_CONFIG,
-  DEFAULT_AGENT_RUNTIME_CONFIG,
-  DEFAULT_AGENT_TOOL_POLICY,
   DEFAULT_AGENT_ID,
+  normalizeAgentHandoffConfig,
+  normalizeAgentRuntimeConfig,
+  normalizeAgentToolPolicy,
   type AgentHandoffConfig,
   type AgentInput,
   type AgentProfile,
@@ -196,11 +196,57 @@ export function WorkspaceView({ section }: WorkspaceViewProps): React.JSX.Elemen
             {t("workspace.loading")}
           </div>
         ) : (
-          <WorkspaceContent section={section} snapshot={snapshot} refresh={refresh} />
+          <WorkspaceErrorBoundary resetKey={section} onRetry={refresh}>
+            <WorkspaceContent section={section} snapshot={snapshot} refresh={refresh} />
+          </WorkspaceErrorBoundary>
         )}
       </main>
     </div>
   );
+}
+
+class WorkspaceErrorBoundary extends Component<
+  { children: ReactNode; resetKey: WorkspaceSection; onRetry: () => void },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: unknown): { error: Error } {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error("[workspace] render failed:", error, info.componentStack);
+  }
+
+  componentDidUpdate(prevProps: { resetKey: WorkspaceSection }): void {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render(): ReactNode {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="flex min-h-[360px] items-center justify-center">
+        <div className="max-w-lg rounded-md border border-danger/25 bg-danger/10 px-4 py-4 text-sm text-danger">
+          <div className="font-semibold">Workspace view failed</div>
+          <p className="mt-2 break-words text-danger/80">{this.state.error.message}</p>
+          <Button
+            className="mt-4"
+            size="sm"
+            variant="secondary"
+            onPress={() => {
+              this.setState({ error: null });
+              this.props.onRetry();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 }
 
 function WorkspaceContent({
@@ -492,13 +538,9 @@ function AgentsPanel({
                     <Table.Body>
                       {childAgents.map((agent) => {
                         const runtime = runtimeByAgent.get(agent.id);
-                        const toolPolicy = parseJson<AgentToolPolicy>(
-                          agent.tool_policy_json,
-                          DEFAULT_AGENT_TOOL_POLICY,
-                        );
-                        const handoffConfig = parseJson<AgentHandoffConfig>(
+                        const toolPolicy = normalizeAgentToolPolicy(agent.tool_policy_json);
+                        const handoffConfig = normalizeAgentHandoffConfig(
                           agent.handoff_config_json,
-                          DEFAULT_AGENT_HANDOFF_CONFIG,
                         );
                         const latestRun = latestRunFor(snapshot.agentRuns, agent.id);
                         return (
@@ -1364,20 +1406,9 @@ function buildAgentForm(agent?: AgentProfile): AgentFormState {
     enabled: agent?.enabled !== 0,
     model_ref: agent?.model_ref ?? "",
     voice: agent?.voice ?? "",
-    toolPolicy: copyToolPolicy(
-      agent
-        ? parseJson(agent.tool_policy_json, DEFAULT_AGENT_TOOL_POLICY)
-        : DEFAULT_AGENT_TOOL_POLICY,
-    ),
-    handoffConfig: copyHandoffConfig(
-      agent
-        ? parseJson(agent.handoff_config_json, DEFAULT_AGENT_HANDOFF_CONFIG)
-        : DEFAULT_AGENT_HANDOFF_CONFIG,
-    ),
-    runtimeConfig: {
-      ...DEFAULT_AGENT_RUNTIME_CONFIG,
-      ...(agent ? parseJson(agent.runtime_config_json, DEFAULT_AGENT_RUNTIME_CONFIG) : {}),
-    },
+    toolPolicy: normalizeAgentToolPolicy(agent?.tool_policy_json),
+    handoffConfig: normalizeAgentHandoffConfig(agent?.handoff_config_json),
+    runtimeConfig: normalizeAgentRuntimeConfig(agent?.runtime_config_json),
   };
 }
 
@@ -1393,31 +1424,9 @@ function buildAgentInput(form: AgentFormState): AgentInput {
     enabled: form.enabled,
     model_ref: form.model_ref.trim() || null,
     voice: form.voice.trim() || null,
-    tool_policy_json: JSON.stringify(copyToolPolicy(form.toolPolicy)),
-    handoff_config_json: JSON.stringify(copyHandoffConfig(form.handoffConfig)),
-    runtime_config_json: JSON.stringify({
-      ...form.runtimeConfig,
-      maxTurns: Math.max(1, Math.min(20, Math.round(form.runtimeConfig.maxTurns || 8))),
-    }),
-  };
-}
-
-function copyToolPolicy(policy: AgentToolPolicy): AgentToolPolicy {
-  return {
-    mode: policy.mode === "custom" ? "custom" : "inherit",
-    allowedToolIds: policy.allowedToolIds.filter(isKnownToolId),
-    requireApprovalToolIds: policy.requireApprovalToolIds.filter(isKnownToolId),
-  };
-}
-
-function copyHandoffConfig(config: AgentHandoffConfig): AgentHandoffConfig {
-  const mode = ["handoff", "consult", "both"].includes(config.mode) ? config.mode : "consult";
-  const priority = ["low", "normal", "high"].includes(config.priority) ? config.priority : "normal";
-  return {
-    mode,
-    priority,
-    accepts: Array.isArray(config.accepts) ? config.accepts.map(String).slice(0, 12) : [],
-    expectedOutput: config.expectedOutput || DEFAULT_AGENT_HANDOFF_CONFIG.expectedOutput,
+    tool_policy_json: JSON.stringify(normalizeAgentToolPolicy(form.toolPolicy)),
+    handoff_config_json: JSON.stringify(normalizeAgentHandoffConfig(form.handoffConfig)),
+    runtime_config_json: JSON.stringify(normalizeAgentRuntimeConfig(form.runtimeConfig)),
   };
 }
 

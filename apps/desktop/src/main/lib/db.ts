@@ -27,8 +27,14 @@ import {
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
   DEFAULT_AGENT_ID as SHARED_DEFAULT_AGENT_ID,
+  normalizeAgentHandoffConfig,
+  normalizeAgentRuntimeConfig,
+  normalizeAgentToolPolicy,
   type AgentInput,
+  type AgentHandoffConfig,
+  type AgentRuntimeConfig,
   type AgentRuntimeStatus,
+  type AgentToolPolicy,
 } from "../../shared/types";
 import {
   schema,
@@ -1057,15 +1063,15 @@ function normalizeAgentInput({
     parent_agent_id: DEFAULT_AGENT_ID,
     locked: 0,
     enabled: normalizeEnabled(input.enabled ?? existing?.enabled ?? 1),
-    tool_policy_json: normalizeJsonObjectString(
+    tool_policy_json: normalizeAgentToolPolicyJsonString(
       input.tool_policy_json ?? existing?.tool_policy_json,
       DEFAULT_AGENT_TOOL_POLICY,
     ),
-    handoff_config_json: normalizeJsonObjectString(
+    handoff_config_json: normalizeAgentHandoffConfigJsonString(
       input.handoff_config_json ?? existing?.handoff_config_json,
       DEFAULT_AGENT_HANDOFF_CONFIG,
     ),
-    runtime_config_json: normalizeJsonObjectString(
+    runtime_config_json: normalizeAgentRuntimeConfigJsonString(
       input.runtime_config_json ?? existing?.runtime_config_json,
       DEFAULT_AGENT_RUNTIME_CONFIG,
     ),
@@ -1141,19 +1147,16 @@ function coercePlainText(raw: unknown, fallback = ""): string {
   return fallback;
 }
 
-function normalizeJsonObjectString(raw: unknown, fallback: unknown): string {
-  if (typeof raw === "string" && raw.trim()) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return JSON.stringify(parsed);
-      }
-    } catch {
-      // Fall back below.
-    }
-  }
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) return JSON.stringify(raw);
-  return JSON.stringify(fallback);
+function normalizeAgentToolPolicyJsonString(raw: unknown, fallback: AgentToolPolicy): string {
+  return JSON.stringify(normalizeAgentToolPolicy(raw, fallback));
+}
+
+function normalizeAgentHandoffConfigJsonString(raw: unknown, fallback: AgentHandoffConfig): string {
+  return JSON.stringify(normalizeAgentHandoffConfig(raw, fallback));
+}
+
+function normalizeAgentRuntimeConfigJsonString(raw: unknown, fallback: AgentRuntimeConfig): string {
+  return JSON.stringify(normalizeAgentRuntimeConfig(raw, fallback));
 }
 
 function truncateText(text: string, maxLength: number): string {
@@ -1686,15 +1689,15 @@ function backfillAgentOrchestrationDefaults(now: number): void {
         parent_agent_id: isVoid ? null : (agent.parent_agent_id ?? DEFAULT_AGENT_ID),
         locked: isVoid ? 1 : (agent.locked ?? 0),
         enabled: isVoid ? 1 : normalizeEnabled(agent.enabled ?? 1),
-        tool_policy_json: normalizeJsonObjectString(
+        tool_policy_json: normalizeAgentToolPolicyJsonString(
           agent.tool_policy_json,
           DEFAULT_AGENT_TOOL_POLICY,
         ),
-        handoff_config_json: normalizeJsonObjectString(
+        handoff_config_json: normalizeAgentHandoffConfigJsonString(
           agent.handoff_config_json,
           isVoid ? { ...DEFAULT_AGENT_HANDOFF_CONFIG, mode: "both" } : DEFAULT_AGENT_HANDOFF_CONFIG,
         ),
-        runtime_config_json: normalizeJsonObjectString(
+        runtime_config_json: normalizeAgentRuntimeConfigJsonString(
           agent.runtime_config_json,
           DEFAULT_AGENT_RUNTIME_CONFIG,
         ),

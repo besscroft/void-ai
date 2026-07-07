@@ -387,6 +387,89 @@ export const DEFAULT_AGENT_RUNTIME_CONFIG: AgentRuntimeConfig = {
   sandboxPolicy: "local",
 };
 
+export function normalizeAgentToolPolicy(
+  raw: unknown,
+  fallback: AgentToolPolicy = DEFAULT_AGENT_TOOL_POLICY,
+): AgentToolPolicy {
+  const value = readAgentConfigObject(raw);
+  return {
+    mode: value?.mode === "custom" ? "custom" : fallback.mode === "custom" ? "custom" : "inherit",
+    allowedToolIds: normalizeToolIdList(value?.allowedToolIds, fallback.allowedToolIds),
+    requireApprovalToolIds: normalizeToolIdList(
+      value?.requireApprovalToolIds,
+      fallback.requireApprovalToolIds,
+    ),
+  };
+}
+
+export function normalizeAgentHandoffConfig(
+  raw: unknown,
+  fallback: AgentHandoffConfig = DEFAULT_AGENT_HANDOFF_CONFIG,
+): AgentHandoffConfig {
+  const value = readAgentConfigObject(raw);
+  return {
+    mode: isAgentHandoffMode(value?.mode) ? value.mode : fallback.mode,
+    priority: isAgentHandoffPriority(value?.priority) ? value.priority : fallback.priority,
+    accepts: Array.isArray(value?.accepts)
+      ? value.accepts.map(String).filter(Boolean).slice(0, 12)
+      : [...fallback.accepts],
+    expectedOutput:
+      typeof value?.expectedOutput === "string" && value.expectedOutput.trim()
+        ? value.expectedOutput.trim()
+        : fallback.expectedOutput,
+  };
+}
+
+export function normalizeAgentRuntimeConfig(
+  raw: unknown,
+  fallback: AgentRuntimeConfig = DEFAULT_AGENT_RUNTIME_CONFIG,
+): AgentRuntimeConfig {
+  const value = readAgentConfigObject(raw);
+  const config: AgentRuntimeConfig = {
+    maxTurns: Math.round(clampFiniteNumber(value?.maxTurns, fallback.maxTurns, 1, 20)),
+    reviewPolicy: isAgentReviewPolicy(value?.reviewPolicy)
+      ? value.reviewPolicy
+      : fallback.reviewPolicy,
+    sandboxPolicy: isAgentSandboxPolicy(value?.sandboxPolicy)
+      ? value.sandboxPolicy
+      : fallback.sandboxPolicy,
+  };
+
+  if (typeof value?.temperature === "number") {
+    config.temperature = clampFiniteNumber(value.temperature, fallback.temperature ?? 0.7, 0, 2);
+  } else if (fallback.temperature !== undefined) {
+    config.temperature = fallback.temperature;
+  }
+
+  if (typeof value?.topP === "number") {
+    config.topP = clampFiniteNumber(value.topP, fallback.topP ?? 1, 0, 1);
+  } else if (fallback.topP !== undefined) {
+    config.topP = fallback.topP;
+  }
+
+  if (typeof value?.maxOutputTokens === "number") {
+    config.maxOutputTokens = Math.floor(
+      clampFiniteNumber(value.maxOutputTokens, fallback.maxOutputTokens ?? 4096, 1, 32768),
+    );
+  } else if (fallback.maxOutputTokens !== undefined) {
+    config.maxOutputTokens = fallback.maxOutputTokens;
+  }
+
+  if (isChatReasoningLevel(value?.reasoning)) {
+    config.reasoning = value.reasoning;
+  } else if (fallback.reasoning !== undefined) {
+    config.reasoning = fallback.reasoning;
+  }
+
+  if (typeof value?.notes === "string") {
+    config.notes = value.notes;
+  } else if (fallback.notes !== undefined) {
+    config.notes = fallback.notes;
+  }
+
+  return config;
+}
+
 export function isChatToolId(value: unknown): value is ChatToolId {
   return typeof value === "string" && (CHAT_TOOL_IDS as readonly string[]).includes(value);
 }
@@ -448,6 +531,54 @@ export function withChatToolSelectionForConversation(
       [conversationId]: normalizeChatToolSelection(selection),
     },
   };
+}
+
+function readAgentConfigObject(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw === "string") {
+    if (!raw.trim()) return null;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return readAgentConfigObject(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return null;
+}
+
+function normalizeToolIdList(raw: unknown, fallback: readonly ChatToolId[]): ChatToolId[] {
+  const source = Array.isArray(raw) ? raw : fallback;
+  return [...new Set(source.filter(isChatToolId))];
+}
+
+function isAgentHandoffMode(value: unknown): value is AgentHandoffMode {
+  return value === "handoff" || value === "consult" || value === "both";
+}
+
+function isAgentHandoffPriority(value: unknown): value is AgentHandoffConfig["priority"] {
+  return value === "low" || value === "normal" || value === "high";
+}
+
+function isAgentReviewPolicy(value: unknown): value is AgentReviewPolicy {
+  return (
+    value === "inherit" ||
+    value === "auto" ||
+    value === "review_sensitive" ||
+    value === "review_all"
+  );
+}
+
+function isAgentSandboxPolicy(value: unknown): value is AgentSandboxPolicy {
+  return value === "inherit" || value === "disabled" || value === "local" || value === "docker";
+}
+
+function clampFiniteNumber(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, value))
+    : fallback;
 }
 
 export interface InteractionProfile {
