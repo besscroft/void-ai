@@ -20,7 +20,7 @@ import {
 } from "ai";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
-import { api } from "../lib/api";
+import { api, type WorkspaceSnapshot } from "../lib/api";
 import { hasMeaningfulConversationTitle } from "../lib/conversation-title";
 import { getChatErrorMessage } from "../lib/errors";
 import {
@@ -128,6 +128,16 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     DEFAULT_MEDIA_GENERATION_SETTINGS,
   );
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [runtimeSnapshot, setRuntimeSnapshot] = useState<Pick<
+    WorkspaceSnapshot,
+    | "agentRuns"
+    | "agentRunSteps"
+    | "agentRuntimeStates"
+    | "conversationAgentStates"
+    | "sandboxSessions"
+    | "sandboxSnapshots"
+    | "sandboxArtifacts"
+  > | null>(null);
   const [modelContextWindows, setModelContextWindows] = useState<Map<string, number>>(new Map());
   const [toolSelection, setToolSelection] = useState<ChatToolSelectionRequest>(
     DEFAULT_CHAT_TOOL_SELECTION,
@@ -289,6 +299,26 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
   const isChatLoading = chat.status === "submitted" || chat.status === "streaming";
   const isLoading = isChatLoading || isMediaGenerating;
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = (): void => {
+      void api.agents.runtimeSnapshot().then((snapshot) => {
+        if (!cancelled) setRuntimeSnapshot(snapshot);
+      });
+    };
+    load();
+    if (!isLoading) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const id = window.setInterval(load, 1_200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [conversationId, isLoading]);
 
   /* ---------- 状态映射 ---------- */
   const statusKind: ConversationStatusKind = chat.error
@@ -677,7 +707,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ChatHeader status={statusKind} />
+      <ChatHeader
+        status={statusKind}
+        runtimeSummary={formatRuntimeSummary(runtimeSnapshot, conversationId)}
+      />
 
       {isEmpty ? (
         <EmptyState
@@ -731,12 +764,13 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
 interface ChatHeaderProps {
   status: ConversationStatusKind;
+  runtimeSummary?: string;
 }
 
 /**
  * 头部只展示"对话名 + 状态徽章"；上下文用量已迁至输入框的 ContextPopover。
  */
-function ChatHeader({ status }: ChatHeaderProps): React.JSX.Element {
+function ChatHeader({ status, runtimeSummary }: ChatHeaderProps): React.JSX.Element {
   const { t } = useT();
   return (
     <header
@@ -750,6 +784,11 @@ function ChatHeader({ status }: ChatHeaderProps): React.JSX.Element {
         />
         <h1 className="text-sm font-medium text-foreground/80">{t("chat.header.title")}</h1>
         <ConversationStatus status={status} />
+        {runtimeSummary ? (
+          <span className="hidden max-w-[32rem] truncate text-xs text-foreground/50 sm:inline">
+            {runtimeSummary}
+          </span>
+        ) : null}
       </div>
       <span className="text-[10.5px] uppercase tracking-wider text-foreground/40">
         {t("chat.header.runtime")}
@@ -759,6 +798,49 @@ function ChatHeader({ status }: ChatHeaderProps): React.JSX.Element {
 }
 
 /* ---------- 持久化 ---------- */
+
+function formatRuntimeSummary(
+  snapshot: Pick<
+    WorkspaceSnapshot,
+    | "agentRuns"
+    | "agentRunSteps"
+    | "agentRuntimeStates"
+    | "conversationAgentStates"
+    | "sandboxSessions"
+    | "sandboxSnapshots"
+    | "sandboxArtifacts"
+  > | null,
+  conversationId: string,
+): string | undefined {
+  if (!snapshot) return undefined;
+  const conversationState = snapshot.conversationAgentStates.find(
+    (state) => state.conversation_id === conversationId,
+  );
+  if (conversationState?.status === "reviewing") {
+    return conversationState.summary || "Waiting for user approval";
+  }
+  if (conversationState?.summary) return conversationState.summary;
+
+  const run =
+    snapshot.agentRuns.find(
+      (item) => item.conversation_id === conversationId && item.status === "running",
+    ) ??
+    snapshot.agentRuns.find(
+      (item) => item.conversation_id === conversationId && item.status === "queued",
+    );
+  if (!run) return undefined;
+
+  const currentStep = conversationState?.current_step_id
+    ? snapshot.agentRunSteps.find((step) => step.id === conversationState.current_step_id)
+    : undefined;
+  if (currentStep) return currentStep.title;
+
+  const latestStep = snapshot.agentRunSteps
+    .filter((step) => step.run_id === run.id)
+    .sort((a, b) => b.started_at - a.started_at)[0];
+  if (latestStep) return latestStep.title;
+  return "Agent runtime is preparing";
+}
 
 async function persistMessagesSnapshot(
   conversationId: string,

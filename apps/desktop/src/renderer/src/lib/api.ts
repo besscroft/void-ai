@@ -1,8 +1,6 @@
 import type {
   AgentInput,
   AgentProfile,
-  AgentRun,
-  AgentRuntimeState,
   CacheStats,
   Conversation,
   CustomModelInput,
@@ -88,10 +86,18 @@ export const api = {
     duplicate: (id: string): Promise<AgentProfile> => assertApi().agents.duplicate(id),
     queueLearning: (conversationId: string): Promise<boolean> =>
       assertApi().agents.queueLearning(conversationId),
-    runtimeSnapshot: (): Promise<{
-      agentRuns: AgentRun[];
-      agentRuntimeStates: AgentRuntimeState[];
-    }> => assertApi().agents.runtimeSnapshot(),
+    runtimeSnapshot: (): Promise<
+      Pick<
+        WorkspaceSnapshot,
+        | "agentRuns"
+        | "agentRunSteps"
+        | "agentRuntimeStates"
+        | "conversationAgentStates"
+        | "sandboxSessions"
+        | "sandboxSnapshots"
+        | "sandboxArtifacts"
+      >
+    > => assertApi().agents.runtimeSnapshot(),
     save: (agent: AgentProfile): Promise<boolean> => assertApi().agents.save(agent),
   },
   memories: {
@@ -157,8 +163,6 @@ export const api = {
 export type {
   AgentInput,
   AgentProfile,
-  AgentRun,
-  AgentRuntimeState,
   Conversation,
   CustomModelInput,
   CustomProviderInput,

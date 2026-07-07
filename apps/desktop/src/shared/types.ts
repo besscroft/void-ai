@@ -32,10 +32,15 @@ export type AgentRuntimeStatus =
   | "idle"
   | "queued"
   | "running"
+  | "reviewing"
   | "handoff"
   | "tool_calling"
+  | "sandbox"
   | "learning"
   | "failed";
+
+export type AgentReviewPolicy = "inherit" | "auto" | "review_sensitive" | "review_all";
+export type AgentSandboxPolicy = "inherit" | "disabled" | "local" | "docker";
 
 export interface AgentToolPolicy {
   mode: "inherit" | "custom";
@@ -53,6 +58,11 @@ export interface AgentHandoffConfig {
 export interface AgentRuntimeConfig {
   maxTurns: number;
   temperature?: number;
+  topP?: number;
+  maxOutputTokens?: number;
+  reasoning?: ChatReasoningLevel;
+  reviewPolicy?: AgentReviewPolicy;
+  sandboxPolicy?: AgentSandboxPolicy;
   notes?: string;
 }
 
@@ -68,6 +78,7 @@ export interface AgentProfile {
   kind: AgentKind;
   parent_agent_id: string | null;
   locked: number;
+  enabled: number;
   tool_policy_json: string;
   handoff_config_json: string;
   runtime_config_json: string;
@@ -85,6 +96,7 @@ export interface AgentInput {
   soul_prompt: string;
   avatar: string;
   status?: AgentStatus;
+  enabled?: boolean | number;
   model_ref?: string | null;
   voice?: string | null;
   tool_policy_json?: string;
@@ -108,6 +120,31 @@ export interface AgentRun {
   usage_json: string | null;
 }
 
+export type AgentRunStepKind =
+  | "input_guardrail"
+  | "model"
+  | "tool"
+  | "sandbox"
+  | "handoff"
+  | "consult"
+  | "approval"
+  | "output_guardrail"
+  | "state"
+  | "error";
+
+export interface AgentRunStep {
+  id: string;
+  run_id: string;
+  agent_id: string | null;
+  kind: AgentRunStepKind;
+  status: RunStatus;
+  title: string;
+  detail_json: string;
+  started_at: number;
+  finished_at: number | null;
+  error: string | null;
+}
+
 export interface AgentRuntimeState {
   agent_id: string;
   status: AgentRuntimeStatus;
@@ -116,6 +153,16 @@ export interface AgentRuntimeState {
   last_tool_at: number | null;
   last_learning_at: number | null;
   last_error: string | null;
+  updated_at: number;
+}
+
+export interface ConversationAgentState {
+  conversation_id: string;
+  active_agent_id: string | null;
+  current_run_id: string | null;
+  current_step_id: string | null;
+  status: AgentRuntimeStatus;
+  summary: string | null;
   updated_at: number;
 }
 
@@ -170,10 +217,54 @@ export interface WorkflowRun {
 
 export interface HarnessEvent {
   id: string;
-  kind: "tool" | "test" | "approval" | "automation" | "error" | "agent" | "handoff" | "learning";
+  kind:
+    | "tool"
+    | "test"
+    | "approval"
+    | "automation"
+    | "error"
+    | "agent"
+    | "handoff"
+    | "learning"
+    | "guardrail"
+    | "sandbox";
   title: string;
   status: RunStatus;
   detail_json: string;
+  created_at: number;
+}
+
+export type SandboxIsolationMode = "docker" | "local";
+export type SandboxStatus = "active" | "stopped" | "failed";
+
+export interface SandboxSession {
+  id: string;
+  conversation_id: string | null;
+  run_id: string | null;
+  agent_id: string | null;
+  root_path: string;
+  isolation_mode: SandboxIsolationMode;
+  status: SandboxStatus;
+  docker_available: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface SandboxSnapshot {
+  id: string;
+  session_id: string;
+  label: string;
+  manifest_json: string;
+  created_at: number;
+}
+
+export interface SandboxArtifact {
+  id: string;
+  session_id: string;
+  kind: "file" | "directory" | "preview";
+  path: string;
+  url: string | null;
+  size_bytes: number | null;
   created_at: number;
 }
 
@@ -229,6 +320,14 @@ export const CHAT_TOOL_IDS = [
   "model_capabilities",
   "conversation_search",
   "memory_save",
+  "sandbox_list_files",
+  "sandbox_read_file",
+  "sandbox_write_file",
+  "sandbox_run_command",
+  "sandbox_snapshot",
+  "sandbox_restore",
+  "sandbox_list_artifacts",
+  "sandbox_preview_port",
 ] as const;
 
 export type ChatToolId = (typeof CHAT_TOOL_IDS)[number];
@@ -250,7 +349,7 @@ export interface ChatToolDescriptor {
   description: string;
   kind: "provider" | "host";
   execution?: "provider" | "host";
-  category: "web" | "system" | "memory" | "workspace" | "model" | "conversation";
+  category: "web" | "system" | "memory" | "workspace" | "model" | "conversation" | "sandbox";
   defaultAuto: boolean;
   requiresApproval: boolean;
   available: boolean;
@@ -265,7 +364,14 @@ export const DEFAULT_CHAT_TOOL_SELECTION: ChatToolSelectionRequest = {
 export const DEFAULT_AGENT_TOOL_POLICY: AgentToolPolicy = {
   mode: "inherit",
   allowedToolIds: [],
-  requireApprovalToolIds: ["conversation_search", "memory_save"],
+  requireApprovalToolIds: [
+    "conversation_search",
+    "memory_save",
+    "sandbox_write_file",
+    "sandbox_run_command",
+    "sandbox_restore",
+    "sandbox_preview_port",
+  ],
 };
 
 export const DEFAULT_AGENT_HANDOFF_CONFIG: AgentHandoffConfig = {
@@ -277,6 +383,8 @@ export const DEFAULT_AGENT_HANDOFF_CONFIG: AgentHandoffConfig = {
 
 export const DEFAULT_AGENT_RUNTIME_CONFIG: AgentRuntimeConfig = {
   maxTurns: 8,
+  reviewPolicy: "review_sensitive",
+  sandboxPolicy: "local",
 };
 
 export function isChatToolId(value: unknown): value is ChatToolId {
@@ -859,7 +967,12 @@ export interface CacheStats {
 export interface WorkspaceSnapshot {
   agents: AgentProfile[];
   agentRuns: AgentRun[];
+  agentRunSteps: AgentRunStep[];
   agentRuntimeStates: AgentRuntimeState[];
+  conversationAgentStates: ConversationAgentState[];
+  sandboxSessions: SandboxSession[];
+  sandboxSnapshots: SandboxSnapshot[];
+  sandboxArtifacts: SandboxArtifact[];
   memories: MemoryRecord[];
   workflows: WorkflowDefinition[];
   workflowRuns: WorkflowRun[];

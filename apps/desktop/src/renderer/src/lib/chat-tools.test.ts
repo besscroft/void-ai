@@ -53,6 +53,10 @@ void describe("chat tool UI helpers", () => {
       "memory_search",
       "workspace_snapshot",
       "model_capabilities",
+      "sandbox_list_files",
+      "sandbox_read_file",
+      "sandbox_snapshot",
+      "sandbox_list_artifacts",
     ]);
   });
 

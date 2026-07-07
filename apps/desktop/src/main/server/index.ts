@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import {
-  createAgentUIStreamResponse,
   experimental_generateVideo as generateVideo,
   generateImage,
   generateSpeech,
@@ -23,7 +22,7 @@ import {
   type ModelCapabilities,
   type ModelProviderKind,
 } from "../../shared/types";
-import { buildChatAgent, type ResolvedChatModel } from "../lib/chat-agent";
+import type { ResolvedChatModel } from "../lib/chat-agent";
 import type { ChatToolModelContext } from "../lib/chat-tools";
 
 const ALLOWED_ORIGIN_PATTERNS = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
@@ -38,10 +37,8 @@ interface CreateAppOptions {
   resolveModel?: (modelRef: string) => ResolvedChatModel;
   resolveMediaModel?: typeof import("../lib/providers").resolveMediaModel;
   writeMediaAsset?: typeof import("../lib/media-assets").writeMediaAsset;
-  buildChatToolRuntime?: typeof import("../lib/chat-tools").buildChatToolRuntime;
-  auditChatToolApprovalResponses?: typeof import("../lib/chat-tools").auditChatToolApprovalResponses;
   buildAgentSystemPrompt?: (agentId?: string | null, conversationId?: string) => string;
-  runOpenAIAgentsChat?: typeof import("../lib/openai-agents-runtime").runOpenAIAgentsChat;
+  runAgentChat?: typeof import("../lib/agent-runtime").runAgentChat;
 }
 
 const DEFAULT_CHAT_MODEL_CAPABILITIES: ModelCapabilities = {
@@ -285,68 +282,22 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       const resolveModel = options.resolveModel ?? (await import("../lib/providers")).resolveModel;
       const buildAgentSystemPrompt =
         options.buildAgentSystemPrompt ?? (await import("../lib/db")).buildAgentSystemPrompt;
-      const chatToolsModule = options.buildChatToolRuntime
-        ? undefined
-        : await import("../lib/chat-tools");
-      const buildChatToolRuntime =
-        options.buildChatToolRuntime ?? chatToolsModule!.buildChatToolRuntime;
-      const auditChatToolApprovalResponses =
-        options.auditChatToolApprovalResponses ?? chatToolsModule?.auditChatToolApprovalResponses;
       const resolved = resolveModel(body.model);
       const chatToolModelContext = toChatToolModelContext(body.model, resolved);
       const reasoning = normalizeChatReasoningForModel(parsedReasoning, chatToolModelContext);
-      if (resolved.providerKind === "openai") {
-        const runOpenAIAgentsChat =
-          options.runOpenAIAgentsChat ??
-          (await import("../lib/openai-agents-runtime")).runOpenAIAgentsChat;
-        return await runOpenAIAgentsChat({
-          messages: body.messages,
-          modelRef: body.model,
-          resolved,
-          conversationId: body.conversationId,
-          preferredAgentId: body.agentId,
-          reasoning: reasoning.value,
-          toolSelection: body.toolSelection,
-          buildAgentSystemPrompt,
-        });
-      }
-      auditChatToolApprovalResponses?.({
+      const runAgentChat =
+        options.runAgentChat ?? (await import("../lib/agent-runtime")).runAgentChat;
+      return await runAgentChat({
         messages: body.messages,
-        model: chatToolModelContext,
-        conversationId: body.conversationId,
-        agentId: body.agentId,
-      });
-      const toolRuntime = buildChatToolRuntime({
-        selection: body.toolSelection,
-        model: chatToolModelContext,
-        conversationId: body.conversationId,
-        agentId: body.agentId,
-      });
-      const instructions = appendChatToolInstructions(
-        body.system ?? buildAgentSystemPrompt(body.agentId, body.conversationId),
-        toolRuntime.instructions,
-      );
-      const { agent, messageMetadata } = buildChatAgent({
         modelRef: body.model,
         resolved,
-        instructions,
-        messages: body.messages,
-        agentId: body.agentId,
+        conversationId: body.conversationId,
+        preferredAgentId: body.agentId,
         reasoning: reasoning.value,
-        toolRuntime,
-      });
-
-      return await createAgentUIStreamResponse({
-        agent,
-        uiMessages: body.messages,
-        sendReasoning: true,
-        sendSources: true,
-        messageMetadata,
-        onError: (error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          console.error("[server] /api/chat stream failed:", message);
-          return message || "Chat stream failed";
-        },
+        toolSelection: body.toolSelection,
+        buildAgentSystemPrompt: (agentId, conversationId) =>
+          body.system ?? buildAgentSystemPrompt(agentId, conversationId),
+        resolveModel,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -524,11 +475,6 @@ function buildMediaMetadata(warnings: unknown, providerMetadata: unknown): Recor
     warnings: Array.isArray(warnings) ? warnings : [],
     providerMetadata: providerMetadata ?? {},
   };
-}
-
-function appendChatToolInstructions(base: string, toolInstructions: string | undefined): string {
-  if (!toolInstructions) return base;
-  return [base.trim(), toolInstructions.trim()].filter(Boolean).join("\n\n");
 }
 
 /** Start the local HTTP server bound to loopback on a random free port. */

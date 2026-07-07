@@ -44,6 +44,14 @@ const ICONS: Record<ChatToolId, (props: SVGProps<SVGSVGElement>) => React.JSX.El
   model_capabilities: IconCpu,
   conversation_search: IconMessage,
   memory_save: IconWrench,
+  sandbox_list_files: IconList,
+  sandbox_read_file: IconList,
+  sandbox_write_file: IconWrench,
+  sandbox_run_command: IconCpu,
+  sandbox_snapshot: IconDatabase,
+  sandbox_restore: IconDatabase,
+  sandbox_list_artifacts: IconList,
+  sandbox_preview_port: IconGlobe,
 };
 
 export function ToolSelector({

@@ -42,6 +42,7 @@ const primaryNav: { id: AppView; labelKey: TranslationKey; Icon: typeof IconMess
   { id: "agents", labelKey: "workspace.title.agents", Icon: IconCpu },
   { id: "workflows", labelKey: "workspace.title.workflows", Icon: IconSliders },
   { id: "memory", labelKey: "workspace.title.memory", Icon: IconDatabase },
+  { id: "sandbox", labelKey: "workspace.title.sandbox", Icon: IconLayout },
   { id: "harness", labelKey: "workspace.title.harness", Icon: IconKey },
   { id: "server", labelKey: "workspace.title.server", Icon: IconGlobe },
   { id: "interactions", labelKey: "workspace.title.interactions", Icon: IconMonitor },

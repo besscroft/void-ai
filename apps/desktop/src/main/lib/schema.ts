@@ -76,6 +76,7 @@ export const agents = sqliteTable(
       .default("child"),
     parent_agent_id: text("parent_agent_id"),
     locked: integer("locked").notNull().default(0),
+    enabled: integer("enabled").notNull().default(1),
     tool_policy_json: text("tool_policy_json").notNull().default("{}"),
     handoff_config_json: text("handoff_config_json").notNull().default("{}"),
     runtime_config_json: text("runtime_config_json").notNull().default("{}"),
@@ -128,7 +129,17 @@ export const agentRuntimeState = sqliteTable(
       .primaryKey()
       .references(() => agents.id, { onDelete: "cascade" }),
     status: text("status", {
-      enum: ["idle", "queued", "running", "handoff", "tool_calling", "learning", "failed"],
+      enum: [
+        "idle",
+        "queued",
+        "running",
+        "reviewing",
+        "handoff",
+        "tool_calling",
+        "sandbox",
+        "learning",
+        "failed",
+      ],
     })
       .notNull()
       .default("idle"),
@@ -142,6 +153,81 @@ export const agentRuntimeState = sqliteTable(
   (table) => [
     index("idx_agent_runtime_status").on(table.status),
     index("idx_agent_runtime_run").on(table.current_run_id),
+  ],
+);
+
+export const agentRunSteps = sqliteTable(
+  "agent_run_steps",
+  {
+    id: text("id").primaryKey(),
+    run_id: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    agent_id: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    kind: text("kind", {
+      enum: [
+        "input_guardrail",
+        "model",
+        "tool",
+        "sandbox",
+        "handoff",
+        "consult",
+        "approval",
+        "output_guardrail",
+        "state",
+        "error",
+      ],
+    }).notNull(),
+    status: text("status", {
+      enum: ["queued", "running", "succeeded", "failed", "cancelled"],
+    }).notNull(),
+    title: text("title").notNull(),
+    detail_json: text("detail_json").notNull(),
+    started_at: integer("started_at").notNull(),
+    finished_at: integer("finished_at"),
+    error: text("error"),
+  },
+  (table) => [
+    index("idx_agent_run_steps_run").on(table.run_id),
+    index("idx_agent_run_steps_agent").on(table.agent_id),
+    index("idx_agent_run_steps_started").on(table.started_at),
+  ],
+);
+
+export const conversationAgentState = sqliteTable(
+  "conversation_agent_state",
+  {
+    conversation_id: text("conversation_id")
+      .primaryKey()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    active_agent_id: text("active_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    current_run_id: text("current_run_id").references(() => agentRuns.id, {
+      onDelete: "set null",
+    }),
+    current_step_id: text("current_step_id").references(() => agentRunSteps.id, {
+      onDelete: "set null",
+    }),
+    status: text("status", {
+      enum: [
+        "idle",
+        "queued",
+        "running",
+        "reviewing",
+        "handoff",
+        "tool_calling",
+        "sandbox",
+        "learning",
+        "failed",
+      ],
+    })
+      .notNull()
+      .default("idle"),
+    summary: text("summary"),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_conversation_agent_state_agent").on(table.active_agent_id),
+    index("idx_conversation_agent_state_run").on(table.current_run_id),
   ],
 );
 
@@ -209,7 +295,18 @@ export const harnessEvents = sqliteTable(
   {
     id: text("id").primaryKey(),
     kind: text("kind", {
-      enum: ["tool", "test", "approval", "automation", "error", "agent", "handoff", "learning"],
+      enum: [
+        "tool",
+        "test",
+        "approval",
+        "automation",
+        "error",
+        "agent",
+        "handoff",
+        "learning",
+        "guardrail",
+        "sandbox",
+      ],
     }).notNull(),
     title: text("title").notNull(),
     status: text("status", {
@@ -219,6 +316,65 @@ export const harnessEvents = sqliteTable(
     created_at: integer("created_at").notNull(),
   },
   (table) => [index("idx_harness_events_created").on(table.created_at)],
+);
+
+export const sandboxSessions = sqliteTable(
+  "sandbox_sessions",
+  {
+    id: text("id").primaryKey(),
+    conversation_id: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    run_id: text("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    agent_id: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    root_path: text("root_path").notNull(),
+    isolation_mode: text("isolation_mode", { enum: ["docker", "local"] }).notNull(),
+    status: text("status", { enum: ["active", "stopped", "failed"] }).notNull(),
+    docker_available: integer("docker_available").notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_sandbox_sessions_conversation").on(table.conversation_id),
+    index("idx_sandbox_sessions_run").on(table.run_id),
+    index("idx_sandbox_sessions_updated").on(table.updated_at),
+  ],
+);
+
+export const sandboxSnapshots = sqliteTable(
+  "sandbox_snapshots",
+  {
+    id: text("id").primaryKey(),
+    session_id: text("session_id")
+      .notNull()
+      .references(() => sandboxSessions.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    manifest_json: text("manifest_json").notNull(),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_sandbox_snapshots_session").on(table.session_id),
+    index("idx_sandbox_snapshots_created").on(table.created_at),
+  ],
+);
+
+export const sandboxArtifacts = sqliteTable(
+  "sandbox_artifacts",
+  {
+    id: text("id").primaryKey(),
+    session_id: text("session_id")
+      .notNull()
+      .references(() => sandboxSessions.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["file", "directory", "preview"] }).notNull(),
+    path: text("path").notNull(),
+    url: text("url"),
+    size_bytes: integer("size_bytes"),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_sandbox_artifacts_session").on(table.session_id),
+    index("idx_sandbox_artifacts_created").on(table.created_at),
+  ],
 );
 
 // ============================================================
@@ -309,10 +465,15 @@ export const schema = {
   agents,
   agentRuns,
   agentRuntimeState,
+  agentRunSteps,
+  conversationAgentState,
   memories,
   workflows,
   workflowRuns,
   harnessEvents,
+  sandboxSessions,
+  sandboxSnapshots,
+  sandboxArtifacts,
   serverNodes,
   interactionProfiles,
   syncState,
@@ -331,12 +492,22 @@ export type AgentRun = typeof agentRuns.$inferSelect;
 export type NewAgentRun = typeof agentRuns.$inferInsert;
 export type AgentRuntimeState = typeof agentRuntimeState.$inferSelect;
 export type NewAgentRuntimeState = typeof agentRuntimeState.$inferInsert;
+export type AgentRunStep = typeof agentRunSteps.$inferSelect;
+export type NewAgentRunStep = typeof agentRunSteps.$inferInsert;
+export type ConversationAgentState = typeof conversationAgentState.$inferSelect;
+export type NewConversationAgentState = typeof conversationAgentState.$inferInsert;
 export type MemoryRecord = typeof memories.$inferSelect;
 export type NewMemoryRecord = typeof memories.$inferInsert;
 export type WorkflowDefinition = typeof workflows.$inferSelect;
 export type NewWorkflowDefinition = typeof workflows.$inferInsert;
 export type WorkflowRun = typeof workflowRuns.$inferSelect;
 export type HarnessEvent = typeof harnessEvents.$inferSelect;
+export type SandboxSession = typeof sandboxSessions.$inferSelect;
+export type NewSandboxSession = typeof sandboxSessions.$inferInsert;
+export type SandboxSnapshot = typeof sandboxSnapshots.$inferSelect;
+export type NewSandboxSnapshot = typeof sandboxSnapshots.$inferInsert;
+export type SandboxArtifact = typeof sandboxArtifacts.$inferSelect;
+export type NewSandboxArtifact = typeof sandboxArtifacts.$inferInsert;
 export type ServerNode = typeof serverNodes.$inferSelect;
 export type InteractionProfile = typeof interactionProfiles.$inferSelect;
 export type SyncState = typeof syncState.$inferSelect;

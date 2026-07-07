@@ -14,6 +14,10 @@ const DEFAULT_AUTO_TOOL_IDS = new Set<ChatToolId>([
   "memory_search",
   "workspace_snapshot",
   "model_capabilities",
+  "sandbox_list_files",
+  "sandbox_read_file",
+  "sandbox_snapshot",
+  "sandbox_list_artifacts",
 ]);
 
 const TOOL_METADATA: Record<
@@ -67,6 +71,62 @@ const TOOL_METADATA: Record<
     description: "Save a new local memory after approval.",
     kind: "host",
     category: "memory",
+    requiresApproval: true,
+  },
+  sandbox_list_files: {
+    label: "Sandbox files",
+    description: "List files inside the current sandbox session.",
+    kind: "host",
+    category: "sandbox",
+    requiresApproval: false,
+  },
+  sandbox_read_file: {
+    label: "Read sandbox file",
+    description: "Read a text file inside the current sandbox session.",
+    kind: "host",
+    category: "sandbox",
+    requiresApproval: false,
+  },
+  sandbox_write_file: {
+    label: "Write sandbox file",
+    description: "Write or overwrite a file inside the current sandbox session after approval.",
+    kind: "host",
+    category: "sandbox",
+    requiresApproval: true,
+  },
+  sandbox_run_command: {
+    label: "Run sandbox command",
+    description: "Run a command in the current sandbox session after approval.",
+    kind: "host",
+    category: "sandbox",
+    requiresApproval: true,
+  },
+  sandbox_snapshot: {
+    label: "Create sandbox snapshot",
+    description: "Create a restorable snapshot of the current sandbox files.",
+    kind: "host",
+    category: "sandbox",
+    requiresApproval: false,
+  },
+  sandbox_restore: {
+    label: "Restore sandbox snapshot",
+    description: "Restore a sandbox snapshot after approval.",
+    kind: "host",
+    category: "sandbox",
+    requiresApproval: true,
+  },
+  sandbox_list_artifacts: {
+    label: "Sandbox artifacts",
+    description: "List files and previews exported from the sandbox.",
+    kind: "host",
+    category: "sandbox",
+    requiresApproval: false,
+  },
+  sandbox_preview_port: {
+    label: "Sandbox preview port",
+    description: "Register a local preview port for the sandbox after approval.",
+    kind: "host",
+    category: "sandbox",
     requiresApproval: true,
   },
 };

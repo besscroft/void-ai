@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { simulateReadableStream, type UIMessage } from "ai";
+import type { UIMessage } from "ai";
 import {
   MockImageModelV4,
   MockLanguageModelV4,
@@ -13,11 +13,13 @@ import {
   CHAT_SESSION_HEADER,
   type MediaGenerationKind,
   type ModelCapabilities,
+  type ModelProviderKind,
 } from "../../shared/types";
 
 const token = "test-session-token";
 const validMessages = [{ id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] }];
-const buildNoChatTools = () => ({ descriptors: [], toolChoice: "none" as const });
+type RunAgentChat = typeof import("../lib/agent-runtime").runAgentChat;
+type RunAgentChatOptions = Parameters<RunAgentChat>[0];
 
 void describe("local chat server", () => {
   void it("answers chat CORS preflight for allowed renderer origins", async () => {
@@ -106,117 +108,20 @@ void describe("local chat server", () => {
     assert.match(body.error, /reasoning must be one of/);
   });
 
-  void it("streams valid chat responses as an AI SDK UI message stream", async () => {
+  void it("routes chat responses through the provider-neutral agent runtime", async () => {
     const providerOptions = { mock: { reasoningEffort: "low" } };
-    const model = new MockLanguageModelV4({
-      doStream: async () => ({
-        stream: simulateReadableStream({
-          chunks: [
-            { type: "text-start", id: "text-1" },
-            { type: "text-delta", id: "text-1", delta: "Hello" },
-            { type: "text-delta", id: "text-1", delta: " from mock" },
-            { type: "text-end", id: "text-1" },
-            {
-              type: "finish",
-              finishReason: { unified: "stop", raw: undefined },
-              logprobs: undefined,
-              usage: {
-                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
-                outputTokens: { total: 4, text: 4, reasoning: undefined },
-              },
-            },
-          ],
-        }),
-      }),
-    });
+    const model = new MockLanguageModelV4({});
+    const captured: { value?: RunAgentChatOptions } = {};
     const app = createApp({
       sessionToken: token,
       resolveModel: (modelRef) => {
         assert.equal(modelRef, "mock/chat");
         return { model, temperature: 0.7, topP: 1, maxOutputTokens: 256, providerOptions };
       },
-      buildChatToolRuntime: buildNoChatTools,
       buildAgentSystemPrompt: () => "You are a test assistant.",
-    });
-
-    const response = await app.request("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        [CHAT_SESSION_HEADER]: token,
-      },
-      body: JSON.stringify({ messages: validMessages, model: "mock/chat", reasoning: "high" }),
-    });
-
-    assert.equal(response.status, 200);
-    assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
-    assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
-    const body = await response.text();
-    assert.match(body, /text-delta/);
-    assert.match(body, /Hello/);
-    assert.match(body, / from mock/);
-
-    const chunks = parseSseJsonChunks(body);
-    const startChunk = chunks.find((chunk) => chunk.type === "start");
-    const finishChunk = chunks.find((chunk) => chunk.type === "finish");
-    const startExecution = readExecutionMetadata(startChunk);
-    const finishExecution = readExecutionMetadata(finishChunk);
-    assert.equal(startExecution?.model, "mock/chat");
-    assert.equal(typeof startExecution?.startedAt, "number");
-    assert.equal(finishExecution?.model, "mock/chat");
-    assert.equal(finishExecution?.finishReason, "stop");
-    assert.equal(finishExecution?.inputTokens, 3);
-    assert.equal(finishExecution?.outputTokens, 4);
-    assert.equal(finishExecution?.totalTokens, 7);
-    assert.equal(typeof finishExecution?.durationMs, "number");
-
-    assert.deepEqual(model.doStreamCalls[0]?.providerOptions, providerOptions);
-    assert.equal(model.doStreamCalls[0]?.reasoning, "high");
-  });
-
-  void it("routes OpenAI chat requests through the Agents SDK runtime", async () => {
-    const model = new MockLanguageModelV4({
-      doStream: async () => ({
-        stream: simulateReadableStream({
-          chunks: [],
-        }),
-      }),
-    });
-    let called = false;
-    const toolSelection = { mode: "manual" as const, selectedToolIds: ["memory_search" as const] };
-    const app = createApp({
-      sessionToken: token,
-      resolveModel: (modelRef) => {
-        assert.equal(modelRef, "openai/gpt-test");
-        return {
-          model,
-          providerId: "openai",
-          providerKind: "openai",
-          modelId: "gpt-test",
-          temperature: 0.7,
-          topP: 1,
-          maxOutputTokens: 256,
-        };
-      },
-      buildChatToolRuntime: () => {
-        throw new Error("AI SDK fallback should not run for OpenAI provider models.");
-      },
-      buildAgentSystemPrompt: () => "Void root prompt",
-      runOpenAIAgentsChat: async (options) => {
-        called = true;
-        assert.equal(options.modelRef, "openai/gpt-test");
-        assert.equal(options.conversationId, "c-openai");
-        assert.equal(options.preferredAgentId, "agent-analyst");
-        assert.equal(options.reasoning, "high");
-        assert.deepEqual(options.toolSelection, toolSelection);
-        assert.equal(options.buildAgentSystemPrompt("agent-void", "c-openai"), "Void root prompt");
-        return new Response("agents-stream", {
-          status: 200,
-          headers: {
-            "Content-Type": "text/event-stream",
-            "x-vercel-ai-ui-message-stream": "v1",
-          },
-        });
+      runAgentChat: async (options) => {
+        captured.value = options;
+        return agentRuntimeResponse("runtime-stream");
       },
     });
 
@@ -228,41 +133,94 @@ void describe("local chat server", () => {
       },
       body: JSON.stringify({
         messages: validMessages,
-        model: "openai/gpt-test",
-        agentId: "agent-analyst",
-        conversationId: "c-openai",
+        model: "mock/chat",
+        conversationId: "c-stream",
         reasoning: "high",
-        toolSelection,
       }),
     });
 
-    assert.equal(called, true);
     assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
     assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
-    assert.equal(await response.text(), "agents-stream");
+    assert.equal(await response.text(), "runtime-stream");
+    assert.equal(captured.value?.modelRef, "mock/chat");
+    assert.equal(captured.value?.conversationId, "c-stream");
+    assert.equal(captured.value?.reasoning, "high");
+    assert.deepEqual(captured.value?.resolved.providerOptions, providerOptions);
+    assert.equal(
+      captured.value?.buildAgentSystemPrompt("agent-void", "c-stream"),
+      "You are a test assistant.",
+    );
   });
 
-  void it("injects prior assistant reactions into agent instructions", async () => {
-    const model = new MockLanguageModelV4({
-      doStream: async () => ({
-        stream: simulateReadableStream({
-          chunks: [
-            { type: "text-start", id: "text-1" },
-            { type: "text-delta", id: "text-1", delta: "Adjusted answer" },
-            { type: "text-end", id: "text-1" },
-            {
-              type: "finish",
-              finishReason: { unified: "stop", raw: undefined },
-              logprobs: undefined,
-              usage: {
-                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
-                outputTokens: { total: 2, text: 2, reasoning: undefined },
-              },
-            },
-          ],
+  void it("routes OpenAI and non-OpenAI providers through the same agent runtime", async () => {
+    const model = new MockLanguageModelV4({});
+    const toolSelection = { mode: "manual" as const, selectedToolIds: ["memory_search" as const] };
+    const providerCases: Array<[string, ModelProviderKind]> = [
+      ["openai/gpt-test", "openai"],
+      ["anthropic/claude-test", "anthropic"],
+      ["google/gemini-test", "google"],
+      ["openrouter/deepseek-test", "openai-compatible"],
+    ];
+
+    for (const [modelRef, providerKind] of providerCases) {
+      let called = false;
+      const app = createApp({
+        sessionToken: token,
+        resolveModel: (requestedRef) => {
+          assert.equal(requestedRef, modelRef);
+          return {
+            model,
+            providerId: modelRef.split("/")[0],
+            providerKind,
+            modelId: modelRef.split("/")[1],
+            temperature: 0.7,
+            topP: 1,
+            maxOutputTokens: 256,
+          };
+        },
+        buildAgentSystemPrompt: () => "Void root prompt",
+        runAgentChat: async (options) => {
+          called = true;
+          assert.equal(options.modelRef, modelRef);
+          assert.equal(options.conversationId, "c-neutral");
+          assert.equal(options.preferredAgentId, "agent-analyst");
+          assert.equal(options.reasoning, "high");
+          assert.deepEqual(options.toolSelection, toolSelection);
+          assert.equal(options.resolved.providerKind, providerKind);
+          assert.equal(
+            options.buildAgentSystemPrompt("agent-void", "c-neutral"),
+            "Void root prompt",
+          );
+          return agentRuntimeResponse("agents-stream");
+        },
+      });
+
+      const response = await app.request("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [CHAT_SESSION_HEADER]: token,
+        },
+        body: JSON.stringify({
+          messages: validMessages,
+          model: modelRef,
+          agentId: "agent-analyst",
+          conversationId: "c-neutral",
+          reasoning: "high",
+          toolSelection,
         }),
-      }),
-    });
+      });
+
+      assert.equal(called, true);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
+      assert.equal(await response.text(), "agents-stream");
+    }
+  });
+
+  void it("passes prior assistant reactions to the agent runtime", async () => {
+    const model = new MockLanguageModelV4({});
     const messages: UIMessage[] = [
       { id: "u1", role: "user", parts: [{ type: "text", text: "Explain streams" }] },
       {
@@ -278,8 +236,12 @@ void describe("local chat server", () => {
     const app = createApp({
       sessionToken: token,
       resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
-      buildChatToolRuntime: buildNoChatTools,
       buildAgentSystemPrompt: () => "Base instructions.",
+      runAgentChat: async (options) => {
+        assert.deepEqual(options.messages, messages);
+        assert.equal(options.buildAgentSystemPrompt("agent-void", undefined), "Base instructions.");
+        return agentRuntimeResponse("reaction-stream");
+      },
     });
 
     const response = await app.request("/api/chat", {
@@ -292,155 +254,56 @@ void describe("local chat server", () => {
     });
 
     assert.equal(response.status, 200);
-    await response.text();
-    const call = JSON.stringify(model.doStreamCalls[0]);
-    assert.match(call, /Base instructions/);
-    assert.match(call, /Private user feedback/);
-    assert.match(call, /helpful/);
-    assert.match(call, /This answer used a terse explanation/);
-  });
-  void it("omits provider-default reasoning when calling the model", async () => {
-    const model = new MockLanguageModelV4({
-      doStream: async () => ({
-        stream: simulateReadableStream({
-          chunks: [
-            { type: "text-start", id: "text-1" },
-            { type: "text-delta", id: "text-1", delta: "Hello" },
-            { type: "text-end", id: "text-1" },
-            {
-              type: "finish",
-              finishReason: { unified: "stop", raw: undefined },
-              logprobs: undefined,
-              usage: {
-                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
-                outputTokens: { total: 1, text: 1, reasoning: undefined },
-              },
-            },
-          ],
-        }),
-      }),
-    });
-    const app = createApp({
-      sessionToken: token,
-      resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
-      buildChatToolRuntime: buildNoChatTools,
-      buildAgentSystemPrompt: () => "You are a test assistant.",
-    });
-
-    const response = await app.request("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        [CHAT_SESSION_HEADER]: token,
-      },
-      body: JSON.stringify({
-        messages: validMessages,
-        model: "mock/chat",
-        reasoning: "provider-default",
-      }),
-    });
-
-    assert.equal(response.status, 200);
-    await response.text();
-    assert.equal(model.doStreamCalls[0]?.reasoning, undefined);
+    assert.equal(await response.text(), "reaction-stream");
   });
 
-  void it("omits none reasoning when calling the model", async () => {
-    const model = new MockLanguageModelV4({
-      doStream: async () => ({
-        stream: simulateReadableStream({
-          chunks: [
-            { type: "text-start", id: "text-1" },
-            { type: "text-delta", id: "text-1", delta: "Hello" },
-            { type: "text-end", id: "text-1" },
-            {
-              type: "finish",
-              finishReason: { unified: "stop", raw: undefined },
-              logprobs: undefined,
-              usage: {
-                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
-                outputTokens: { total: 1, text: 1, reasoning: undefined },
-              },
-            },
-          ],
+  void it("normalizes provider-default, none, and incompatible minimal reasoning", async () => {
+    const model = new MockLanguageModelV4({});
+    const cases: Array<{
+      reasoning: string;
+      providerKind?: ModelProviderKind;
+      expected: RunAgentChatOptions["reasoning"];
+    }> = [
+      { reasoning: "provider-default", expected: undefined },
+      { reasoning: "none", expected: undefined },
+      { reasoning: "minimal", providerKind: "openai-compatible", expected: undefined },
+    ];
+
+    for (const testCase of cases) {
+      const captured: { value?: RunAgentChatOptions } = {};
+      const app = createApp({
+        sessionToken: token,
+        resolveModel: () => ({
+          model,
+          providerKind: testCase.providerKind,
+          temperature: 0.7,
+          topP: 1,
+          maxOutputTokens: 256,
         }),
-      }),
-    });
-    const app = createApp({
-      sessionToken: token,
-      resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
-      buildChatToolRuntime: buildNoChatTools,
-      buildAgentSystemPrompt: () => "You are a test assistant.",
-    });
+        buildAgentSystemPrompt: () => "You are a test assistant.",
+        runAgentChat: async (options) => {
+          captured.value = options;
+          return agentRuntimeResponse("reasoning-stream");
+        },
+      });
 
-    const response = await app.request("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        [CHAT_SESSION_HEADER]: token,
-      },
-      body: JSON.stringify({
-        messages: validMessages,
-        model: "mock/chat",
-        reasoning: "none",
-      }),
-    });
-
-    assert.equal(response.status, 200);
-    await response.text();
-    assert.equal(model.doStreamCalls[0]?.reasoning, undefined);
-  });
-
-  void it("omits incompatible minimal reasoning for openai-compatible models", async () => {
-    const model = new MockLanguageModelV4({
-      doStream: async () => ({
-        stream: simulateReadableStream({
-          chunks: [
-            { type: "text-start", id: "text-1" },
-            { type: "text-delta", id: "text-1", delta: "Hello" },
-            { type: "text-end", id: "text-1" },
-            {
-              type: "finish",
-              finishReason: { unified: "stop", raw: undefined },
-              logprobs: undefined,
-              usage: {
-                inputTokens: { total: 3, noCache: 3, cacheRead: undefined, cacheWrite: undefined },
-                outputTokens: { total: 1, text: 1, reasoning: undefined },
-              },
-            },
-          ],
+      const response = await app.request("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [CHAT_SESSION_HEADER]: token,
+        },
+        body: JSON.stringify({
+          messages: validMessages,
+          model: "mock/chat",
+          reasoning: testCase.reasoning,
         }),
-      }),
-    });
-    const app = createApp({
-      sessionToken: token,
-      resolveModel: () => ({
-        model,
-        providerKind: "openai-compatible",
-        temperature: 0.7,
-        topP: 1,
-        maxOutputTokens: 256,
-      }),
-      buildChatToolRuntime: buildNoChatTools,
-      buildAgentSystemPrompt: () => "You are a test assistant.",
-    });
+      });
 
-    const response = await app.request("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        [CHAT_SESSION_HEADER]: token,
-      },
-      body: JSON.stringify({
-        messages: validMessages,
-        model: "mock/chat",
-        reasoning: "minimal",
-      }),
-    });
-
-    assert.equal(response.status, 200);
-    await response.text();
-    assert.equal(model.doStreamCalls[0]?.reasoning, undefined);
+      assert.equal(response.status, 200);
+      await response.text();
+      assert.equal(captured.value?.reasoning, testCase.expected);
+    }
   });
 });
 
@@ -588,23 +451,16 @@ void describe("local chat server /api/media/generate", () => {
   });
 });
 
-function parseSseJsonChunks(body: string): Array<Record<string, unknown>> {
-  return body
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
-    .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+function agentRuntimeResponse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "x-vercel-ai-ui-message-stream": "v1",
+    },
+  });
 }
 
-function readExecutionMetadata(
-  chunk: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  const metadata = chunk?.messageMetadata;
-  if (!metadata || typeof metadata !== "object") return undefined;
-  const execution = (metadata as { execution?: unknown }).execution;
-  return execution && typeof execution === "object"
-    ? (execution as Record<string, unknown>)
-    : undefined;
-}
 function postMedia(app: ReturnType<typeof createApp>, body: unknown): Promise<Response> {
   return Promise.resolve(
     app.request("/api/media/generate", {

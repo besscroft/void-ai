@@ -40,10 +40,15 @@ import {
   agents,
   agentRuns,
   agentRuntimeState,
+  agentRunSteps,
+  conversationAgentState,
   memories,
   workflows,
   workflowRuns,
   harnessEvents,
+  sandboxSessions,
+  sandboxSnapshots,
+  sandboxArtifacts,
   serverNodes,
   interactionProfiles,
   syncState,
@@ -53,10 +58,19 @@ import {
   type AgentRun,
   type NewAgentRun,
   type AgentRuntimeState,
+  type AgentRunStep,
+  type NewAgentRunStep,
+  type ConversationAgentState,
   type MemoryRecord,
   type WorkflowDefinition,
   type WorkflowRun,
   type HarnessEvent,
+  type SandboxSession,
+  type NewSandboxSession,
+  type SandboxSnapshot,
+  type NewSandboxSnapshot,
+  type SandboxArtifact,
+  type NewSandboxArtifact,
   type ServerNode,
   type InteractionProfile,
   type SyncState,
@@ -68,10 +82,15 @@ export type {
   AgentProfile,
   AgentRun,
   AgentRuntimeState,
+  AgentRunStep,
+  ConversationAgentState,
   MemoryRecord,
   WorkflowDefinition,
   WorkflowRun,
   HarnessEvent,
+  SandboxSession,
+  SandboxSnapshot,
+  SandboxArtifact,
   ServerNode,
   InteractionProfile,
   SyncState,
@@ -94,7 +113,8 @@ let dbInstance: DbInstance | null = null;
  * 路径：app.getPath('userData')/data
  */
 function resolveDataDir(): string {
-  const dir = join(app.getPath("userData"), DATA_DIRNAME);
+  const userDataDir = process.env.VOID_AI_USER_DATA_DIR || app.getPath("userData");
+  const dir = join(userDataDir, DATA_DIRNAME);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -108,7 +128,11 @@ function resolveMigrationsFolder(): string {
   if (is.dev) {
     // dev 下 __dirname = apps/desktop/out/main
     // 上溯两级到 apps/desktop，再进入 drizzle 目录
-    return join(__dirname, "..", "..", "drizzle");
+    const candidates = [
+      join(__dirname, "..", "..", "drizzle"),
+      join(__dirname, "..", "..", "..", "drizzle"),
+    ];
+    return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
   }
   return join(process.resourcesPath, "drizzle");
 }
@@ -525,6 +549,7 @@ export function updateAgent(id: string, input: Partial<AgentInput>): AgentProfil
       kind: next.kind,
       parent_agent_id: next.parent_agent_id,
       locked: next.locked,
+      enabled: next.enabled,
       tool_policy_json: next.tool_policy_json,
       handoff_config_json: next.handoff_config_json,
       runtime_config_json: next.runtime_config_json,
@@ -610,6 +635,7 @@ export function duplicateAgent(id: string): AgentProfile {
     soul_prompt: existing.soul_prompt,
     avatar: existing.avatar,
     status: existing.status === "archived" ? "draft" : existing.status,
+    enabled: existing.enabled,
     model_ref: existing.model_ref,
     voice: existing.voice,
     tool_policy_json: existing.tool_policy_json,
@@ -627,6 +653,15 @@ export function duplicateAgent(id: string): AgentProfile {
 
 export function listAgentRuns(limit = 50): AgentRun[] {
   return getDb().select().from(agentRuns).orderBy(desc(agentRuns.started_at)).limit(limit).all();
+}
+
+export function listAgentRunSteps(limit = 200): AgentRunStep[] {
+  return getDb()
+    .select()
+    .from(agentRunSteps)
+    .orderBy(desc(agentRunSteps.started_at))
+    .limit(limit)
+    .all();
 }
 
 export function createAgentRun(
@@ -678,6 +713,55 @@ export function updateAgentRun(
     .where(eq(agentRuns.id, id))
     .run();
   return getDb().select().from(agentRuns).where(eq(agentRuns.id, id)).get() ?? null;
+}
+
+export function createAgentRunStep(
+  input: Omit<NewAgentRunStep, "id" | "started_at" | "detail_json"> & {
+    id?: string;
+    started_at?: number;
+    detail?: unknown;
+    detail_json?: string;
+  },
+): AgentRunStep {
+  const row: NewAgentRunStep = {
+    id: input.id ?? randomUUID(),
+    run_id: input.run_id,
+    agent_id: input.agent_id ?? null,
+    kind: input.kind,
+    status: input.status,
+    title: input.title,
+    detail_json: input.detail_json ?? JSON.stringify(sanitizeHarnessDetail(input.detail ?? {})),
+    started_at: input.started_at ?? Date.now(),
+    finished_at: input.finished_at ?? null,
+    error: input.error ?? null,
+  };
+  getDb().insert(agentRunSteps).values(row).run();
+  return row as AgentRunStep;
+}
+
+export function updateAgentRunStep(
+  id: string,
+  patch: Partial<Omit<AgentRunStep, "id" | "run_id" | "started_at">> & { detail?: unknown },
+): AgentRunStep | null {
+  const existing = getDb().select().from(agentRunSteps).where(eq(agentRunSteps.id, id)).get();
+  if (!existing) return null;
+  getDb()
+    .update(agentRunSteps)
+    .set({
+      agent_id: patch.agent_id === undefined ? existing.agent_id : patch.agent_id,
+      kind: patch.kind ?? existing.kind,
+      status: patch.status ?? existing.status,
+      title: patch.title ?? existing.title,
+      detail_json:
+        patch.detail !== undefined
+          ? JSON.stringify(sanitizeHarnessDetail(patch.detail))
+          : (patch.detail_json ?? existing.detail_json),
+      finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
+      error: patch.error === undefined ? existing.error : patch.error,
+    })
+    .where(eq(agentRunSteps.id, id))
+    .run();
+  return getDb().select().from(agentRunSteps).where(eq(agentRunSteps.id, id)).get() ?? null;
 }
 
 export function listAgentRuntimeStates(): AgentRuntimeState[] {
@@ -735,12 +819,169 @@ export function upsertAgentRuntimeState(
 
 export function runtimeSnapshot(): {
   agentRuns: AgentRun[];
+  agentRunSteps: AgentRunStep[];
   agentRuntimeStates: AgentRuntimeState[];
+  conversationAgentStates: ConversationAgentState[];
+  sandboxSessions: SandboxSession[];
+  sandboxSnapshots: SandboxSnapshot[];
+  sandboxArtifacts: SandboxArtifact[];
 } {
   return {
     agentRuns: listAgentRuns(),
+    agentRunSteps: listAgentRunSteps(),
     agentRuntimeStates: listAgentRuntimeStates(),
+    conversationAgentStates: listConversationAgentStates(),
+    sandboxSessions: listSandboxSessions(),
+    sandboxSnapshots: listSandboxSnapshots(),
+    sandboxArtifacts: listSandboxArtifacts(),
   };
+}
+
+export function listConversationAgentStates(): ConversationAgentState[] {
+  return getDb()
+    .select()
+    .from(conversationAgentState)
+    .orderBy(desc(conversationAgentState.updated_at))
+    .all();
+}
+
+export function upsertConversationAgentState(
+  patch: Partial<ConversationAgentState> & { conversation_id: string },
+): ConversationAgentState {
+  const now = Date.now();
+  const existing = getDb()
+    .select()
+    .from(conversationAgentState)
+    .where(eq(conversationAgentState.conversation_id, patch.conversation_id))
+    .get();
+  const row: ConversationAgentState = {
+    conversation_id: patch.conversation_id,
+    active_agent_id:
+      patch.active_agent_id === undefined
+        ? (existing?.active_agent_id ?? null)
+        : patch.active_agent_id,
+    current_run_id:
+      patch.current_run_id === undefined
+        ? (existing?.current_run_id ?? null)
+        : patch.current_run_id,
+    current_step_id:
+      patch.current_step_id === undefined
+        ? (existing?.current_step_id ?? null)
+        : patch.current_step_id,
+    status: patch.status ?? existing?.status ?? "idle",
+    summary: patch.summary === undefined ? (existing?.summary ?? null) : patch.summary,
+    updated_at: now,
+  };
+  getDb()
+    .insert(conversationAgentState)
+    .values(row)
+    .onConflictDoUpdate({
+      target: conversationAgentState.conversation_id,
+      set: {
+        active_agent_id: row.active_agent_id,
+        current_run_id: row.current_run_id,
+        current_step_id: row.current_step_id,
+        status: row.status,
+        summary: row.summary,
+        updated_at: now,
+      },
+    })
+    .run();
+  return row;
+}
+
+export function listSandboxSessions(limit = 50): SandboxSession[] {
+  return getDb()
+    .select()
+    .from(sandboxSessions)
+    .orderBy(desc(sandboxSessions.updated_at))
+    .limit(limit)
+    .all();
+}
+
+export function upsertSandboxSession(input: NewSandboxSession): SandboxSession {
+  const row: NewSandboxSession = {
+    ...input,
+    docker_available: input.docker_available ?? 0,
+    created_at: input.created_at ?? Date.now(),
+    updated_at: input.updated_at ?? Date.now(),
+  };
+  getDb()
+    .insert(sandboxSessions)
+    .values(row)
+    .onConflictDoUpdate({
+      target: sandboxSessions.id,
+      set: {
+        conversation_id: row.conversation_id ?? null,
+        run_id: row.run_id ?? null,
+        agent_id: row.agent_id ?? null,
+        root_path: row.root_path,
+        isolation_mode: row.isolation_mode,
+        status: row.status,
+        docker_available: row.docker_available,
+        updated_at: row.updated_at,
+      },
+    })
+    .run();
+  return getDb().select().from(sandboxSessions).where(eq(sandboxSessions.id, row.id)).get()!;
+}
+
+export function listSandboxSnapshots(limit = 100): SandboxSnapshot[] {
+  return getDb()
+    .select()
+    .from(sandboxSnapshots)
+    .orderBy(desc(sandboxSnapshots.created_at))
+    .limit(limit)
+    .all();
+}
+
+export function insertSandboxSnapshot(
+  input: Omit<NewSandboxSnapshot, "id" | "created_at"> & {
+    id?: string;
+    created_at?: number;
+  },
+): SandboxSnapshot {
+  const row: NewSandboxSnapshot = {
+    id: input.id ?? randomUUID(),
+    session_id: input.session_id,
+    label: input.label,
+    manifest_json: input.manifest_json,
+    created_at: input.created_at ?? Date.now(),
+  };
+  getDb().insert(sandboxSnapshots).values(row).run();
+  return row as SandboxSnapshot;
+}
+
+export function getSandboxSnapshot(id: string): SandboxSnapshot | null {
+  return getDb().select().from(sandboxSnapshots).where(eq(sandboxSnapshots.id, id)).get() ?? null;
+}
+
+export function listSandboxArtifacts(limit = 100): SandboxArtifact[] {
+  return getDb()
+    .select()
+    .from(sandboxArtifacts)
+    .orderBy(desc(sandboxArtifacts.created_at))
+    .limit(limit)
+    .all();
+}
+
+export function insertSandboxArtifact(
+  input: Omit<NewSandboxArtifact, "id" | "created_at"> & {
+    id?: string;
+    created_at?: number;
+  },
+): SandboxArtifact {
+  const row: NewSandboxArtifact = {
+    id: input.id ?? randomUUID(),
+    session_id: input.session_id,
+    kind: input.kind,
+    path: input.path,
+    url: input.url ?? null,
+    size_bytes: input.size_bytes ?? null,
+    created_at: input.created_at ?? Date.now(),
+  };
+  getDb().insert(sandboxArtifacts).values(row).run();
+  return row as SandboxArtifact;
 }
 
 export function updateVoidLearningState(input: {
@@ -815,6 +1056,7 @@ function normalizeAgentInput({
     kind: "child",
     parent_agent_id: DEFAULT_AGENT_ID,
     locked: 0,
+    enabled: normalizeEnabled(input.enabled ?? existing?.enabled ?? 1),
     tool_policy_json: normalizeJsonObjectString(
       input.tool_policy_json ?? existing?.tool_policy_json,
       DEFAULT_AGENT_TOOL_POLICY,
@@ -884,6 +1126,13 @@ function normalizeNullableText(raw: unknown, maxLength: number): string | null {
 function normalizeAvatar(raw: unknown): string {
   const text = coercePlainText(raw, "A").trim();
   return ((text.match(/[A-Za-z0-9]/)?.[0] ?? text.slice(0, 1)) || "A").toUpperCase();
+}
+
+function normalizeEnabled(raw: unknown): number {
+  if (typeof raw === "boolean") return raw ? 1 : 0;
+  if (typeof raw === "number") return raw === 0 ? 0 : 1;
+  if (typeof raw === "string") return raw === "0" || raw.toLowerCase() === "false" ? 0 : 1;
+  return 1;
 }
 
 function coercePlainText(raw: unknown, fallback = ""): string {
@@ -1037,7 +1286,12 @@ export function getSyncState(): SyncState {
 export function getWorkspaceSnapshot(): {
   agents: AgentProfile[];
   agentRuns: AgentRun[];
+  agentRunSteps: AgentRunStep[];
   agentRuntimeStates: AgentRuntimeState[];
+  conversationAgentStates: ConversationAgentState[];
+  sandboxSessions: SandboxSession[];
+  sandboxSnapshots: SandboxSnapshot[];
+  sandboxArtifacts: SandboxArtifact[];
   memories: MemoryRecord[];
   workflows: WorkflowDefinition[];
   workflowRuns: WorkflowRun[];
@@ -1049,7 +1303,12 @@ export function getWorkspaceSnapshot(): {
   return {
     agents: listAgents(),
     agentRuns: listAgentRuns(),
+    agentRunSteps: listAgentRunSteps(),
     agentRuntimeStates: listAgentRuntimeStates(),
+    conversationAgentStates: listConversationAgentStates(),
+    sandboxSessions: listSandboxSessions(),
+    sandboxSnapshots: listSandboxSnapshots(),
+    sandboxArtifacts: listSandboxArtifacts(),
     memories: listMemories(),
     workflows: listWorkflows(),
     workflowRuns: listWorkflowRuns(),
@@ -1114,6 +1373,7 @@ function seedWorkspaceDefaults(): void {
           kind: "main",
           parent_agent_id: null,
           locked: 1,
+          enabled: 1,
           tool_policy_json: JSON.stringify(DEFAULT_AGENT_TOOL_POLICY),
           handoff_config_json: JSON.stringify({
             ...DEFAULT_AGENT_HANDOFF_CONFIG,
@@ -1138,6 +1398,7 @@ function seedWorkspaceDefaults(): void {
           kind: "child",
           parent_agent_id: DEFAULT_AGENT_ID,
           locked: 0,
+          enabled: 1,
           tool_policy_json: JSON.stringify(DEFAULT_AGENT_TOOL_POLICY),
           handoff_config_json: JSON.stringify({
             ...DEFAULT_AGENT_HANDOFF_CONFIG,
@@ -1163,6 +1424,7 @@ function seedWorkspaceDefaults(): void {
           kind: "child",
           parent_agent_id: DEFAULT_AGENT_ID,
           locked: 0,
+          enabled: 0,
           tool_policy_json: JSON.stringify({
             ...DEFAULT_AGENT_TOOL_POLICY,
             mode: "custom",
@@ -1423,6 +1685,7 @@ function backfillAgentOrchestrationDefaults(now: number): void {
         kind: isVoid ? "main" : (agent.kind ?? "child"),
         parent_agent_id: isVoid ? null : (agent.parent_agent_id ?? DEFAULT_AGENT_ID),
         locked: isVoid ? 1 : (agent.locked ?? 0),
+        enabled: isVoid ? 1 : normalizeEnabled(agent.enabled ?? 1),
         tool_policy_json: normalizeJsonObjectString(
           agent.tool_policy_json,
           DEFAULT_AGENT_TOOL_POLICY,

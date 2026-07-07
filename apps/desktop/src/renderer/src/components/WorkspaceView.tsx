@@ -7,6 +7,7 @@ import {
   Drawer,
   Input,
   Label,
+  Switch,
   Table,
   Tabs,
   TextArea,
@@ -28,6 +29,7 @@ import {
   type AgentRuntimeStatus,
   type AgentToolPolicy,
   type ChatToolId,
+  type ManagedModelInfo,
   type WorkflowStep,
 } from "@shared/types";
 import {
@@ -50,6 +52,7 @@ export type WorkspaceSection =
   | "agents"
   | "workflows"
   | "memory"
+  | "sandbox"
   | "harness"
   | "server"
   | "interactions"
@@ -64,6 +67,7 @@ const sectionTitleKey: Record<WorkspaceSection, TranslationKey> = {
   agents: "workspace.title.agents",
   workflows: "workspace.title.workflows",
   memory: "workspace.title.memory",
+  sandbox: "workspace.title.sandbox",
   harness: "workspace.title.harness",
   server: "workspace.title.server",
   interactions: "workspace.title.interactions",
@@ -75,6 +79,7 @@ const sectionSubtitleKey: Record<WorkspaceSection, TranslationKey> = {
   agents: "workspace.subtitle.agents",
   workflows: "workspace.subtitle.workflows",
   memory: "workspace.subtitle.memory",
+  sandbox: "workspace.subtitle.sandbox",
   harness: "workspace.subtitle.harness",
   server: "workspace.subtitle.server",
   interactions: "workspace.subtitle.interactions",
@@ -107,8 +112,10 @@ const runtimeStatusLabels: Record<AgentRuntimeStatus, string> = {
   idle: "Idle",
   queued: "Queued",
   running: "Running",
+  reviewing: "Reviewing",
   handoff: "Handoff",
   tool_calling: "Tool calling",
+  sandbox: "Sandbox",
   learning: "Learning",
   failed: "Failed",
 };
@@ -208,6 +215,7 @@ function WorkspaceContent({
   if (section === "agents") return <AgentsPanel snapshot={snapshot} refresh={refresh} />;
   if (section === "workflows") return <WorkflowsPanel snapshot={snapshot} />;
   if (section === "memory") return <MemoryPanel snapshot={snapshot} />;
+  if (section === "sandbox") return <SandboxPanel snapshot={snapshot} />;
   if (section === "harness") return <HarnessPanel snapshot={snapshot} />;
   if (section === "server") return <ServerPanel snapshot={snapshot} />;
   if (section === "interactions") return <InteractionsPanel snapshot={snapshot} />;
@@ -296,6 +304,7 @@ type AgentFormState = {
   soul_prompt: string;
   avatar: string;
   status: AgentProfile["status"];
+  enabled: boolean;
   model_ref: string;
   voice: string;
   toolPolicy: AgentToolPolicy;
@@ -317,6 +326,18 @@ function AgentsPanel({
   const [tab, setTab] = useState("identity");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [managedModels, setManagedModels] = useState<ManagedModelInfo[]>([]);
+
+  useEffect(() => {
+    void api.providers
+      .listManagedModels()
+      .then((models) =>
+        setManagedModels(
+          models.filter((model) => model.enabled && model.capabilities.textGeneration),
+        ),
+      )
+      .catch(() => setManagedModels([]));
+  }, []);
 
   const runtimeByAgent = useMemo(
     () => new Map(snapshot.agentRuntimeStates.map((state) => [state.agent_id, state])),
@@ -462,6 +483,7 @@ function AgentsPanel({
                     <Table.Header>
                       <Table.Column isRowHeader>Agent</Table.Column>
                       <Table.Column>Status</Table.Column>
+                      <Table.Column>Enabled</Table.Column>
                       <Table.Column>Tools</Table.Column>
                       <Table.Column>Handoff</Table.Column>
                       <Table.Column>Latest run</Table.Column>
@@ -501,6 +523,16 @@ function AgentsPanel({
                                 <StatusChip status={agent.status} />
                                 <StatusChip status={runtime?.status ?? "idle"} />
                               </div>
+                            </Table.Cell>
+                            <Table.Cell>
+                              <Switch
+                                size="sm"
+                                isSelected={agent.enabled !== 0}
+                                onChange={(enabled) =>
+                                  void runAction(() => api.agents.update(agent.id, { enabled }))
+                                }
+                                aria-label={`Enable ${agent.name}`}
+                              />
                             </Table.Cell>
                             <Table.Cell>
                               <span className="text-xs text-foreground/60">
@@ -581,6 +613,7 @@ function AgentsPanel({
         onChange={setForm}
         onSave={() => void saveAgent()}
         runs={editingAgent ? runsForAgent(snapshot.agentRuns, editingAgent.id) : []}
+        managedModels={managedModels}
         selectedTab={tab}
         setSelectedTab={setTab}
         state={drawerState}
@@ -600,14 +633,17 @@ function AgentRuntimeBand({
   const states = snapshot.agentRuntimeStates;
   const voidState = states.find((state) => state.agent_id === DEFAULT_AGENT_ID);
   const activeChildren = snapshot.agents.filter(
-    (agent) => agent.kind === "child" && agent.status === "active",
+    (agent) => agent.kind === "child" && agent.status === "active" && agent.enabled !== 0,
   ).length;
   const busyCount = states.filter((state) =>
-    ["queued", "running", "handoff", "tool_calling", "learning"].includes(state.status),
+    ["queued", "running", "reviewing", "handoff", "tool_calling", "sandbox", "learning"].includes(
+      state.status,
+    ),
   ).length;
   const failedCount = states.filter((state) => state.status === "failed").length;
   const latestHandoff = snapshot.harnessEvents.find((event) => event.kind === "handoff");
   const latestLearning = snapshot.harnessEvents.find((event) => event.kind === "learning");
+  const latestConversationState = snapshot.conversationAgentStates[0];
 
   return (
     <section className="rounded-md border border-foreground/10 bg-foreground/[0.025] px-4 py-3">
@@ -621,12 +657,18 @@ function AgentRuntimeBand({
               : "Root orchestrator"
           }
         />
-        <BandMetric label="Running" value={busyCount} detail="queued, handoff, tools, learning" />
+        <BandMetric label="Running" value={busyCount} detail="run, review, handoff, sandbox" />
         <BandMetric label="Children" value={activeChildren} detail="active child agents" />
         <BandMetric
-          label="Handoff"
-          value={latestHandoff ? f.dateTime(latestHandoff.created_at) : "None"}
-          detail={latestHandoff?.title ?? "No delegated task yet"}
+          label="Current"
+          value={
+            latestConversationState ? (
+              <StatusChip status={latestConversationState.status} />
+            ) : (
+              "None"
+            )
+          }
+          detail={latestConversationState?.summary ?? latestHandoff?.title ?? "No agent activity"}
         />
         {!compact ? (
           <BandMetric
@@ -671,6 +713,7 @@ function AgentDrawer({
   onChange,
   onSave,
   runs,
+  managedModels,
   selectedTab,
   setSelectedTab,
   state,
@@ -681,6 +724,7 @@ function AgentDrawer({
   onChange: (next: AgentFormState) => void;
   onSave: () => void;
   runs: WorkspaceSnapshot["agentRuns"];
+  managedModels: ManagedModelInfo[];
   selectedTab: string;
   setSelectedTab: (key: string) => void;
   state: ReturnType<typeof useOverlayState>;
@@ -745,6 +789,21 @@ function AgentDrawer({
                         ["archived", "Archived"],
                       ]}
                     />
+                    <div className="flex items-end">
+                      <Switch
+                        size="sm"
+                        isSelected={form.enabled}
+                        onChange={(enabled) => onChange({ ...form, enabled })}
+                        aria-label="Agent enabled"
+                      >
+                        <Switch.Content>
+                          <Switch.Control>
+                            <Switch.Thumb />
+                          </Switch.Control>
+                          Enabled for orchestration
+                        </Switch.Content>
+                      </Switch>
+                    </div>
                   </div>
                   <TextAreaField
                     label="Description"
@@ -771,11 +830,20 @@ function AgentDrawer({
 
                 <Tabs.Panel id="tools" className="space-y-4 pt-4">
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <TextInputField
+                    <SelectField
                       label="Model override"
-                      placeholder="provider/model or empty"
                       value={form.model_ref}
                       onChange={(model_ref) => onChange({ ...form, model_ref })}
+                      options={[
+                        ["", "Inherit selected chat model"],
+                        ...managedModels.map(
+                          (model) =>
+                            [
+                              model.ref,
+                              `${model.providerLabel} / ${model.modelLabel ?? model.modelId}`,
+                            ] satisfies [string, string],
+                        ),
+                      ]}
                     />
                     <TextInputField
                       label="Voice"
@@ -807,6 +875,91 @@ function AgentDrawer({
                           runtimeConfig: { ...form.runtimeConfig, temperature },
                         })
                       }
+                    />
+                    <NumberField
+                      label="Top-P"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={form.runtimeConfig.topP ?? 1}
+                      onChange={(topP) =>
+                        onChange({
+                          ...form,
+                          runtimeConfig: { ...form.runtimeConfig, topP },
+                        })
+                      }
+                    />
+                    <NumberField
+                      label="Max output tokens"
+                      min={1}
+                      max={32768}
+                      value={form.runtimeConfig.maxOutputTokens ?? 4096}
+                      onChange={(maxOutputTokens) =>
+                        onChange({
+                          ...form,
+                          runtimeConfig: { ...form.runtimeConfig, maxOutputTokens },
+                        })
+                      }
+                    />
+                    <SelectField
+                      label="Reasoning"
+                      value={form.runtimeConfig.reasoning ?? "provider-default"}
+                      onChange={(reasoning) =>
+                        onChange({
+                          ...form,
+                          runtimeConfig: {
+                            ...form.runtimeConfig,
+                            reasoning: reasoning as AgentRuntimeConfig["reasoning"],
+                          },
+                        })
+                      }
+                      options={[
+                        ["provider-default", "Provider default"],
+                        ["none", "None"],
+                        ["minimal", "Minimal"],
+                        ["low", "Low"],
+                        ["medium", "Medium"],
+                        ["high", "High"],
+                        ["xhigh", "XHigh"],
+                      ]}
+                    />
+                    <SelectField
+                      label="Review policy"
+                      value={form.runtimeConfig.reviewPolicy ?? "review_sensitive"}
+                      onChange={(reviewPolicy) =>
+                        onChange({
+                          ...form,
+                          runtimeConfig: {
+                            ...form.runtimeConfig,
+                            reviewPolicy: reviewPolicy as AgentRuntimeConfig["reviewPolicy"],
+                          },
+                        })
+                      }
+                      options={[
+                        ["inherit", "Inherit"],
+                        ["auto", "Auto allow low risk"],
+                        ["review_sensitive", "Review sensitive"],
+                        ["review_all", "Review all tools"],
+                      ]}
+                    />
+                    <SelectField
+                      label="Sandbox policy"
+                      value={form.runtimeConfig.sandboxPolicy ?? "local"}
+                      onChange={(sandboxPolicy) =>
+                        onChange({
+                          ...form,
+                          runtimeConfig: {
+                            ...form.runtimeConfig,
+                            sandboxPolicy: sandboxPolicy as AgentRuntimeConfig["sandboxPolicy"],
+                          },
+                        })
+                      }
+                      options={[
+                        ["inherit", "Inherit"],
+                        ["disabled", "Disabled"],
+                        ["local", "Local restricted"],
+                        ["docker", "Docker preferred"],
+                      ]}
                     />
                   </div>
                   <ToolPolicyEditor form={form} onChange={onChange} />
@@ -1208,6 +1361,7 @@ function buildAgentForm(agent?: AgentProfile): AgentFormState {
     soul_prompt: agent?.soul_prompt ?? "",
     avatar: agent?.avatar ?? "A",
     status: agent?.status ?? "active",
+    enabled: agent?.enabled !== 0,
     model_ref: agent?.model_ref ?? "",
     voice: agent?.voice ?? "",
     toolPolicy: copyToolPolicy(
@@ -1236,6 +1390,7 @@ function buildAgentInput(form: AgentFormState): AgentInput {
     soul_prompt: form.soul_prompt,
     avatar: form.avatar,
     status: form.status,
+    enabled: form.enabled,
     model_ref: form.model_ref.trim() || null,
     voice: form.voice.trim() || null,
     tool_policy_json: JSON.stringify(copyToolPolicy(form.toolPolicy)),
@@ -1375,6 +1530,155 @@ function MemoryPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.E
           </Card.Header>
         </Card>
       ))}
+    </div>
+  );
+}
+
+function SandboxPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.Element {
+  const { f } = useT();
+  const sandboxSteps = snapshot.agentRunSteps
+    .filter((step) => step.kind === "sandbox")
+    .slice(0, 12);
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          icon={<IconLayout />}
+          label="Sessions"
+          value={f.number(snapshot.sandboxSessions.length)}
+          detail="local-first sandbox runs"
+        />
+        <MetricCard
+          icon={<IconDatabase />}
+          label="Snapshots"
+          value={f.number(snapshot.sandboxSnapshots.length)}
+          detail="restorable file states"
+        />
+        <MetricCard
+          icon={<IconGlobe />}
+          label="Artifacts"
+          value={f.number(snapshot.sandboxArtifacts.length)}
+          detail="files and preview ports"
+        />
+        <MetricCard
+          icon={<IconCpu />}
+          label="Actions"
+          value={f.number(sandboxSteps.length)}
+          detail="recent sandbox steps"
+        />
+      </div>
+
+      <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <Card>
+          <Card.Header>
+            <Card.Title>Sandbox sessions</Card.Title>
+            <Card.Description>
+              Isolation mode, run link, root path, and last update
+            </Card.Description>
+          </Card.Header>
+          <Card.Content>
+            {snapshot.sandboxSessions.length === 0 ? (
+              <EmptyPanel />
+            ) : (
+              <div className="space-y-2">
+                {snapshot.sandboxSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="grid gap-2 rounded-md border border-foreground/10 px-3 py-2 text-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">{session.id}</span>
+                      <span className="flex flex-wrap gap-1.5">
+                        <StatusChip status={session.status} />
+                        <Chip size="sm" variant="secondary">
+                          {session.isolation_mode}
+                        </Chip>
+                        {session.docker_available ? (
+                          <Chip size="sm" color="success" variant="soft">
+                            Docker detected
+                          </Chip>
+                        ) : (
+                          <Chip size="sm" variant="secondary">
+                            Local fallback
+                          </Chip>
+                        )}
+                      </span>
+                    </div>
+                    <div className="truncate text-xs text-foreground/50">{session.root_path}</div>
+                    <div className="text-xs text-foreground/45">
+                      {session.run_id ? `Run ${session.run_id.slice(0, 8)} / ` : ""}
+                      Updated {f.dateTime(session.updated_at)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card.Content>
+        </Card>
+
+        <div className="space-y-4">
+          <Card>
+            <Card.Header>
+              <Card.Title>Snapshots</Card.Title>
+              <Card.Description>Saved sandbox file manifests</Card.Description>
+            </Card.Header>
+            <Card.Content>
+              <MiniList
+                title="Recent"
+                empty="No snapshots yet"
+                items={snapshot.sandboxSnapshots.slice(0, 8).map((snapshot) => ({
+                  id: snapshot.id,
+                  title: snapshot.label,
+                  detail: `${snapshot.id.slice(0, 8)} / ${f.dateTime(snapshot.created_at)}`,
+                }))}
+              />
+            </Card.Content>
+          </Card>
+
+          <Card>
+            <Card.Header>
+              <Card.Title>Artifacts</Card.Title>
+              <Card.Description>Exported files and preview URLs</Card.Description>
+            </Card.Header>
+            <Card.Content>
+              <MiniList
+                title="Recent"
+                empty="No artifacts yet"
+                items={snapshot.sandboxArtifacts.slice(0, 8).map((artifact) => ({
+                  id: artifact.id,
+                  title: artifact.path,
+                  detail: artifact.url ?? `${artifact.kind} / ${artifact.size_bytes ?? 0} bytes`,
+                }))}
+              />
+            </Card.Content>
+          </Card>
+        </div>
+      </section>
+
+      <SectionHeading title="Command and sandbox history" />
+      {sandboxSteps.length === 0 ? (
+        <EmptyPanel />
+      ) : (
+        <div className="grid gap-2">
+          {sandboxSteps.map((step) => (
+            <div
+              key={step.id}
+              className="grid gap-2 rounded-md border border-foreground/10 px-3 py-2 text-sm sm:grid-cols-[1fr_auto]"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{step.title}</span>
+                  <StatusChip status={step.status} />
+                </div>
+                <div className="mt-1 truncate text-xs text-foreground/50">
+                  {step.error ?? step.detail_json}
+                </div>
+              </div>
+              <span className="text-xs text-foreground/45">{f.dateTime(step.started_at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

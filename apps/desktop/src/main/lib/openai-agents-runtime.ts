@@ -462,6 +462,7 @@ function createSingleAgentTool(
         }),
       ];
   }
+  return [];
 }
 
 function selectedToolIds(

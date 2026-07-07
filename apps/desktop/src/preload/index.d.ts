@@ -2,8 +2,6 @@ import { ElectronAPI } from "@electron-toolkit/preload";
 import type {
   AgentInput,
   AgentProfile,
-  AgentRun,
-  AgentRuntimeState,
   CacheStats,
   Conversation,
   CustomModelInput,
@@ -76,10 +74,18 @@ export interface VoidAIApi {
     restore: (id: string) => Promise<AgentProfile>;
     duplicate: (id: string) => Promise<AgentProfile>;
     queueLearning: (conversationId: string) => Promise<boolean>;
-    runtimeSnapshot: () => Promise<{
-      agentRuns: AgentRun[];
-      agentRuntimeStates: AgentRuntimeState[];
-    }>;
+    runtimeSnapshot: () => Promise<
+      Pick<
+        WorkspaceSnapshot,
+        | "agentRuns"
+        | "agentRunSteps"
+        | "agentRuntimeStates"
+        | "conversationAgentStates"
+        | "sandboxSessions"
+        | "sandboxSnapshots"
+        | "sandboxArtifacts"
+      >
+    >;
     save: (agent: AgentProfile) => Promise<boolean>;
   };
   memories: {

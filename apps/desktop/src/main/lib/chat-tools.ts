@@ -191,6 +191,78 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     defaultAuto: false,
     requiresApproval: true,
   },
+  sandbox_list_files: {
+    id: "sandbox_list_files",
+    label: "Sandbox files",
+    description: "List files inside the current sandbox session.",
+    kind: "host",
+    category: "sandbox",
+    defaultAuto: true,
+    requiresApproval: false,
+  },
+  sandbox_read_file: {
+    id: "sandbox_read_file",
+    label: "Read sandbox file",
+    description: "Read a text file inside the current sandbox session.",
+    kind: "host",
+    category: "sandbox",
+    defaultAuto: true,
+    requiresApproval: false,
+  },
+  sandbox_write_file: {
+    id: "sandbox_write_file",
+    label: "Write sandbox file",
+    description: "Write or overwrite a file inside the current sandbox session after approval.",
+    kind: "host",
+    category: "sandbox",
+    defaultAuto: false,
+    requiresApproval: true,
+  },
+  sandbox_run_command: {
+    id: "sandbox_run_command",
+    label: "Run sandbox command",
+    description: "Run a command in the current sandbox session after approval.",
+    kind: "host",
+    category: "sandbox",
+    defaultAuto: false,
+    requiresApproval: true,
+  },
+  sandbox_snapshot: {
+    id: "sandbox_snapshot",
+    label: "Create sandbox snapshot",
+    description: "Create a restorable snapshot of the current sandbox files.",
+    kind: "host",
+    category: "sandbox",
+    defaultAuto: true,
+    requiresApproval: false,
+  },
+  sandbox_restore: {
+    id: "sandbox_restore",
+    label: "Restore sandbox snapshot",
+    description: "Restore a sandbox snapshot after approval.",
+    kind: "host",
+    category: "sandbox",
+    defaultAuto: false,
+    requiresApproval: true,
+  },
+  sandbox_list_artifacts: {
+    id: "sandbox_list_artifacts",
+    label: "Sandbox artifacts",
+    description: "List files and previews exported from the sandbox.",
+    kind: "host",
+    category: "sandbox",
+    defaultAuto: true,
+    requiresApproval: false,
+  },
+  sandbox_preview_port: {
+    id: "sandbox_preview_port",
+    label: "Sandbox preview port",
+    description: "Register a local preview port for the sandbox after approval.",
+    kind: "host",
+    category: "sandbox",
+    defaultAuto: false,
+    requiresApproval: true,
+  },
 };
 
 export class ChatToolSelectionError extends Error {
@@ -378,6 +450,15 @@ export async function executeChatHostTool({
         }
         case "memory_save":
           return saveChatMemory(input as MemorySaveInput, conversationId, agentId);
+        case "sandbox_list_files":
+        case "sandbox_read_file":
+        case "sandbox_write_file":
+        case "sandbox_run_command":
+        case "sandbox_snapshot":
+        case "sandbox_restore":
+        case "sandbox_list_artifacts":
+        case "sandbox_preview_port":
+          throw new Error(toolId + " is only available through the agent sandbox runtime.");
       }
     },
     audit,
