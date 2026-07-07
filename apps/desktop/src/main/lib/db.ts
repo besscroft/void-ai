@@ -5,8 +5,8 @@ import { and, desc, eq, isNotNull, isNull, lt } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { decrypt, encrypt, type EncryptedPayload } from "./crypto";
 import {
   DEFAULT_BUILTIN_TOOL_SEEDS,
@@ -161,6 +161,16 @@ export function initDb(): DbInstance {
   if (dbInstance) return dbInstance;
 
   const dbPath = join(resolveDataDir(), DB_FILENAME);
+  try {
+    return openAndMigrateDb(dbPath);
+  } catch (error) {
+    if (!isRecoverableSchemaInitError(error)) throw error;
+    resetDatabaseFiles(dbPath, error);
+    return openAndMigrateDb(dbPath);
+  }
+}
+
+function openAndMigrateDb(dbPath: string): DbInstance {
   rawDb = new Database(dbPath);
   rawDb.pragma("journal_mode = WAL");
   rawDb.pragma("foreign_keys = ON");
@@ -181,8 +191,44 @@ export function initDb(): DbInstance {
 }
 
 export function getDb(): DbInstance {
-  if (!dbInstance) throw new Error("Database is not initialized.");
+  if (!dbInstance) return initDb();
   return dbInstance;
+}
+
+function resetDatabaseFiles(dbPath: string, cause: unknown): void {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  console.warn("[db] Greenfield schema init failed; rebuilding local database:", message);
+  closeDb();
+
+  const backupDir = join(dirname(dbPath), `backup-before-runtime-schema-${Date.now()}`);
+  mkdirSync(backupDir, { recursive: true });
+
+  for (const filePath of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    if (!existsSync(filePath)) continue;
+    const targetPath = join(backupDir, basename(filePath));
+    moveDatabaseFile(filePath, targetPath);
+  }
+}
+
+function isRecoverableSchemaInitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    /NODE_MODULE_VERSION|better_sqlite3\.node|Could not locate the bindings file/i.test(message)
+  ) {
+    return false;
+  }
+  return /no such table|no such column|already exists|duplicate column name|foreign key mismatch|FOREIGN KEY constraint failed|UNIQUE constraint failed|NOT NULL constraint failed/i.test(
+    message,
+  );
+}
+
+function moveDatabaseFile(sourcePath: string, targetPath: string): void {
+  try {
+    renameSync(sourcePath, targetPath);
+  } catch {
+    copyFileSync(sourcePath, targetPath);
+    unlinkSync(sourcePath);
+  }
 }
 
 export function closeDb(): void {
