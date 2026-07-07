@@ -34,7 +34,6 @@ import {
   IconCheck,
   IconClose,
   IconCpu,
-  IconDatabase,
   IconEdit,
   IconGlobe,
   IconList,
@@ -117,7 +116,7 @@ const DEFAULT_SKILL_STEPS: ExtensionSkillStep[] = [
 ];
 
 export function ExtensionsPanel(): React.JSX.Element {
-  const { t, f, locale } = useT();
+  const { t, locale } = useT();
   const detailState = useOverlayState();
   const [snapshot, setSnapshot] = useState<ExtensionsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -162,21 +161,6 @@ export function ExtensionsPanel(): React.JSX.Element {
     detailTarget?.type === "skill"
       ? (snapshot?.skills.find((skill) => skill.id === detailTarget.id) ?? null)
       : null;
-
-  const stats = useMemo(() => {
-    const mcp = snapshot?.mcpServers ?? [];
-    const skills = snapshot?.skills ?? [];
-    const tools = snapshot?.mcpTools ?? [];
-    return {
-      enabledMcp: mcp.filter((server) => server.enabled !== 0).length,
-      mcpTotal: mcp.length,
-      enabledSkills: skills.filter((skill) => skill.enabled !== 0).length,
-      skillTotal: skills.length,
-      enabledTools: tools.filter((tool) => tool.enabled !== 0).length,
-      toolTotal: tools.length,
-      secrets: snapshot?.secrets.length ?? 0,
-    };
-  }, [snapshot]);
 
   const openMcpEditor = (item?: McpServer): void => {
     setEditor({ type: "mcp", item });
@@ -252,34 +236,7 @@ export function ExtensionsPanel(): React.JSX.Element {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          icon={<IconGlobe />}
-          label={t("extensions.metric.mcp")}
-          value={`${f.number(stats.enabledMcp)} / ${f.number(stats.mcpTotal)}`}
-          detail={t("extensions.metric.enabled")}
-        />
-        <MetricCard
-          icon={<IconWrench />}
-          label={t("extensions.metric.tools")}
-          value={`${f.number(stats.enabledTools)} / ${f.number(stats.toolTotal)}`}
-          detail={t("extensions.metric.enabled")}
-        />
-        <MetricCard
-          icon={<IconCpu />}
-          label={t("extensions.metric.skills")}
-          value={`${f.number(stats.enabledSkills)} / ${f.number(stats.skillTotal)}`}
-          detail={t("extensions.metric.enabled")}
-        />
-        <MetricCard
-          icon={<IconDatabase />}
-          label={t("extensions.metric.secrets")}
-          value={f.number(stats.secrets)}
-          detail={t("extensions.metric.redacted")}
-        />
-      </div>
-
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs
           selectedKey={tab}
@@ -1389,35 +1346,6 @@ function RowActions({
         <IconTrash className="size-4" />
       </IconButton>
     </div>
-  );
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-}): React.JSX.Element {
-  return (
-    <Card>
-      <Card.Content>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs text-foreground/50">{label}</div>
-            <div className="mt-1 text-2xl font-semibold">{value}</div>
-            <div className="mt-1 text-xs text-foreground/45">{detail}</div>
-          </div>
-          <span className="flex size-9 items-center justify-center rounded-lg bg-accent/10 text-accent">
-            {icon}
-          </span>
-        </div>
-      </Card.Content>
-    </Card>
   );
 }
 

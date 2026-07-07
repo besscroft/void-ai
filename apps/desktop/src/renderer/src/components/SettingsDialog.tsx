@@ -21,6 +21,7 @@ import { notify } from "../lib/toast";
 import { useSettings, type SettingsResetScope } from "../lib/settings";
 import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ExtensionsPanel } from "./ExtensionsPanel";
 import {
   IconClose,
   IconKey,
@@ -34,6 +35,7 @@ import {
   IconSparkles,
   IconTrash,
   IconPlus,
+  IconWrench,
 } from "./icons";
 import {
   ACCENT_PRESETS,
@@ -65,7 +67,7 @@ interface SettingsDialogProps {
 }
 
 /** Tab 定义 */
-type TabId = "appearance" | "model" | "trash";
+type TabId = "appearance" | "model" | "extensions" | "trash";
 
 /**
  * 设置弹窗（分 Tab 结构）
@@ -128,8 +130,15 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   const tabs: { id: TabId; label: string; Icon: typeof IconPalette }[] = [
     { id: "appearance", label: t("settings.tab.appearance"), Icon: IconPalette },
     { id: "model", label: t("settings.tab.model"), Icon: IconCpu },
+    { id: "extensions", label: t("settings.tab.extensions"), Icon: IconWrench },
     { id: "trash", label: t("settings.tab.trash"), Icon: IconTrash },
   ];
+  const subtitle =
+    tab === "appearance"
+      ? t("appearance.subtitle")
+      : tab === "extensions"
+        ? t("settings.extensions.subtitle")
+        : "";
 
   return (
     <div
@@ -140,7 +149,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
       aria-labelledby="settings-title"
     >
       <div
-        className="flex h-[calc(100vh-32px)] max-h-[820px] w-[calc(100vw-32px)] max-w-[1120px] flex-col overflow-hidden rounded-xl border border-foreground/15 bg-background shadow-2xl"
+        className="flex h-[calc(100vh-32px)] max-h-[860px] w-[calc(100vw-32px)] max-w-[1280px] flex-col overflow-hidden rounded-xl border border-foreground/15 bg-background shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -149,9 +158,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
             <h2 id="settings-title" className="text-base font-semibold">
               {t("settings.title")}
             </h2>
-            <p className="mt-0.5 text-xs text-foreground/45">
-              {tab === "appearance" ? t("appearance.subtitle") : ""}
-            </p>
+            <p className="mt-0.5 text-xs text-foreground/45">{subtitle}</p>
           </div>
           <button
             type="button"
@@ -200,6 +207,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
               />
             )}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
+            {tab === "extensions" && <ExtensionsPanel />}
             {tab === "trash" && <TrashTab />}
           </div>
         </div>

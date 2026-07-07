@@ -76,8 +76,10 @@ export const zhCN = {
   "settings.tab.system": "系统",
   "settings.tab.appearance": "外观",
   "settings.tab.model": "模型管理",
+  "settings.tab.extensions": "扩展管理",
   "settings.tab.apiKey": "API Key",
   "settings.tab.trash": "回收站",
+  "settings.extensions.subtitle": "管理 MCP 服务、Skills、工具发现与本地密钥",
 
   "settings.reset.title": "恢复默认设置",
   "settings.reset.confirm": "确定要将所有设置恢复为默认值吗？此操作不可撤销。",
@@ -860,8 +862,10 @@ export const en: Record<TranslationKey, string> = {
   "settings.tab.system": "System",
   "settings.tab.appearance": "Appearance",
   "settings.tab.model": "Model management",
+  "settings.tab.extensions": "Extensions",
   "settings.tab.apiKey": "API Key",
   "settings.tab.trash": "Trash",
+  "settings.extensions.subtitle": "Manage MCP servers, Skills, tool discovery, and local secrets",
 
   "settings.reset.title": "Reset to defaults",
   "settings.reset.confirm": "Reset all settings to defaults? This cannot be undone.",

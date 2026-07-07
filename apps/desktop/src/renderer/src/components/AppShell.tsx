@@ -18,7 +18,6 @@ import {
   IconKey,
   IconSearch,
   IconClose,
-  IconWrench,
 } from "./icons";
 import type { Conversation } from "@shared/types";
 import type { WorkspaceSection } from "./WorkspaceView";
@@ -41,7 +40,6 @@ const primaryNav: { id: AppView; labelKey: TranslationKey; Icon: typeof IconMess
   { id: "dashboard", labelKey: "workspace.title.dashboard", Icon: IconLayout },
   { id: "chat", labelKey: "shell.nav.conversations", Icon: IconMessage },
   { id: "agents", labelKey: "workspace.title.agents", Icon: IconCpu },
-  { id: "extensions", labelKey: "workspace.title.extensions", Icon: IconWrench },
   { id: "workflows", labelKey: "workspace.title.workflows", Icon: IconSliders },
   { id: "memory", labelKey: "workspace.title.memory", Icon: IconDatabase },
   { id: "sandbox", labelKey: "workspace.title.sandbox", Icon: IconLayout },

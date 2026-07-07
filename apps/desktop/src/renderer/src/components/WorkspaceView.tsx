@@ -7,15 +7,14 @@ import {
   Drawer,
   Input,
   Label,
+  Modal,
   Switch,
-  Table,
   Tabs,
   TextArea,
   Tooltip,
   useOverlayState,
 } from "@heroui/react";
 import { api, type WorkspaceSnapshot } from "../lib/api";
-import { ExtensionsPanel } from "./ExtensionsPanel";
 import { useT, type TranslationKey } from "../lib/i18n";
 import {
   CHAT_TOOL_IDS,
@@ -36,6 +35,7 @@ import {
 } from "@shared/types";
 import {
   IconCheck,
+  IconClose,
   IconCopy,
   IconCpu,
   IconDatabase,
@@ -52,7 +52,6 @@ import {
 export type WorkspaceSection =
   | "dashboard"
   | "agents"
-  | "extensions"
   | "workflows"
   | "memory"
   | "sandbox"
@@ -63,12 +62,12 @@ export type WorkspaceSection =
 
 interface WorkspaceViewProps {
   section: WorkspaceSection;
+  onSelectView?: (view: WorkspaceSection | "chat") => void;
 }
 
 const sectionTitleKey: Record<WorkspaceSection, TranslationKey> = {
   dashboard: "workspace.title.dashboard",
   agents: "workspace.title.agents",
-  extensions: "workspace.title.extensions",
   workflows: "workspace.title.workflows",
   memory: "workspace.title.memory",
   sandbox: "workspace.title.sandbox",
@@ -81,7 +80,6 @@ const sectionTitleKey: Record<WorkspaceSection, TranslationKey> = {
 const sectionSubtitleKey: Record<WorkspaceSection, TranslationKey> = {
   dashboard: "workspace.subtitle.dashboard",
   agents: "workspace.subtitle.agents",
-  extensions: "workspace.subtitle.extensions",
   workflows: "workspace.subtitle.workflows",
   memory: "workspace.subtitle.memory",
   sandbox: "workspace.subtitle.sandbox",
@@ -165,7 +163,7 @@ const syncConflictKeys: Record<string, TranslationKey> = {
   merge_with_review: "workspace.sync.conflict.merge_with_review",
 };
 
-export function WorkspaceView({ section }: WorkspaceViewProps): React.JSX.Element {
+export function WorkspaceView({ section, onSelectView }: WorkspaceViewProps): React.JSX.Element {
   const { t } = useT();
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -202,7 +200,12 @@ export function WorkspaceView({ section }: WorkspaceViewProps): React.JSX.Elemen
           </div>
         ) : (
           <WorkspaceErrorBoundary resetKey={section} onRetry={refresh}>
-            <WorkspaceContent section={section} snapshot={snapshot} refresh={refresh} />
+            <WorkspaceContent
+              section={section}
+              snapshot={snapshot}
+              refresh={refresh}
+              onSelectView={onSelectView}
+            />
           </WorkspaceErrorBoundary>
         )}
       </main>
@@ -258,13 +261,14 @@ function WorkspaceContent({
   section,
   snapshot,
   refresh,
+  onSelectView,
 }: {
   section: WorkspaceSection;
   snapshot: WorkspaceSnapshot;
   refresh: () => void;
+  onSelectView?: (view: WorkspaceSection | "chat") => void;
 }): React.JSX.Element {
   if (section === "agents") return <AgentsPanel snapshot={snapshot} refresh={refresh} />;
-  if (section === "extensions") return <ExtensionsPanel />;
   if (section === "workflows") return <WorkflowsPanel snapshot={snapshot} />;
   if (section === "memory") return <MemoryPanel snapshot={snapshot} />;
   if (section === "sandbox") return <SandboxPanel snapshot={snapshot} />;
@@ -272,78 +276,158 @@ function WorkspaceContent({
   if (section === "server") return <ServerPanel snapshot={snapshot} />;
   if (section === "interactions") return <InteractionsPanel snapshot={snapshot} />;
   if (section === "sync") return <SyncPanel snapshot={snapshot} />;
-  return <DashboardPanel snapshot={snapshot} />;
+  return <DashboardPanel snapshot={snapshot} onSelectView={onSelectView} />;
 }
 
-function DashboardPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.Element {
+function DashboardPanel({
+  snapshot,
+  onSelectView,
+}: {
+  snapshot: WorkspaceSnapshot;
+  onSelectView?: (view: WorkspaceSection | "chat") => void;
+}): React.JSX.Element {
   const { t, f } = useT();
-  const activeAgents = snapshot.agents.filter((agent) => agent.status === "active").length;
-  const enabledWorkflows = snapshot.workflows.filter(
-    (workflow) => workflow.status === "enabled",
+  const runtimeByAgent = new Map(
+    snapshot.agentRuntimeStates.map((state) => [state.agent_id, state]),
+  );
+  const voidAgent =
+    snapshot.agents.find((agent) => agent.id === DEFAULT_AGENT_ID) ??
+    snapshot.agents.find((agent) => agent.kind === "main");
+  const visibleAgents = [
+    ...(voidAgent ? [voidAgent] : []),
+    ...snapshot.agents.filter((agent) => agent.kind === "child").slice(0, 5),
+  ];
+  const activeAgents = snapshot.agents.filter(
+    (agent) => agent.status === "active" && agent.enabled !== 0,
   ).length;
-  const enabledInteractions = snapshot.interactionProfiles.filter((item) => item.enabled).length;
-  const architecture = [
-    ["workspace.arch.client.title", "workspace.arch.client.detail"],
-    ["workspace.arch.runtime.title", "workspace.arch.runtime.detail"],
-    ["workspace.arch.state.title", "workspace.arch.state.detail"],
-    ["workspace.arch.cloud.title", "workspace.arch.cloud.detail"],
-  ] satisfies Array<[TranslationKey, TranslationKey]>;
+  const busyStates = snapshot.agentRuntimeStates.filter((state) =>
+    ["queued", "running", "reviewing", "handoff", "tool_calling", "sandbox", "learning"].includes(
+      state.status,
+    ),
+  );
+  const lastRun = snapshot.agentRuns[0] ?? null;
+  const recentActivity = snapshot.harnessEvents
+    .filter(
+      (event) => event.kind === "agent" || event.kind === "handoff" || event.kind === "learning",
+    )
+    .slice(0, 6);
+  const quickActions = [
+    { view: "chat", label: t("shell.nav.conversations"), Icon: IconLayout },
+    { view: "agents", label: t("workspace.title.agents"), Icon: IconCpu },
+    { view: "memory", label: t("workspace.title.memory"), Icon: IconDatabase },
+    { view: "workflows", label: t("workspace.title.workflows"), Icon: IconSliders },
+  ] satisfies Array<{
+    view: WorkspaceSection | "chat";
+    label: string;
+    Icon: typeof IconLayout;
+  }>;
 
   return (
-    <div className="space-y-5">
-      <AgentRuntimeBand snapshot={snapshot} compact />
+    <div className="space-y-6">
+      <section className="rounded-lg border border-foreground/10 bg-foreground/[0.025] p-4">
+        <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground/70">Void OS is ready</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/55">
+              Local memory, agents, and runs stay on this device. Use the core spaces below when you
+              want to talk, shape agents, or review what Void has learned.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4 lg:grid-cols-2">
+            <DashboardSignal
+              label={t("workspace.metric.activeAgents")}
+              value={f.number(activeAgents)}
+            />
+            <DashboardSignal
+              label={t("workspace.metric.memories")}
+              value={f.number(snapshot.memories.length)}
+            />
+            <DashboardSignal label="Running now" value={f.number(busyStates.length)} />
+            <DashboardSignal
+              label="Last run"
+              value={lastRun ? labelFor(t, statusKeys, lastRun.status) : t("workspace.value.never")}
+            />
+          </div>
+        </div>
+      </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          icon={<IconCpu />}
-          label={t("workspace.metric.activeAgents")}
-          value={f.number(activeAgents)}
-          detail={t("workspace.metric.total", { count: f.number(snapshot.agents.length) })}
-        />
-        <MetricCard
-          icon={<IconSliders />}
-          label={t("workspace.metric.workflows")}
-          value={f.number(enabledWorkflows)}
-          detail={t("workspace.metric.runs", { count: f.number(snapshot.workflowRuns.length) })}
-        />
-        <MetricCard
-          icon={<IconDatabase />}
-          label={t("workspace.metric.memories")}
-          value={f.number(snapshot.memories.length)}
-          detail={t("workspace.metric.pinned", {
-            count: f.number(snapshot.memories.filter((m) => m.pinned).length),
-          })}
-        />
-        <MetricCard
-          icon={<IconLayout />}
-          label={t("workspace.metric.inputs")}
-          value={f.number(enabledInteractions)}
-          detail={t("workspace.metric.surfaces", {
-            count: f.number(snapshot.interactionProfiles.length),
-          })}
-        />
-      </div>
-
-      <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <section className="grid gap-4 xl:grid-cols-[1fr_0.85fr]">
         <div className="space-y-3">
-          <SectionHeading title={t("workspace.section.architectureLayers")} />
-          <div className="grid gap-3 md:grid-cols-2">
-            {architecture.map(([titleKey, detailKey]) => (
-              <Card key={titleKey} className="min-h-32">
-                <Card.Header>
-                  <Card.Title>{t(titleKey)}</Card.Title>
-                  <Card.Description>{t(detailKey)}</Card.Description>
-                </Card.Header>
-              </Card>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SectionHeading title="Agents at a glance" />
+            <Button
+              variant="secondary"
+              size="sm"
+              onPress={() => onSelectView?.("agents")}
+              isDisabled={!onSelectView}
+            >
+              <IconCpu className="size-3.5" />
+              Manage agents
+            </Button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            {visibleAgents.map((agent) => {
+              const runtime = runtimeByAgent.get(agent.id);
+              const handoff = normalizeAgentHandoffConfig(agent.handoff_config_json);
+              return (
+                <Card key={agent.id} className="min-h-36">
+                  <Card.Content>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
+                          {agent.avatar || agent.name.slice(0, 1)}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{agent.name}</p>
+                          <p className="mt-0.5 truncate text-xs text-foreground/50">{agent.role}</p>
+                        </div>
+                      </div>
+                      <StatusChip status={runtime?.status ?? "idle"} />
+                    </div>
+                    <div className="mt-4 grid gap-1.5 text-xs text-foreground/55">
+                      <InfoRow label="Lifecycle" value={labelFor(t, statusKeys, agent.status)} />
+                      <InfoRow label="Mode" value={`${handoff.mode} / ${handoff.priority}`} />
+                      <InfoRow
+                        label="Updated"
+                        value={agent.updated_at ? f.dateTime(agent.updated_at) : "-"}
+                      />
+                    </div>
+                  </Card.Content>
+                </Card>
+              );
+            })}
           </div>
         </div>
 
         <div className="space-y-3">
-          <SectionHeading title={t("workspace.section.recentHarness")} />
-          <Timeline items={snapshot.harnessEvents.slice(0, 5)} />
+          <SectionHeading title="Recent activity" />
+          <Timeline items={recentActivity} />
         </div>
       </section>
+
+      <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {quickActions.map(({ view, label, Icon }) => (
+          <button
+            key={view}
+            type="button"
+            className="flex min-h-16 items-center justify-between gap-3 rounded-lg border border-foreground/10 bg-background px-4 py-3 text-left text-sm transition hover:border-accent/35 hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!onSelectView}
+            onClick={() => onSelectView?.(view)}
+          >
+            <span className="font-medium">{label}</span>
+            <Icon className="size-4 text-foreground/45" />
+          </button>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function DashboardSignal({ label, value }: { label: string; value: ReactNode }): React.JSX.Element {
+  return (
+    <div className="rounded-md border border-foreground/10 bg-background/60 px-3 py-2">
+      <p className="text-xs text-foreground/45">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold">{value}</p>
     </div>
   );
 }
@@ -372,12 +456,16 @@ function AgentsPanel({
   refresh: () => void;
 }): React.JSX.Element {
   const { f } = useT();
-  const drawerState = useOverlayState();
+  const detailState = useOverlayState();
+  const [selectedAgent, setSelectedAgent] = useState<AgentProfile | null>(null);
+  const [editorMode, setEditorMode] = useState<"create" | "edit" | null>(null);
   const [editingAgent, setEditingAgent] = useState<AgentProfile | null>(null);
   const [form, setForm] = useState<AgentFormState>(() => buildAgentForm());
-  const [tab, setTab] = useState("identity");
+  const [detailTab, setDetailTab] = useState("overview");
+  const [editorTab, setEditorTab] = useState("basics");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<AgentValidationErrors>({});
   const [managedModels, setManagedModels] = useState<ManagedModelInfo[]>([]);
 
   useEffect(() => {
@@ -398,30 +486,38 @@ function AgentsPanel({
   const voidAgent =
     snapshot.agents.find((agent) => agent.id === DEFAULT_AGENT_ID) ??
     snapshot.agents.find((agent) => agent.kind === "main");
-  const childAgents = snapshot.agents.filter((agent) => agent.kind === "child");
-  const orchestrationEvents = snapshot.harnessEvents
-    .filter(
-      (event) => event.kind === "agent" || event.kind === "handoff" || event.kind === "learning",
-    )
-    .slice(0, 8);
-  const voidMemories = snapshot.memories
-    .filter((memory) => memory.scope === "agent" && memory.agent_id === DEFAULT_AGENT_ID)
-    .slice(0, 4);
+  const orderedAgents = useMemo(() => {
+    const main = snapshot.agents.find((agent) => agent.id === DEFAULT_AGENT_ID) ?? voidAgent;
+    const children = snapshot.agents.filter((agent) => agent.kind === "child");
+    return [...(main ? [main] : []), ...children];
+  }, [snapshot.agents, voidAgent]);
+  const activeChildren = snapshot.agents.filter(
+    (agent) => agent.kind === "child" && agent.status === "active" && agent.enabled !== 0,
+  ).length;
 
   const openCreate = (): void => {
     setEditingAgent(null);
     setForm(buildAgentForm());
     setError(null);
-    setTab("identity");
-    drawerState.open();
+    setValidationErrors({});
+    setEditorTab("basics");
+    setEditorMode("create");
+  };
+
+  const openDetail = (agent: AgentProfile): void => {
+    setSelectedAgent(agent);
+    setDetailTab("overview");
+    detailState.open();
   };
 
   const openEdit = (agent: AgentProfile): void => {
+    if (isLockedAgent(agent)) return;
     setEditingAgent(agent);
     setForm(buildAgentForm(agent));
     setError(null);
-    setTab("identity");
-    drawerState.open();
+    setValidationErrors({});
+    setEditorTab("basics");
+    setEditorMode("edit");
   };
 
   const runAction = async (action: () => Promise<unknown>): Promise<void> => {
@@ -438,214 +534,55 @@ function AgentsPanel({
   };
 
   const saveAgent = async (): Promise<void> => {
+    const nextValidationErrors = validateAgentForm(form);
+    setValidationErrors(nextValidationErrors);
+    if (Object.keys(nextValidationErrors).length > 0) {
+      setError("Please complete the required fields.");
+      return;
+    }
+
     const input = buildAgentInput(form);
     await runAction(async () => {
       if (editingAgent) await api.agents.update(editingAgent.id, input);
       else await api.agents.create(input);
-      drawerState.close();
+      setEditorMode(null);
+      setEditingAgent(null);
     });
   };
 
   if (snapshot.agents.length === 0) return <EmptyPanel />;
 
   return (
-    <div className="space-y-4">
-      <AgentRuntimeBand snapshot={snapshot} />
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-foreground/70">Agent roster</p>
+          <p className="mt-1 text-sm text-foreground/50">
+            {f.number(activeChildren)} active child agents. Void stays locked as the local root.
+          </p>
+        </div>
+        <Button size="sm" variant="primary" onPress={openCreate}>
+          <IconPlus className="size-3.5" />
+          New agent
+        </Button>
+      </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <Card>
-          <Card.Header>
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <span className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-sm font-semibold text-accent">
-                {voidAgent?.avatar ?? "V"}
-              </span>
-              <span className="flex items-center gap-2">
-                <Chip size="sm" variant="secondary">
-                  MAIN
-                </Chip>
-                <StatusChip status={runtimeByAgent.get(DEFAULT_AGENT_ID)?.status ?? "idle"} />
-              </span>
-            </div>
-            <Card.Title>{voidAgent?.name ?? "Void"}</Card.Title>
-            <Card.Description>
-              {voidAgent?.role ?? "Root orchestrator for every OpenAI agent run"}
-            </Card.Description>
-          </Card.Header>
-          <Card.Content>
-            <p className="text-sm text-foreground/70">
-              {voidAgent?.description ??
-                "Void is locked. Its memory and soul prompt evolve only through internal learning."}
-            </p>
-            <div className="mt-4 grid gap-2 text-xs text-foreground/60">
-              <InfoRow label="Soul" value={voidAgent?.soul_prompt ?? "Managed internally"} />
-              <InfoRow
-                label="Learning"
-                value={formatNullableDate(
-                  f,
-                  runtimeByAgent.get(DEFAULT_AGENT_ID)?.last_learning_at ?? null,
-                )}
-              />
-              <InfoRow label="Lock" value="Read-only root agent" />
-            </div>
-            <div className="mt-4 grid gap-3">
-              <MiniList
-                title="Recent memory"
-                empty="No Void learning memory yet"
-                items={voidMemories.map((memory) => ({
-                  id: memory.id,
-                  title: memory.title,
-                  detail: memory.content,
-                }))}
-              />
-              <MiniList
-                title="Orchestration"
-                empty="No orchestration events yet"
-                items={orchestrationEvents.slice(0, 4).map((event) => ({
-                  id: event.id,
-                  title: event.title,
-                  detail: `${event.kind} / ${f.dateTime(event.created_at)}`,
-                }))}
-              />
-            </div>
-          </Card.Content>
-        </Card>
-
-        <Card>
-          <Card.Header>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <Card.Title>Child agents</Card.Title>
-                <Card.Description>
-                  Handoff, consult, tool policy, runtime, and lifecycle management
-                </Card.Description>
-              </div>
-              <Button size="sm" variant="primary" onPress={openCreate}>
-                <IconPlus className="size-3.5" />
-                New agent
-              </Button>
-            </div>
-          </Card.Header>
-          <Card.Content>
-            {childAgents.length === 0 ? (
-              <EmptyPanel />
-            ) : (
-              <Table variant="secondary">
-                <Table.ScrollContainer>
-                  <Table.Content aria-label="Child agents">
-                    <Table.Header>
-                      <Table.Column isRowHeader>Agent</Table.Column>
-                      <Table.Column>Status</Table.Column>
-                      <Table.Column>Enabled</Table.Column>
-                      <Table.Column>Tools</Table.Column>
-                      <Table.Column>Handoff</Table.Column>
-                      <Table.Column>Latest run</Table.Column>
-                      <Table.Column>Actions</Table.Column>
-                    </Table.Header>
-                    <Table.Body>
-                      {childAgents.map((agent) => {
-                        const runtime = runtimeByAgent.get(agent.id);
-                        const toolPolicy = normalizeAgentToolPolicy(agent.tool_policy_json);
-                        const handoffConfig = normalizeAgentHandoffConfig(
-                          agent.handoff_config_json,
-                        );
-                        const latestRun = latestRunFor(snapshot.agentRuns, agent.id);
-                        return (
-                          <Table.Row key={agent.id}>
-                            <Table.Cell>
-                              <div className="flex min-w-44 items-center gap-2">
-                                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-xs font-semibold">
-                                  {agent.avatar}
-                                </span>
-                                <span className="min-w-0">
-                                  <span className="block truncate text-sm font-medium">
-                                    {agent.name}
-                                  </span>
-                                  <span className="block max-w-52 truncate text-xs text-foreground/50">
-                                    {agent.role}
-                                  </span>
-                                </span>
-                              </div>
-                            </Table.Cell>
-                            <Table.Cell>
-                              <div className="flex flex-wrap gap-1.5">
-                                <StatusChip status={agent.status} />
-                                <StatusChip status={runtime?.status ?? "idle"} />
-                              </div>
-                            </Table.Cell>
-                            <Table.Cell>
-                              <Switch
-                                size="sm"
-                                isSelected={agent.enabled !== 0}
-                                onChange={(enabled) =>
-                                  void runAction(() => api.agents.update(agent.id, { enabled }))
-                                }
-                                aria-label={`Enable ${agent.name}`}
-                              />
-                            </Table.Cell>
-                            <Table.Cell>
-                              <span className="text-xs text-foreground/60">
-                                {toolPolicy.mode === "inherit"
-                                  ? "Inherit"
-                                  : `${toolPolicy.allowedToolIds.length} allowed`}
-                              </span>
-                            </Table.Cell>
-                            <Table.Cell>
-                              <span className="text-xs text-foreground/60">
-                                {handoffConfig.mode} / {handoffConfig.priority}
-                              </span>
-                            </Table.Cell>
-                            <Table.Cell>
-                              <span className="text-xs text-foreground/55">
-                                {latestRun
-                                  ? `${latestRun.status} ${f.dateTime(latestRun.started_at)}`
-                                  : "Never"}
-                              </span>
-                            </Table.Cell>
-                            <Table.Cell>
-                              <div className="flex items-center gap-1">
-                                <IconButton label="Edit" onPress={() => openEdit(agent)}>
-                                  <IconEdit className="size-3.5" />
-                                </IconButton>
-                                <IconButton
-                                  label="Duplicate"
-                                  onPress={() =>
-                                    void runAction(() => api.agents.duplicate(agent.id))
-                                  }
-                                >
-                                  <IconCopy className="size-3.5" />
-                                </IconButton>
-                                {agent.status === "archived" ? (
-                                  <IconButton
-                                    label="Restore"
-                                    onPress={() =>
-                                      void runAction(() => api.agents.restore(agent.id))
-                                    }
-                                  >
-                                    <IconRotateCcw className="size-3.5" />
-                                  </IconButton>
-                                ) : (
-                                  <IconButton
-                                    label="Archive"
-                                    tone="danger"
-                                    onPress={() =>
-                                      void runAction(() => api.agents.archive(agent.id))
-                                    }
-                                  >
-                                    <IconTrash className="size-3.5" />
-                                  </IconButton>
-                                )}
-                              </div>
-                            </Table.Cell>
-                          </Table.Row>
-                        );
-                      })}
-                    </Table.Body>
-                  </Table.Content>
-                </Table.ScrollContainer>
-              </Table>
-            )}
-          </Card.Content>
-        </Card>
+      <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+        {orderedAgents.map((agent) => (
+          <AgentCard
+            key={agent.id}
+            agent={agent}
+            runtime={runtimeByAgent.get(agent.id)}
+            latestRun={latestRunFor(snapshot.agentRuns, agent.id)}
+            isBusy={saving}
+            onOpen={() => openDetail(agent)}
+            onEdit={() => openEdit(agent)}
+            onToggle={(enabled) => void runAction(() => api.agents.update(agent.id, { enabled }))}
+            onDuplicate={() => void runAction(() => api.agents.duplicate(agent.id))}
+            onArchive={() => void runAction(() => api.agents.archive(agent.id))}
+            onRestore={() => void runAction(() => api.agents.restore(agent.id))}
+          />
+        ))}
       </div>
 
       {error ? (
@@ -654,448 +591,722 @@ function AgentsPanel({
         </div>
       ) : null}
 
-      <AgentDrawer
+      <AgentDetailDrawer
+        agent={selectedAgent}
+        snapshot={snapshot}
+        selectedTab={detailTab}
+        setSelectedTab={setDetailTab}
+        state={detailState}
+        onClose={() => {
+          detailState.close();
+          setSelectedAgent(null);
+        }}
+        onEdit={(agent) => {
+          detailState.close();
+          openEdit(agent);
+        }}
+      />
+
+      <AgentEditorModal
+        mode={editorMode}
         agent={editingAgent}
         form={form}
         isSaving={saving}
+        error={error}
+        validationErrors={validationErrors}
         onChange={setForm}
         onSave={() => void saveAgent()}
-        runs={editingAgent ? runsForAgent(snapshot.agentRuns, editingAgent.id) : []}
+        onClose={() => {
+          if (saving) return;
+          setEditorMode(null);
+          setEditingAgent(null);
+          setValidationErrors({});
+          setError(null);
+        }}
         managedModels={managedModels}
-        selectedTab={tab}
-        setSelectedTab={setTab}
-        state={drawerState}
+        selectedTab={editorTab}
+        setSelectedTab={setEditorTab}
       />
     </div>
   );
 }
 
-function AgentRuntimeBand({
-  snapshot,
-  compact = false,
+type AgentRuntimeStateItem = WorkspaceSnapshot["agentRuntimeStates"][number];
+type AgentRunItem = WorkspaceSnapshot["agentRuns"][number];
+type AgentValidationErrors = Partial<
+  Record<"name" | "role" | "description" | "personality" | "soul_prompt", string>
+>;
+
+function AgentCard({
+  agent,
+  runtime,
+  latestRun,
+  isBusy,
+  onOpen,
+  onEdit,
+  onToggle,
+  onDuplicate,
+  onArchive,
+  onRestore,
 }: {
-  snapshot: WorkspaceSnapshot;
-  compact?: boolean;
+  agent: AgentProfile;
+  runtime?: AgentRuntimeStateItem;
+  latestRun?: AgentRunItem;
+  isBusy: boolean;
+  onOpen: () => void;
+  onEdit: () => void;
+  onToggle: (enabled: boolean) => void;
+  onDuplicate: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
 }): React.JSX.Element {
   const { f } = useT();
-  const states = snapshot.agentRuntimeStates;
-  const voidState = states.find((state) => state.agent_id === DEFAULT_AGENT_ID);
-  const activeChildren = snapshot.agents.filter(
-    (agent) => agent.kind === "child" && agent.status === "active" && agent.enabled !== 0,
-  ).length;
-  const busyCount = states.filter((state) =>
-    ["queued", "running", "reviewing", "handoff", "tool_calling", "sandbox", "learning"].includes(
-      state.status,
-    ),
-  ).length;
-  const failedCount = states.filter((state) => state.status === "failed").length;
-  const latestHandoff = snapshot.harnessEvents.find((event) => event.kind === "handoff");
-  const latestLearning = snapshot.harnessEvents.find((event) => event.kind === "learning");
-  const latestConversationState = snapshot.conversationAgentStates[0];
+  const locked = isLockedAgent(agent);
+  const toolPolicy = normalizeAgentToolPolicy(agent.tool_policy_json);
+  const handoffConfig = normalizeAgentHandoffConfig(agent.handoff_config_json);
+  const runtimeConfig = normalizeAgentRuntimeConfig(agent.runtime_config_json);
 
   return (
-    <section className="rounded-md border border-foreground/10 bg-foreground/[0.025] px-4 py-3">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <BandMetric
-          label="Void"
-          value={<StatusChip status={voidState?.status ?? "idle"} />}
-          detail={
-            voidState?.current_run_id
-              ? `Run ${voidState.current_run_id.slice(0, 8)}`
-              : "Root orchestrator"
-          }
-        />
-        <BandMetric label="Running" value={busyCount} detail="run, review, handoff, sandbox" />
-        <BandMetric label="Children" value={activeChildren} detail="active child agents" />
-        <BandMetric
-          label="Current"
-          value={
-            latestConversationState ? (
-              <StatusChip status={latestConversationState.status} />
-            ) : (
-              "None"
-            )
-          }
-          detail={latestConversationState?.summary ?? latestHandoff?.title ?? "No agent activity"}
-        />
-        {!compact ? (
-          <BandMetric
-            label="Learning"
-            value={latestLearning ? f.dateTime(latestLearning.created_at) : "None"}
-            detail={
-              failedCount
-                ? `${failedCount} failed state`
-                : (latestLearning?.title ?? "Silent memory queue")
-            }
-          />
-        ) : null}
-      </div>
-    </section>
+    <Card className="min-h-[260px] transition hover:border-accent/30 hover:bg-foreground/[0.018]">
+      <Card.Content>
+        <div
+          role="button"
+          tabIndex={0}
+          className="flex h-full cursor-pointer flex-col outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+          onClick={onOpen}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") onOpen();
+          }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
+                {agent.avatar || agent.name.slice(0, 1)}
+              </span>
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <p className="truncate text-sm font-semibold">{agent.name}</p>
+                  {locked ? (
+                    <Chip size="sm" variant="secondary">
+                      Locked
+                    </Chip>
+                  ) : null}
+                </div>
+                <p className="mt-0.5 line-clamp-2 text-xs text-foreground/50">{agent.role}</p>
+              </div>
+            </div>
+            <StatusChip status={runtime?.status ?? "idle"} />
+          </div>
+
+          <p className="mt-4 line-clamp-2 text-sm leading-6 text-foreground/62">
+            {agent.description}
+          </p>
+
+          <div className="mt-4 grid gap-1.5 text-xs text-foreground/55">
+            <InfoRow label="Lifecycle" value={<StatusChip status={agent.status} />} />
+            <InfoRow label="Enabled" value={agent.enabled !== 0 ? "Available" : "Off"} />
+            <InfoRow label="Routing" value={`${handoffConfig.mode} / ${handoffConfig.priority}`} />
+            <InfoRow label="Tools" value={toolPolicySummary(toolPolicy)} />
+            <InfoRow label="Model" value={agent.model_ref ?? "Inherit"} />
+            <InfoRow label="Runtime" value={`${runtimeConfig.maxTurns} turns`} />
+            <InfoRow
+              label="Latest"
+              value={
+                latestRun ? `${latestRun.status} / ${f.dateTime(latestRun.started_at)}` : "Never"
+              }
+            />
+          </div>
+
+          <div
+            className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Switch
+              size="sm"
+              isSelected={agent.enabled !== 0}
+              isDisabled={isBusy || locked}
+              onChange={onToggle}
+              aria-label={`Enable ${agent.name}`}
+            >
+              <Switch.Content>
+                <Switch.Control>
+                  <Switch.Thumb />
+                </Switch.Control>
+                Enabled
+              </Switch.Content>
+            </Switch>
+            <div className="flex items-center gap-1">
+              <IconButton label="Edit" isDisabled={locked || isBusy} onPress={onEdit}>
+                <IconEdit className="size-3.5" />
+              </IconButton>
+              <IconButton label="Duplicate" isDisabled={locked || isBusy} onPress={onDuplicate}>
+                <IconCopy className="size-3.5" />
+              </IconButton>
+              {agent.status === "archived" ? (
+                <IconButton label="Restore" isDisabled={locked || isBusy} onPress={onRestore}>
+                  <IconRotateCcw className="size-3.5" />
+                </IconButton>
+              ) : (
+                <IconButton
+                  label="Archive"
+                  tone="danger"
+                  isDisabled={locked || isBusy}
+                  onPress={onArchive}
+                >
+                  <IconTrash className="size-3.5" />
+                </IconButton>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card.Content>
+    </Card>
   );
 }
 
-function BandMetric({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: ReactNode;
-  detail: string;
-}): React.JSX.Element {
-  return (
-    <div className="min-w-0">
-      <div className="text-xs font-medium uppercase tracking-normal text-foreground/40">
-        {label}
-      </div>
-      <div className="mt-1 truncate text-sm font-semibold">{value}</div>
-      <div className="mt-0.5 truncate text-xs text-foreground/45">{detail}</div>
-    </div>
-  );
-}
-
-function AgentDrawer({
+function AgentDetailDrawer({
   agent,
-  form,
-  isSaving,
-  onChange,
-  onSave,
-  runs,
-  managedModels,
+  snapshot,
   selectedTab,
   setSelectedTab,
   state,
+  onClose,
+  onEdit,
 }: {
   agent: AgentProfile | null;
-  form: AgentFormState;
-  isSaving: boolean;
-  onChange: (next: AgentFormState) => void;
-  onSave: () => void;
-  runs: WorkspaceSnapshot["agentRuns"];
-  managedModels: ManagedModelInfo[];
+  snapshot: WorkspaceSnapshot;
   selectedTab: string;
   setSelectedTab: (key: string) => void;
   state: ReturnType<typeof useOverlayState>;
+  onClose: () => void;
+  onEdit: (agent: AgentProfile) => void;
 }): React.JSX.Element {
+  const { f } = useT();
+  const runs = agent ? runsForAgent(snapshot.agentRuns, agent.id) : [];
+  const runIds = new Set(runs.map((run) => run.id));
+  const steps = snapshot.agentRunSteps
+    .filter((step) => step.agent_id === agent?.id || runIds.has(step.run_id))
+    .slice(0, 16);
+  const activity = agent ? harnessEventsForAgent(snapshot, agent).slice(0, 8) : [];
+  const runtime = agent
+    ? snapshot.agentRuntimeStates.find((state) => state.agent_id === agent.id)
+    : undefined;
+  const toolPolicy = normalizeAgentToolPolicy(agent?.tool_policy_json);
+  const handoffConfig = normalizeAgentHandoffConfig(agent?.handoff_config_json);
+  const runtimeConfig = normalizeAgentRuntimeConfig(agent?.runtime_config_json);
+  const locked = agent ? isLockedAgent(agent) : true;
+
   return (
     <Drawer state={state}>
-      <Drawer.Backdrop isDismissable={!isSaving}>
+      <Drawer.Backdrop isDismissable>
         <Drawer.Content placement="right" className="w-full max-w-3xl">
           <Drawer.Dialog>
             <Drawer.Header>
               <div className="min-w-0">
-                <Drawer.Heading>{agent ? "Edit child agent" : "New child agent"}</Drawer.Heading>
-                <p className="mt-1 text-sm text-foreground/50">
-                  Void remains the locked root; children define routing, tools, and handoff
-                  behavior.
-                </p>
+                <Drawer.Heading>{agent?.name ?? "Agent details"}</Drawer.Heading>
+                <p className="mt-1 text-sm text-foreground/50">{agent?.role}</p>
               </div>
-              <Drawer.CloseTrigger isDisabled={isSaving} />
+              <Drawer.CloseTrigger />
             </Drawer.Header>
             <Drawer.Body>
-              <Tabs
-                selectedKey={selectedTab}
-                onSelectionChange={(key) => setSelectedTab(String(key))}
-                variant="secondary"
-              >
-                <Tabs.ListContainer>
-                  <Tabs.List aria-label="Agent editor tabs">
-                    <Tabs.Tab id="identity">Identity</Tabs.Tab>
-                    <Tabs.Tab id="soul">Instructions</Tabs.Tab>
-                    <Tabs.Tab id="tools">Model & tools</Tabs.Tab>
-                    <Tabs.Tab id="handoff">Handoff</Tabs.Tab>
-                    <Tabs.Tab id="runs">Runs</Tabs.Tab>
-                  </Tabs.List>
-                </Tabs.ListContainer>
+              {agent ? (
+                <Tabs
+                  selectedKey={selectedTab}
+                  onSelectionChange={(key) => setSelectedTab(String(key))}
+                  variant="secondary"
+                >
+                  <Tabs.ListContainer>
+                    <Tabs.List aria-label="Agent detail tabs">
+                      <Tabs.Tab id="overview">Overview</Tabs.Tab>
+                      <Tabs.Tab id="instructions">Instructions</Tabs.Tab>
+                      <Tabs.Tab id="runs">Runs</Tabs.Tab>
+                      <Tabs.Tab id="activity">Activity</Tabs.Tab>
+                    </Tabs.List>
+                  </Tabs.ListContainer>
 
-                <Tabs.Panel id="identity" className="pt-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <TextInputField
-                      label="Name"
-                      value={form.name}
-                      onChange={(name) => onChange({ ...form, name })}
-                    />
-                    <TextInputField
-                      label="Avatar"
-                      value={form.avatar}
-                      onChange={(avatar) => onChange({ ...form, avatar: avatar.slice(0, 2) })}
-                    />
-                    <TextInputField
-                      label="Role"
-                      value={form.role}
-                      onChange={(role) => onChange({ ...form, role })}
-                    />
-                    <SelectField
-                      label="Lifecycle"
-                      value={form.status}
-                      onChange={(status) =>
-                        onChange({ ...form, status: status as AgentProfile["status"] })
-                      }
-                      options={[
-                        ["active", "Active"],
-                        ["draft", "Draft"],
-                        ["archived", "Archived"],
-                      ]}
-                    />
-                    <div className="flex items-end">
-                      <Switch
-                        size="sm"
-                        isSelected={form.enabled}
-                        onChange={(enabled) => onChange({ ...form, enabled })}
-                        aria-label="Agent enabled"
-                      >
-                        <Switch.Content>
-                          <Switch.Control>
-                            <Switch.Thumb />
-                          </Switch.Control>
-                          Enabled for orchestration
-                        </Switch.Content>
-                      </Switch>
+                  <Tabs.Panel id="overview" className="space-y-4 pt-4">
+                    <div className="flex items-start gap-3 rounded-md border border-foreground/10 p-3">
+                      <span className="flex size-12 shrink-0 items-center justify-center rounded-md bg-accent/10 text-base font-semibold text-accent">
+                        {agent.avatar || agent.name.slice(0, 1)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm leading-6 text-foreground/70">{agent.description}</p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          <StatusChip status={agent.status} />
+                          <StatusChip status={runtime?.status ?? "idle"} />
+                          {locked ? (
+                            <Chip size="sm" variant="secondary">
+                              Locked root
+                            </Chip>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <TextAreaField
-                    label="Description"
-                    rows={3}
-                    value={form.description}
-                    onChange={(description) => onChange({ ...form, description })}
-                  />
-                </Tabs.Panel>
+                    <div className="grid gap-2 text-sm text-foreground/60">
+                      <InfoRow label="Enabled" value={agent.enabled !== 0 ? "Available" : "Off"} />
+                      <InfoRow
+                        label="Handoff"
+                        value={`${handoffConfig.mode} / ${handoffConfig.priority}`}
+                      />
+                      <InfoRow
+                        label="Accepts"
+                        value={handoffConfig.accepts.join(", ") || "Any matching task"}
+                      />
+                      <InfoRow label="Tools" value={toolPolicySummary(toolPolicy)} />
+                      <InfoRow
+                        label="Model"
+                        value={agent.model_ref ?? "Inherit selected chat model"}
+                      />
+                      <InfoRow label="Voice" value={agent.voice ?? "Default"} />
+                      <InfoRow label="Max turns" value={String(runtimeConfig.maxTurns)} />
+                      <InfoRow label="Updated" value={f.dateTime(agent.updated_at)} />
+                      <InfoRow
+                        label="Last learning"
+                        value={formatNullableDate(f, runtime?.last_learning_at ?? null)}
+                      />
+                      {runtime?.last_error ? (
+                        <InfoRow label="Last error" value={runtime.last_error} />
+                      ) : null}
+                    </div>
+                  </Tabs.Panel>
 
-                <Tabs.Panel id="soul" className="space-y-3 pt-4">
-                  <TextAreaField
-                    label="Personality"
-                    rows={4}
-                    value={form.personality}
-                    onChange={(personality) => onChange({ ...form, personality })}
-                  />
-                  <TextAreaField
-                    label="Soul prompt"
-                    rows={8}
-                    value={form.soul_prompt}
-                    onChange={(soul_prompt) => onChange({ ...form, soul_prompt })}
-                  />
-                </Tabs.Panel>
+                  <Tabs.Panel id="instructions" className="space-y-3 pt-4">
+                    <ReadOnlyBlock title="Personality" value={agent.personality} />
+                    <ReadOnlyBlock title="Soul prompt" value={agent.soul_prompt} />
+                    <ReadOnlyBlock
+                      title="Expected output"
+                      value={handoffConfig.expectedOutput || "No specific output contract."}
+                    />
+                  </Tabs.Panel>
 
-                <Tabs.Panel id="tools" className="space-y-4 pt-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <SelectField
-                      label="Model override"
-                      value={form.model_ref}
-                      onChange={(model_ref) => onChange({ ...form, model_ref })}
-                      options={[
-                        ["", "Inherit selected chat model"],
-                        ...managedModels.map(
-                          (model) =>
-                            [
-                              model.ref,
-                              `${model.providerLabel} / ${model.modelLabel ?? model.modelId}`,
-                            ] satisfies [string, string],
-                        ),
-                      ]}
-                    />
-                    <TextInputField
-                      label="Voice"
-                      placeholder="optional voice profile"
-                      value={form.voice}
-                      onChange={(voice) => onChange({ ...form, voice })}
-                    />
-                    <NumberField
-                      label="Max turns"
-                      min={1}
-                      max={20}
-                      value={form.runtimeConfig.maxTurns}
-                      onChange={(maxTurns) =>
-                        onChange({
-                          ...form,
-                          runtimeConfig: { ...form.runtimeConfig, maxTurns },
-                        })
-                      }
-                    />
-                    <NumberField
-                      label="Temperature"
-                      min={0}
-                      max={2}
-                      step={0.1}
-                      value={form.runtimeConfig.temperature ?? 0.7}
-                      onChange={(temperature) =>
-                        onChange({
-                          ...form,
-                          runtimeConfig: { ...form.runtimeConfig, temperature },
-                        })
-                      }
-                    />
-                    <NumberField
-                      label="Top-P"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={form.runtimeConfig.topP ?? 1}
-                      onChange={(topP) =>
-                        onChange({
-                          ...form,
-                          runtimeConfig: { ...form.runtimeConfig, topP },
-                        })
-                      }
-                    />
-                    <NumberField
-                      label="Max output tokens"
-                      min={1}
-                      max={32768}
-                      value={form.runtimeConfig.maxOutputTokens ?? 4096}
-                      onChange={(maxOutputTokens) =>
-                        onChange({
-                          ...form,
-                          runtimeConfig: { ...form.runtimeConfig, maxOutputTokens },
-                        })
-                      }
-                    />
-                    <SelectField
-                      label="Reasoning"
-                      value={form.runtimeConfig.reasoning ?? "provider-default"}
-                      onChange={(reasoning) =>
-                        onChange({
-                          ...form,
-                          runtimeConfig: {
-                            ...form.runtimeConfig,
-                            reasoning: reasoning as AgentRuntimeConfig["reasoning"],
-                          },
-                        })
-                      }
-                      options={[
-                        ["provider-default", "Provider default"],
-                        ["none", "None"],
-                        ["minimal", "Minimal"],
-                        ["low", "Low"],
-                        ["medium", "Medium"],
-                        ["high", "High"],
-                        ["xhigh", "XHigh"],
-                      ]}
-                    />
-                    <SelectField
-                      label="Review policy"
-                      value={form.runtimeConfig.reviewPolicy ?? "review_sensitive"}
-                      onChange={(reviewPolicy) =>
-                        onChange({
-                          ...form,
-                          runtimeConfig: {
-                            ...form.runtimeConfig,
-                            reviewPolicy: reviewPolicy as AgentRuntimeConfig["reviewPolicy"],
-                          },
-                        })
-                      }
-                      options={[
-                        ["inherit", "Inherit"],
-                        ["auto", "Auto allow low risk"],
-                        ["review_sensitive", "Review sensitive"],
-                        ["review_all", "Review all tools"],
-                      ]}
-                    />
-                    <SelectField
-                      label="Sandbox policy"
-                      value={form.runtimeConfig.sandboxPolicy ?? "local"}
-                      onChange={(sandboxPolicy) =>
-                        onChange({
-                          ...form,
-                          runtimeConfig: {
-                            ...form.runtimeConfig,
-                            sandboxPolicy: sandboxPolicy as AgentRuntimeConfig["sandboxPolicy"],
-                          },
-                        })
-                      }
-                      options={[
-                        ["inherit", "Inherit"],
-                        ["disabled", "Disabled"],
-                        ["local", "Local restricted"],
-                        ["docker", "Docker preferred"],
-                      ]}
-                    />
-                  </div>
-                  <ToolPolicyEditor form={form} onChange={onChange} />
-                </Tabs.Panel>
+                  <Tabs.Panel id="runs" className="pt-4">
+                    <AgentRunsList runs={runs} />
+                  </Tabs.Panel>
 
-                <Tabs.Panel id="handoff" className="space-y-3 pt-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <SelectField
-                      label="Mode"
-                      value={form.handoffConfig.mode}
-                      onChange={(mode) =>
-                        onChange({
-                          ...form,
-                          handoffConfig: {
-                            ...form.handoffConfig,
-                            mode: mode as AgentHandoffConfig["mode"],
-                          },
-                        })
-                      }
-                      options={[
-                        ["handoff", "Handoff"],
-                        ["consult", "Consult"],
-                        ["both", "Both"],
-                      ]}
+                  <Tabs.Panel id="activity" className="space-y-4 pt-4">
+                    <MiniList
+                      title="Run steps"
+                      empty="No steps recorded for this agent"
+                      items={steps.map((step) => ({
+                        id: step.id,
+                        title: step.title,
+                        detail: `${step.kind} / ${step.status} / ${f.dateTime(step.started_at)}`,
+                      }))}
                     />
-                    <SelectField
-                      label="Priority"
-                      value={form.handoffConfig.priority}
-                      onChange={(priority) =>
-                        onChange({
-                          ...form,
-                          handoffConfig: {
-                            ...form.handoffConfig,
-                            priority: priority as AgentHandoffConfig["priority"],
-                          },
-                        })
-                      }
-                      options={[
-                        ["low", "Low"],
-                        ["normal", "Normal"],
-                        ["high", "High"],
-                      ]}
-                    />
-                  </div>
-                  <TextInputField
-                    label="Accepts"
-                    placeholder="research, planning, critique"
-                    value={form.handoffConfig.accepts.join(", ")}
-                    onChange={(raw) =>
-                      onChange({
-                        ...form,
-                        handoffConfig: {
-                          ...form.handoffConfig,
-                          accepts: splitCommaList(raw),
-                        },
-                      })
-                    }
-                  />
-                  <TextAreaField
-                    label="Expected output"
-                    rows={4}
-                    value={form.handoffConfig.expectedOutput}
-                    onChange={(expectedOutput) =>
-                      onChange({
-                        ...form,
-                        handoffConfig: { ...form.handoffConfig, expectedOutput },
-                      })
-                    }
-                  />
-                </Tabs.Panel>
-
-                <Tabs.Panel id="runs" className="pt-4">
-                  <AgentRunsList runs={runs} />
-                </Tabs.Panel>
-              </Tabs>
+                    <div>
+                      <div className="mb-2 text-xs font-medium uppercase tracking-normal text-foreground/40">
+                        Harness events
+                      </div>
+                      <Timeline items={activity} />
+                    </div>
+                  </Tabs.Panel>
+                </Tabs>
+              ) : null}
             </Drawer.Body>
             <Drawer.Footer>
-              <Button variant="tertiary" onPress={() => state.close()} isDisabled={isSaving}>
-                Cancel
-              </Button>
-              <Button variant="primary" onPress={onSave} isPending={isSaving}>
-                Save agent
-              </Button>
+              <div className="flex w-full justify-between gap-2">
+                <Button variant="tertiary" onPress={onClose}>
+                  Close
+                </Button>
+                <Button
+                  variant="primary"
+                  onPress={() => agent && onEdit(agent)}
+                  isDisabled={!agent || locked}
+                >
+                  Edit agent
+                </Button>
+              </div>
             </Drawer.Footer>
           </Drawer.Dialog>
         </Drawer.Content>
       </Drawer.Backdrop>
     </Drawer>
+  );
+}
+
+function AgentEditorModal({
+  mode,
+  agent,
+  form,
+  isSaving,
+  error,
+  validationErrors,
+  onChange,
+  onSave,
+  onClose,
+  managedModels,
+  selectedTab,
+  setSelectedTab,
+}: {
+  mode: "create" | "edit" | null;
+  agent: AgentProfile | null;
+  form: AgentFormState;
+  isSaving: boolean;
+  error: string | null;
+  validationErrors: AgentValidationErrors;
+  onChange: (next: AgentFormState) => void;
+  onSave: () => void;
+  onClose: () => void;
+  managedModels: ManagedModelInfo[];
+  selectedTab: string;
+  setSelectedTab: (key: string) => void;
+}): React.JSX.Element {
+  const open = mode !== null;
+
+  return (
+    <Modal isOpen={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <Modal.Backdrop isDismissable={!isSaving}>
+        <Modal.Container size="lg" placement="center" scroll="inside">
+          <Modal.Dialog>
+            <Modal.Header>
+              <div className="flex w-full items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Modal.Heading className="text-base font-semibold">
+                    {mode === "edit" ? `Edit ${agent?.name ?? "agent"}` : "New agent"}
+                  </Modal.Heading>
+                  <p className="mt-1 text-sm text-foreground/50">
+                    Configure identity, instructions, runtime, and routing in one focused flow.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={onClose}
+                  isDisabled={isSaving}
+                  aria-label="Close"
+                >
+                  <IconClose className="size-4" />
+                </Button>
+              </div>
+            </Modal.Header>
+            <Modal.Body>
+              <div className="space-y-4">
+                {error ? (
+                  <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+                    {error}
+                  </div>
+                ) : null}
+
+                <Tabs
+                  selectedKey={selectedTab}
+                  onSelectionChange={(key) => setSelectedTab(String(key))}
+                  variant="secondary"
+                >
+                  <Tabs.ListContainer>
+                    <Tabs.List aria-label="Agent editor tabs">
+                      <Tabs.Tab id="basics">Basics</Tabs.Tab>
+                      <Tabs.Tab id="instructions">Instructions</Tabs.Tab>
+                      <Tabs.Tab id="runtime">Runtime</Tabs.Tab>
+                      <Tabs.Tab id="routing">Routing</Tabs.Tab>
+                    </Tabs.List>
+                  </Tabs.ListContainer>
+
+                  <Tabs.Panel id="basics" className="space-y-3 pt-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <TextInputField
+                        label="Name"
+                        required
+                        value={form.name}
+                        error={validationErrors.name}
+                        onChange={(name) => onChange({ ...form, name })}
+                      />
+                      <TextInputField
+                        label="Avatar"
+                        value={form.avatar}
+                        onChange={(avatar) => onChange({ ...form, avatar: avatar.slice(0, 2) })}
+                      />
+                      <TextInputField
+                        label="Role"
+                        required
+                        value={form.role}
+                        error={validationErrors.role}
+                        onChange={(role) => onChange({ ...form, role })}
+                      />
+                      <SelectField
+                        label="Lifecycle"
+                        value={form.status}
+                        onChange={(status) =>
+                          onChange({ ...form, status: status as AgentProfile["status"] })
+                        }
+                        options={[
+                          ["active", "Active"],
+                          ["draft", "Draft"],
+                          ["archived", "Archived"],
+                        ]}
+                      />
+                    </div>
+                    <Switch
+                      size="sm"
+                      isSelected={form.enabled}
+                      onChange={(enabled) => onChange({ ...form, enabled })}
+                      aria-label="Agent enabled"
+                    >
+                      <Switch.Content>
+                        <Switch.Control>
+                          <Switch.Thumb />
+                        </Switch.Control>
+                        Enabled for orchestration
+                      </Switch.Content>
+                    </Switch>
+                    <TextAreaField
+                      label="Description"
+                      required
+                      rows={3}
+                      value={form.description}
+                      error={validationErrors.description}
+                      onChange={(description) => onChange({ ...form, description })}
+                    />
+                  </Tabs.Panel>
+
+                  <Tabs.Panel id="instructions" className="space-y-3 pt-4">
+                    <TextAreaField
+                      label="Personality"
+                      required
+                      rows={4}
+                      value={form.personality}
+                      error={validationErrors.personality}
+                      onChange={(personality) => onChange({ ...form, personality })}
+                    />
+                    <TextAreaField
+                      label="Soul prompt"
+                      required
+                      rows={8}
+                      value={form.soul_prompt}
+                      error={validationErrors.soul_prompt}
+                      onChange={(soul_prompt) => onChange({ ...form, soul_prompt })}
+                    />
+                  </Tabs.Panel>
+
+                  <Tabs.Panel id="runtime" className="space-y-4 pt-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <SelectField
+                        label="Model override"
+                        value={form.model_ref}
+                        onChange={(model_ref) => onChange({ ...form, model_ref })}
+                        options={[
+                          ["", "Inherit selected chat model"],
+                          ...managedModels.map(
+                            (model) =>
+                              [
+                                model.ref,
+                                `${model.providerLabel} / ${model.modelLabel ?? model.modelId}`,
+                              ] satisfies [string, string],
+                          ),
+                        ]}
+                      />
+                      <TextInputField
+                        label="Voice"
+                        placeholder="optional voice profile"
+                        value={form.voice}
+                        onChange={(voice) => onChange({ ...form, voice })}
+                      />
+                      <NumberField
+                        label="Max turns"
+                        min={1}
+                        max={20}
+                        value={form.runtimeConfig.maxTurns}
+                        onChange={(maxTurns) =>
+                          onChange({
+                            ...form,
+                            runtimeConfig: { ...form.runtimeConfig, maxTurns },
+                          })
+                        }
+                      />
+                      <NumberField
+                        label="Temperature"
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        value={form.runtimeConfig.temperature ?? 0.7}
+                        onChange={(temperature) =>
+                          onChange({
+                            ...form,
+                            runtimeConfig: { ...form.runtimeConfig, temperature },
+                          })
+                        }
+                      />
+                      <NumberField
+                        label="Top-P"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={form.runtimeConfig.topP ?? 1}
+                        onChange={(topP) =>
+                          onChange({
+                            ...form,
+                            runtimeConfig: { ...form.runtimeConfig, topP },
+                          })
+                        }
+                      />
+                      <NumberField
+                        label="Max output tokens"
+                        min={1}
+                        max={32768}
+                        value={form.runtimeConfig.maxOutputTokens ?? 4096}
+                        onChange={(maxOutputTokens) =>
+                          onChange({
+                            ...form,
+                            runtimeConfig: { ...form.runtimeConfig, maxOutputTokens },
+                          })
+                        }
+                      />
+                      <SelectField
+                        label="Reasoning"
+                        value={form.runtimeConfig.reasoning ?? "provider-default"}
+                        onChange={(reasoning) =>
+                          onChange({
+                            ...form,
+                            runtimeConfig: {
+                              ...form.runtimeConfig,
+                              reasoning: reasoning as AgentRuntimeConfig["reasoning"],
+                            },
+                          })
+                        }
+                        options={[
+                          ["provider-default", "Provider default"],
+                          ["none", "None"],
+                          ["minimal", "Minimal"],
+                          ["low", "Low"],
+                          ["medium", "Medium"],
+                          ["high", "High"],
+                          ["xhigh", "XHigh"],
+                        ]}
+                      />
+                      <SelectField
+                        label="Review policy"
+                        value={form.runtimeConfig.reviewPolicy ?? "review_sensitive"}
+                        onChange={(reviewPolicy) =>
+                          onChange({
+                            ...form,
+                            runtimeConfig: {
+                              ...form.runtimeConfig,
+                              reviewPolicy: reviewPolicy as AgentRuntimeConfig["reviewPolicy"],
+                            },
+                          })
+                        }
+                        options={[
+                          ["inherit", "Inherit"],
+                          ["auto", "Auto allow low risk"],
+                          ["review_sensitive", "Review sensitive"],
+                          ["review_all", "Review all tools"],
+                        ]}
+                      />
+                      <SelectField
+                        label="Sandbox policy"
+                        value={form.runtimeConfig.sandboxPolicy ?? "local"}
+                        onChange={(sandboxPolicy) =>
+                          onChange({
+                            ...form,
+                            runtimeConfig: {
+                              ...form.runtimeConfig,
+                              sandboxPolicy: sandboxPolicy as AgentRuntimeConfig["sandboxPolicy"],
+                            },
+                          })
+                        }
+                        options={[
+                          ["inherit", "Inherit"],
+                          ["disabled", "Disabled"],
+                          ["local", "Local restricted"],
+                          ["docker", "Docker preferred"],
+                        ]}
+                      />
+                    </div>
+                    <ToolPolicyEditor form={form} onChange={onChange} />
+                  </Tabs.Panel>
+
+                  <Tabs.Panel id="routing" className="space-y-3 pt-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <SelectField
+                        label="Mode"
+                        value={form.handoffConfig.mode}
+                        onChange={(mode) =>
+                          onChange({
+                            ...form,
+                            handoffConfig: {
+                              ...form.handoffConfig,
+                              mode: mode as AgentHandoffConfig["mode"],
+                            },
+                          })
+                        }
+                        options={[
+                          ["handoff", "Handoff"],
+                          ["consult", "Consult"],
+                          ["both", "Both"],
+                        ]}
+                      />
+                      <SelectField
+                        label="Priority"
+                        value={form.handoffConfig.priority}
+                        onChange={(priority) =>
+                          onChange({
+                            ...form,
+                            handoffConfig: {
+                              ...form.handoffConfig,
+                              priority: priority as AgentHandoffConfig["priority"],
+                            },
+                          })
+                        }
+                        options={[
+                          ["low", "Low"],
+                          ["normal", "Normal"],
+                          ["high", "High"],
+                        ]}
+                      />
+                    </div>
+                    <TextInputField
+                      label="Accepts"
+                      placeholder="research, planning, critique"
+                      value={form.handoffConfig.accepts.join(", ")}
+                      onChange={(raw) =>
+                        onChange({
+                          ...form,
+                          handoffConfig: {
+                            ...form.handoffConfig,
+                            accepts: splitCommaList(raw),
+                          },
+                        })
+                      }
+                    />
+                    <TextAreaField
+                      label="Expected output"
+                      rows={4}
+                      value={form.handoffConfig.expectedOutput}
+                      onChange={(expectedOutput) =>
+                        onChange({
+                          ...form,
+                          handoffConfig: { ...form.handoffConfig, expectedOutput },
+                        })
+                      }
+                    />
+                  </Tabs.Panel>
+                </Tabs>
+              </div>
+            </Modal.Body>
+            <Modal.Footer>
+              <div className="flex w-full flex-wrap justify-end gap-2">
+                <Button variant="secondary" onPress={onClose} isDisabled={isSaving}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onPress={onSave} isPending={isSaving}>
+                  Save agent
+                </Button>
+              </div>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  );
+}
+
+function ReadOnlyBlock({ title, value }: { title: string; value: string }): React.JSX.Element {
+  return (
+    <div className="rounded-md border border-foreground/10 bg-foreground/[0.025] p-3">
+      <p className="text-xs font-medium uppercase tracking-normal text-foreground/40">{title}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground/68">{value}</p>
+    </div>
   );
 }
 
@@ -1265,11 +1476,13 @@ function IconButton({
   children,
   onPress,
   tone = "secondary",
+  isDisabled = false,
 }: {
   label: string;
   children: ReactNode;
   onPress: () => void;
   tone?: "secondary" | "danger";
+  isDisabled?: boolean;
 }): React.JSX.Element {
   return (
     <Tooltip>
@@ -1279,6 +1492,7 @@ function IconButton({
         size="sm"
         variant={tone === "danger" ? "danger" : "secondary"}
         onPress={onPress}
+        isDisabled={isDisabled}
       >
         {children}
       </Button>
@@ -1292,21 +1506,31 @@ function TextInputField({
   value,
   onChange,
   placeholder,
+  error,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  error?: string;
+  required?: boolean;
 }): React.JSX.Element {
   return (
     <div className="grid gap-1.5">
-      <Label className="text-xs font-medium text-foreground/50">{label}</Label>
+      <Label className="text-xs font-medium text-foreground/50">
+        {label}
+        {required ? <span className="ml-1 text-danger">*</span> : null}
+      </Label>
       <Input
         fullWidth
         value={value}
         placeholder={placeholder}
+        aria-invalid={!!error}
+        className={error ? "border-danger/50" : undefined}
         onChange={(event) => onChange(event.target.value)}
       />
+      {error ? <p className="text-xs text-danger">{error}</p> : null}
     </div>
   );
 }
@@ -1350,21 +1574,31 @@ function TextAreaField({
   value,
   onChange,
   rows,
+  error,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   rows: number;
+  error?: string;
+  required?: boolean;
 }): React.JSX.Element {
   return (
     <div className="grid gap-1.5">
-      <Label className="text-xs font-medium text-foreground/50">{label}</Label>
+      <Label className="text-xs font-medium text-foreground/50">
+        {label}
+        {required ? <span className="ml-1 text-danger">*</span> : null}
+      </Label>
       <TextArea
         fullWidth
         rows={rows}
         value={value}
+        aria-invalid={!!error}
+        className={error ? "border-danger/50" : undefined}
         onChange={(event) => onChange(event.target.value)}
       />
+      {error ? <p className="text-xs text-danger">{error}</p> : null}
     </div>
   );
 }
@@ -1398,6 +1632,48 @@ function SelectField({
       </select>
     </div>
   );
+}
+
+function isLockedAgent(agent: AgentProfile): boolean {
+  return agent.locked !== 0 || agent.kind === "main" || agent.id === DEFAULT_AGENT_ID;
+}
+
+function validateAgentForm(form: AgentFormState): AgentValidationErrors {
+  const errors: AgentValidationErrors = {};
+  const required = "Required";
+  if (!form.name.trim()) errors.name = required;
+  if (!form.role.trim()) errors.role = required;
+  if (!form.description.trim()) errors.description = required;
+  if (!form.personality.trim()) errors.personality = required;
+  if (!form.soul_prompt.trim()) errors.soul_prompt = required;
+  return errors;
+}
+
+function toolPolicySummary(policy: AgentToolPolicy): string {
+  if (policy.mode === "inherit") return "Inherit";
+  const allowed = policy.allowedToolIds.length;
+  const approvals = policy.requireApprovalToolIds.length;
+  return approvals > 0 ? `${allowed} allowed, ${approvals} approval` : `${allowed} allowed`;
+}
+
+function harnessEventsForAgent(
+  snapshot: WorkspaceSnapshot,
+  agent: AgentProfile,
+): WorkspaceSnapshot["harnessEvents"] {
+  const runs = runsForAgent(snapshot.agentRuns, agent.id);
+  const runIds = new Set(runs.map((run) => run.id));
+  const name = agent.name.toLowerCase();
+  const root = isLockedAgent(agent);
+  return snapshot.harnessEvents.filter((event) => {
+    const detail = event.detail_json.toLowerCase();
+    const title = event.title.toLowerCase();
+    return (
+      detail.includes(agent.id.toLowerCase()) ||
+      [...runIds].some((runId) => detail.includes(runId.toLowerCase())) ||
+      title.includes(name) ||
+      (root && ["agent", "handoff", "learning"].includes(event.kind))
+    );
+  });
 }
 
 function buildAgentForm(agent?: AgentProfile): AgentFormState {
@@ -1928,7 +2204,7 @@ function EmptyPanel(): React.JSX.Element {
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }): React.JSX.Element {
+function InfoRow({ label, value }: { label: string; value: ReactNode }): React.JSX.Element {
   return (
     <p className="grid gap-1 sm:grid-cols-[120px_1fr]">
       <span className="text-foreground/40">{label}</span>

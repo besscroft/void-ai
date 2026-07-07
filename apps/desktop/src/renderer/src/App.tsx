@@ -77,6 +77,10 @@ function AppContent(): React.JSX.Element {
     void api.settings.set(SettingKey.ActiveConversationId, id);
   }, []);
 
+  const handleSelectView = useCallback((view: AppView): void => {
+    setActiveView(view);
+  }, []);
+
   const handleDelete = useCallback(
     (id: string): void => {
       setActiveId((current) => {
@@ -102,7 +106,7 @@ function AppContent(): React.JSX.Element {
       <AppShell
         activeView={activeView}
         activeConversationId={activeId}
-        onSelectView={setActiveView}
+        onSelectView={handleSelectView}
         onSelectConversation={handleSelect}
         onCreateConversation={() => void createNewConversation()}
         onDeleteConversation={handleDelete}
@@ -117,7 +121,7 @@ function AppContent(): React.JSX.Element {
             </div>
           )
         ) : (
-          <WorkspaceView section={activeView} />
+          <WorkspaceView section={activeView} onSelectView={handleSelectView} />
         )}
       </AppShell>
 
