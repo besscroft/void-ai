@@ -10,7 +10,7 @@ import {
   type ChatToolId,
   type ChatToolMode,
   type ChatToolSelectionRequest,
-  type ExtensionsSnapshot,
+  type ToolsSnapshot,
   type ProviderInfo,
 } from "@shared/types";
 import { api } from "../lib/api";
@@ -42,7 +42,7 @@ const ICONS: Record<ChatToolId, (props: SVGProps<SVGSVGElement>) => React.JSX.El
   web_search: IconGlobe,
   current_time: IconClock,
   memory_search: IconDatabase,
-  workspace_snapshot: IconList,
+  runtime_snapshot: IconList,
   model_capabilities: IconCpu,
   conversation_search: IconMessage,
   memory_save: IconWrench,
@@ -64,22 +64,22 @@ export function ToolSelector({
   disabled = false,
 }: ToolSelectorProps): React.JSX.Element {
   const { t } = useT();
-  const [extensions, setExtensions] = useState<ExtensionsSnapshot | null>(null);
+  const [tools, settools] = useState<ToolsSnapshot | null>(null);
   const selection = normalizeChatToolSelection(value);
 
   useEffect(() => {
     let alive = true;
     try {
-      void api.extensions
+      void api.tools
         .snapshot()
         .then((snapshot) => {
-          if (alive) setExtensions(snapshot);
+          if (alive) settools(snapshot);
         })
         .catch(() => {
-          if (alive) setExtensions(null);
+          if (alive) settools(null);
         });
     } catch {
-      setExtensions(null);
+      settools(null);
     }
     return () => {
       alive = false;
@@ -87,8 +87,8 @@ export function ToolSelector({
   }, []);
 
   const descriptors = useMemo(
-    () => createClientChatToolDescriptors({ selectedModel, providers, extensions }),
-    [extensions, providers, selectedModel],
+    () => createClientChatToolDescriptors({ selectedModel, providers, tools }),
+    [tools, providers, selectedModel],
   );
   const orderedDescriptors = useMemo(() => orderToolDescriptors(descriptors), [descriptors]);
   const activeToolIds = getActiveChatToolIds(selection, descriptors);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
   Checkbox,
@@ -21,7 +21,7 @@ import { notify } from "../lib/toast";
 import { useSettings, type SettingsResetScope } from "../lib/settings";
 import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ExtensionsPanel } from "./ExtensionsPanel";
+import { ToolsPanel } from "./ToolsPanel";
 import {
   IconClose,
   IconKey,
@@ -51,6 +51,7 @@ import {
   type ModelCapabilities,
   type ModelOption,
   type ProviderInfo,
+  type RuntimeEvent,
   type ThemeMode,
   type ThemePresetId,
   type FontSizeLevel,
@@ -61,29 +62,29 @@ import {
 } from "@shared/types";
 
 interface SettingsDialogProps {
-  /** 控制显隐 */
+  /** 鎺у埗鏄鹃殣 */
   open: boolean;
-  /** 关闭回调 */
+  /** 鍏抽棴鍥炶皟 */
   onClose: () => void;
 }
 
-/** Tab 定义 */
-type TabId = "appearance" | "model" | "extensions" | "trash";
+/** Tab 瀹氫箟 */
+type TabId = "appearance" | "model" | "tools" | "diagnostics" | "trash";
 
 /**
- * 设置弹窗（分 Tab 结构）
+ * 璁剧疆寮圭獥锛堝垎 Tab 缁撴瀯锛?
  *
- * 布局示意：
- * ┌──────────────────────────────────────────────┐
- * │ 设置                                     [✕] │
- * │────────────┬─────────────────────────────────│
- * │ 🎨 外观    │                                 │
- * │ 🤖 模型    │      <当前 Tab 内容>            │
- * │ 🗑 回收站  │                                 │
- * └────────────┴─────────────────────────────────┘
+ * 甯冨眬绀烘剰锛?
+ * 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+ * 鈹?璁剧疆                                     [鉁昡 鈹?
+ * 鈹傗攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+ * 鈹?馃帹 澶栬    鈹?                                鈹?
+ * 鈹?馃 妯″瀷    鈹?     <褰撳墠 Tab 鍐呭>            鈹?
+ * 鈹?馃棏 鍥炴敹绔? 鈹?                                鈹?
+ * 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹粹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
  *
- * 所有外观/模型设置即时应用并持久化（实时预览）；
- * 破坏性操作（重置、清缓存、删 Key）通过 ConfirmDialog 二次确认。
+ * 鎵€鏈夊瑙?妯″瀷璁剧疆鍗虫椂搴旂敤骞舵寔涔呭寲锛堝疄鏃堕瑙堬級锛?
+ * 鐮村潖鎬ф搷浣滐紙閲嶇疆銆佹竻缂撳瓨銆佸垹 Key锛夐€氳繃 ConfirmDialog 浜屾纭銆?
  */
 export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JSX.Element | null {
   const { t, locale } = useT();
@@ -92,7 +93,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   const [confirmResetScope, setConfirmResetScope] = useState<SettingsResetScope | null>(null);
   const [resetDoneScope, setResetDoneScope] = useState<SettingsResetScope | null>(null);
 
-  // ESC 关闭
+  // ESC 鍏抽棴
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent): void => {
@@ -131,15 +132,18 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   const tabs: { id: TabId; label: string; Icon: typeof IconPalette }[] = [
     { id: "appearance", label: t("settings.tab.appearance"), Icon: IconPalette },
     { id: "model", label: t("settings.tab.model"), Icon: IconCpu },
-    { id: "extensions", label: t("settings.tab.extensions"), Icon: IconWrench },
+    { id: "tools", label: t("settings.tab.tools"), Icon: IconWrench },
+    { id: "diagnostics", label: t("settings.tab.diagnostics"), Icon: IconSliders },
     { id: "trash", label: t("settings.tab.trash"), Icon: IconTrash },
   ];
   const subtitle =
     tab === "appearance"
       ? t("appearance.subtitle")
-      : tab === "extensions"
-        ? t("settings.extensions.subtitle")
-        : "";
+      : tab === "tools"
+        ? t("settings.tools.subtitle")
+        : tab === "diagnostics"
+          ? t("settings.diagnostics.subtitle")
+          : "";
 
   return (
     <div
@@ -153,7 +157,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
         className="flex h-[calc(100vh-32px)] max-h-[860px] w-[calc(100vw-32px)] max-w-[1280px] flex-col overflow-hidden rounded-xl border border-foreground/15 bg-background shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 头部 */}
+        {/* 澶撮儴 */}
         <div className="flex items-center justify-between border-b border-foreground/10 px-6 py-4">
           <div>
             <h2 id="settings-title" className="text-base font-semibold">
@@ -171,9 +175,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
           </button>
         </div>
 
-        {/* 主体：导航 + 内容，窄屏纵向布局 */}
+        {/* 涓讳綋锛氬鑸?+ 鍐呭锛岀獎灞忕旱鍚戝竷灞€ */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-          {/* 导航 */}
+          {/* 瀵艰埅 */}
           <nav className="flex shrink-0 gap-1 border-b border-foreground/10 p-2 md:w-48 md:flex-col md:border-b-0 md:border-r">
             {tabs.map(({ id, label, Icon }) => {
               const active = tab === id;
@@ -197,7 +201,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
             })}
           </nav>
 
-          {/* 内容 */}
+          {/* 鍐呭 */}
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             {tab === "appearance" && (
               <AppearanceTab
@@ -208,12 +212,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
               />
             )}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
-            {tab === "extensions" && <ExtensionsPanel />}
+            {tab === "tools" && <ToolsPanel />}
+            {tab === "diagnostics" && <DiagnosticsTab />}
             {tab === "trash" && <TrashTab />}
           </div>
         </div>
 
-        {/* 底部 */}
+        {/* 搴曢儴 */}
         <div className="flex items-center justify-between border-t border-foreground/10 px-6 py-3">
           <span aria-hidden="true" />
           <Button variant="secondary" onPress={onClose}>
@@ -222,7 +227,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
         </div>
       </div>
 
-      {/* 恢复默认确认 */}
+      {/* 鎭㈠榛樿纭 */}
       <ConfirmDialog
         open={!!confirmResetScope}
         title={
@@ -250,14 +255,14 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
 }
 
 // ============================================================
-// 通用小组件
+// 閫氱敤灏忕粍浠?
 // ============================================================
 
 /**
- * 设置区块
+ * 璁剧疆鍖哄潡
  *
- * 视觉上呈现为一张"分组卡"：左侧带渐变色细条的标题区 + 右侧的内容区。
- * 让多个设置项按主题聚合在一起，避免单行设置显得零散。
+ * 瑙嗚涓婂憟鐜颁负涓€寮?鍒嗙粍鍗?锛氬乏渚у甫娓愬彉鑹茬粏鏉＄殑鏍囬鍖?+ 鍙充晶鐨勫唴瀹瑰尯銆?
+ * 璁╁涓缃」鎸変富棰樿仛鍚堝湪涓€璧凤紝閬垮厤鍗曡璁剧疆鏄惧緱闆舵暎銆?
  */
 function SettingSection({
   title,
@@ -288,7 +293,7 @@ function SettingSection({
   );
 }
 
-/** 单行设置项：左侧标题/描述，右侧控件 */
+/** 鍗曡璁剧疆椤癸細宸︿晶鏍囬/鎻忚堪锛屽彸渚ф帶浠?*/
 function SettingItem({
   title,
   desc,
@@ -335,13 +340,13 @@ function ResettableTabHeader({
 }
 
 // ============================================================
-// 外观 Tab
+// 澶栬 Tab
 // ============================================================
 
 /**
- * 主题模式预览卡：与图中一致的三张卡片，横向并列
- *  - 上半部分使用 50/50 左右分屏的"窗口"预览
- *  - 边框颜色随选中状态变化（accent / 默认）
+ * 涓婚妯″紡棰勮鍗★細涓庡浘涓竴鑷寸殑涓夊紶鍗＄墖锛屾í鍚戝苟鍒?
+ *  - 涓婂崐閮ㄥ垎浣跨敤 50/50 宸﹀彸鍒嗗睆鐨?绐楀彛"棰勮
+ *  - 杈规棰滆壊闅忛€変腑鐘舵€佸彉鍖栵紙accent / 榛樿锛?
  */
 function ThemeModePreviewCard({
   value,
@@ -392,7 +397,7 @@ function ThemeModePreviewCard({
   );
 }
 
-/** 主题模式预览骨架图（与图中类似的几条内容示意线） */
+/** 涓婚妯″紡棰勮楠ㄦ灦鍥撅紙涓庡浘涓被浼肩殑鍑犳潯鍐呭绀烘剰绾匡級 */
 function PreviewSkeleton({ tone }: { tone: "light" | "dark" }): React.JSX.Element {
   const base = tone === "light" ? "rgba(15,23,42,0.18)" : "rgba(255,255,255,0.22)";
   const accent = tone === "light" ? "rgba(15,23,42,0.3)" : "rgba(255,255,255,0.45)";
@@ -428,7 +433,7 @@ function AppearanceTab({
   const selectedAccent = preset ? parseColor(preset.swatch) : undefined;
   const presetBundle = THEME_PRESETS.find((p) => p.id === settings.themePreset);
 
-  // 主题模式预览卡片：左右两色由"当前主题包 + 浅/深"决定
+  // 涓婚妯″紡棰勮鍗＄墖锛氬乏鍙充袱鑹茬敱"褰撳墠涓婚鍖?+ 娴?娣?鍐冲畾
   const systemSwatchLight = presetBundle?.swatches.light ?? "#f7f7f8";
   const systemSwatchDark = presetBundle?.swatches.dark ?? "#1f1f23";
 
@@ -444,7 +449,7 @@ function AppearanceTab({
         resetDone={resetDone}
       />
 
-      {/* —— 主题模式预览卡 —— */}
+      {/* 鈥斺€?涓婚妯″紡棰勮鍗?鈥斺€?*/}
       <SettingSection
         title={t("appearance.mode")}
         desc={t("appearance.mode.desc")}
@@ -478,7 +483,7 @@ function AppearanceTab({
         </div>
       </SettingSection>
 
-      {/* —— 主题包 + 强调色 并列 —— */}
+      {/* 鈥斺€?涓婚鍖?+ 寮鸿皟鑹?骞跺垪 鈥斺€?*/}
       <div className="grid gap-4 lg:grid-cols-2">
         <SettingSection title={t("appearance.bundle")} desc={t("appearance.bundle.desc")}>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -567,7 +572,7 @@ function AppearanceTab({
         </SettingSection>
       </div>
 
-      {/* —— 颜色（背景/前景/对比度）—— */}
+      {/* 鈥斺€?棰滆壊锛堣儗鏅?鍓嶆櫙/瀵规瘮搴︼級鈥斺€?*/}
       <SettingSection title={t("appearance.colors")} desc={t("appearance.colors.desc")}>
         <div className="grid gap-3 sm:grid-cols-2">
           <ColorFieldRow
@@ -604,7 +609,7 @@ function AppearanceTab({
         />
       </SettingSection>
 
-      {/* —— 字体 —— */}
+      {/* 鈥斺€?瀛椾綋 鈥斺€?*/}
       <SettingSection title={t("appearance.fonts")} desc={t("appearance.fonts.desc")}>
         <FontFieldRow
           label={t("appearance.font.ui")}
@@ -622,7 +627,7 @@ function AppearanceTab({
         />
       </SettingSection>
 
-      {/* —— 排版 —— */}
+      {/* 鈥斺€?鎺掔増 鈥斺€?*/}
       <SettingSection title={t("appearance.typography")}>
         <SettingItem
           title={t("appearance.fontSize")}
@@ -673,7 +678,7 @@ function AppearanceTab({
         />
       </SettingSection>
 
-      {/* —— 交互 —— */}
+      {/* 鈥斺€?浜や簰 鈥斺€?*/}
       <SettingSection title={t("appearance.interaction")}>
         <SettingItem
           title={t("appearance.translucent")}
@@ -757,7 +762,7 @@ function AppearanceTab({
         />
       </SettingSection>
 
-      {/* —— 高级/差异化 —— */}
+      {/* 鈥斺€?楂樼骇/宸紓鍖?鈥斺€?*/}
       <SettingSection title={t("appearance.advanced")}>
         <SettingItem
           title={t("appearance.diff")}
@@ -814,10 +819,10 @@ function AppearanceTab({
 }
 
 // ============================================================
-// 字段子组件
+// 瀛楁瀛愮粍浠?
 // ============================================================
 
-/** 颜色输入行：左侧标签，右侧颜色选择器 + 文本输入 + 清空按钮 */
+/** 棰滆壊杈撳叆琛岋細宸︿晶鏍囩锛屽彸渚ч鑹查€夋嫨鍣?+ 鏂囨湰杈撳叆 + 娓呯┖鎸夐挳 */
 function ColorFieldRow({
   label,
   value,
@@ -874,7 +879,7 @@ function ColorFieldRow({
   );
 }
 
-/** 字体输入行：标签 + 预设下拉 + 自定义输入 */
+/** 瀛椾綋杈撳叆琛岋細鏍囩 + 棰勮涓嬫媺 + 鑷畾涔夎緭鍏?*/
 function FontFieldRow({
   label,
   placeholder,
@@ -889,7 +894,7 @@ function FontFieldRow({
   onChange: (v: string) => void;
 }): React.JSX.Element {
   const { t } = useT();
-  // 当前 value 命中某个预设时高亮它
+  // 褰撳墠 value 鍛戒腑鏌愪釜棰勮鏃堕珮浜畠
   const matchedPreset = presets.find((p) => p.value === value);
   return (
     <div className="space-y-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
@@ -941,7 +946,7 @@ function FontFieldRow({
 }
 
 // ============================================================
-// 模型 Tab
+// 妯″瀷 Tab
 // ============================================================
 function ModelTab({
   settings,
@@ -1759,7 +1764,7 @@ function ModelEditorDialog({
 }
 
 // ============================================================
-// 回收站 Tab
+// 鍥炴敹绔?Tab
 // ============================================================
 const DEFAULT_MODEL_CAPABILITIES: ModelCapabilities = {
   textGeneration: true,
@@ -3139,7 +3144,7 @@ function TrashTab(): React.JSX.Element {
   const [agentLoading, setAgentLoading] = useState(false);
   const [pendingPermanentDelete, setPendingPermanentDelete] = useState<Conversation | null>(null);
   const [pendingBatchDelete, setPendingBatchDelete] = useState<number | null>(null);
-  // 多选：使用 Set 便于 O(1) 判断；仅跟踪选中的 id
+  // 澶氶€夛細浣跨敤 Set 渚夸簬 O(1) 鍒ゆ柇锛涗粎璺熻釜閫変腑鐨?id
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const refreshConversations = (): void => {
@@ -3178,7 +3183,7 @@ function TrashTab(): React.JSX.Element {
     refresh();
   }, []);
 
-  // 列表变更（refresh / 单条删除 / 批量删除）后，清理已不存在的 id
+  // 鍒楄〃鍙樻洿锛坮efresh / 鍗曟潯鍒犻櫎 / 鎵归噺鍒犻櫎锛夊悗锛屾竻鐞嗗凡涓嶅瓨鍦ㄧ殑 id
   useEffect(() => {
     setSelectedIds((prev) => {
       if (prev.size === 0) return prev;
@@ -3193,7 +3198,7 @@ function TrashTab(): React.JSX.Element {
     });
   }, [items]);
 
-  // 全选 / 半选状态（基于当前 items）
+  // 鍏ㄩ€?/ 鍗婇€夌姸鎬侊紙鍩轰簬褰撳墠 items锛?
   const selectionState = useMemo<{ allSelected: boolean; indeterminate: boolean }>(() => {
     if (items.length === 0) return { allSelected: false, indeterminate: false };
     const allSelected = selectedIds.size === items.length;
@@ -3280,7 +3285,7 @@ function TrashTab(): React.JSX.Element {
         locale,
       )
       .then(() => {
-        // 操作成功后清空选择 + 列表由 refresh 重建
+        // 鎿嶄綔鎴愬姛鍚庢竻绌洪€夋嫨 + 鍒楄〃鐢?refresh 閲嶅缓
         setSelectedIds(new Set());
         return refreshConversations();
       })
@@ -3361,7 +3366,7 @@ function TrashTab(): React.JSX.Element {
         </div>
       ) : (
         <>
-          {/* 批量操作工具栏：全选 + 计数 + 批量删除 */}
+          {/* 鎵归噺鎿嶄綔宸ュ叿鏍忥細鍏ㄩ€?+ 璁℃暟 + 鎵归噺鍒犻櫎 */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-foreground/10 bg-foreground/[0.02] px-3 py-2">
             <div className="flex items-center gap-3">
               <Checkbox
@@ -3410,7 +3415,7 @@ function TrashTab(): React.JSX.Element {
                           <Checkbox.Control>
                             <Checkbox.Indicator />
                           </Checkbox.Control>
-                          {/* 纯视觉占位：可访问名通过 aria-label 提供 */}
+                          {/* 绾瑙夊崰浣嶏細鍙闂悕閫氳繃 aria-label 鎻愪緵 */}
                           <span className="sr-only">{conversation.title}</span>
                         </Checkbox.Content>
                       </Checkbox>
@@ -3473,6 +3478,61 @@ function TrashTab(): React.JSX.Element {
         onConfirm={handleBatchDelete}
         onClose={() => setPendingBatchDelete(null)}
       />
+    </section>
+  );
+}
+
+function DiagnosticsTab(): React.JSX.Element {
+  const { t, f } = useT();
+  const [events, setEvents] = useState<RuntimeEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = (): void => {
+    setLoading(true);
+    void api.runtime.events
+      .list()
+      .then(setEvents)
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(refresh, []);
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">{t("settings.diagnostics.title")}</h3>
+          <p className="mt-1 text-sm text-foreground/50">{t("settings.diagnostics.subtitle")}</p>
+        </div>
+        <Button variant="secondary" size="sm" onPress={refresh} isPending={loading}>
+          <IconRotateCcw className="size-4" />
+          {t("main.refresh")}
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        {events.length === 0 ? (
+          <p className="rounded-md border border-foreground/10 p-6 text-center text-sm text-foreground/45">
+            {t("tools.audit.empty")}
+          </p>
+        ) : (
+          events.slice(0, 80).map((event) => (
+            <div
+              key={event.id}
+              className="grid gap-2 rounded-md border border-foreground/10 p-3 text-sm md:grid-cols-[160px_1fr_auto]"
+            >
+              <div className="text-xs text-foreground/45">{f.dateTime(event.created_at)}</div>
+              <div className="min-w-0">
+                <p className="truncate font-medium">{event.title}</p>
+                <p className="mt-1 truncate text-xs text-foreground/45">
+                  {event.kind} / {event.status}
+                </p>
+              </div>
+              <span className="text-xs text-foreground/45">{event.severity}</span>
+            </div>
+          ))
+        )}
+      </div>
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { afterEach, before, describe, it } from "node:test";
+﻿import { afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import Module, { createRequire } from "node:module";
 import type { ChatToolModelContext } from "./chat-tools";
@@ -65,7 +65,7 @@ void describe("chat tool runtime", () => {
       "web_search",
       "current_time",
       "memory_search",
-      "workspace_snapshot",
+      "runtime_snapshot",
       "model_capabilities",
     ]);
     assert.equal(runtime.toolChoice, "auto");
@@ -83,11 +83,11 @@ void describe("chat tool runtime", () => {
     const multiple = chatTools.buildChatToolRuntime({
       selection: {
         mode: "manual",
-        selectedToolIds: ["memory_search", "workspace_snapshot"],
+        selectedToolIds: ["memory_search", "runtime_snapshot"],
       },
       model: modelContext("openai", "web_search"),
     });
-    assert.deepEqual(multiple.activeTools, ["memory_search", "workspace_snapshot"]);
+    assert.deepEqual(multiple.activeTools, ["memory_search", "runtime_snapshot"]);
     assert.equal(multiple.toolChoice, "required");
   });
 
@@ -193,7 +193,7 @@ void describe("chat tool runtime", () => {
     assert.equal(runtime.toolChoice, "auto");
     assert.equal(typeof runtime.tools?.web_search, "object");
     assert.equal(typeof runtime.tools?.memory_search, "object");
-    assert.equal(runtime.tools?.workspace_snapshot, undefined);
+    assert.equal(runtime.tools?.runtime_snapshot, undefined);
   });
 
   void it("rejects web search when the model cannot call tools", () => {
@@ -256,12 +256,12 @@ void describe("chat tool runtime", () => {
         <html><body>
           <div class="weather201016">
             <h3 class="vr-title">
-              <a href="https://weatherol.cn/index.html?cityid1=420100">武汉天气预报</a>
+              <a href="https://weatherol.cn/index.html?cityid1=420100">姝︽眽澶╂皵棰勬姤</a>
             </h3>
             <div class="w-desc currentDay">
               <div class="desc">
-                <div class="temperature">26~31 <i>℃</i></div>
-                <p class="w-info"><span>小雨转阴</span><span>南风3级</span></p>
+                <div class="temperature">26~31 <i>鈩?/i></div>
+                <p class="w-info"><span>灏忛洦杞槾</span><span>鍗楅3绾?/span></p>
               </div>
             </div>
           </div>
@@ -278,15 +278,15 @@ void describe("chat tool runtime", () => {
       execute?: (input: { query: string; maxResults?: number }) => Promise<unknown>;
     };
 
-    const output = (await webTool.execute?.({ query: "武汉今天的天气", maxResults: 3 })) as {
+    const output = (await webTool.execute?.({ query: "Wuhan weather today", maxResults: 3 })) as {
       count: number;
       results: Array<{ title: string; url: string; snippet: string }>;
     };
 
     assert.equal(output.count, 1);
-    assert.equal(output.results[0]?.title, "武汉天气预报");
+    assert.equal(output.results[0]?.title, "姝︽眽澶╂皵棰勬姤");
     assert.match(output.results[0]?.snippet ?? "", /26~31/);
-    assert.match(output.results[0]?.snippet ?? "", /小雨转阴/);
+    assert.match(output.results[0]?.snippet ?? "", /灏忛洦杞槾/);
   });
 
   void it("reports host fallback web search request failures clearly", async () => {

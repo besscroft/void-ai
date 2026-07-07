@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import { DEFAULT_AGENT_ID, type MemoryRecord } from "../../shared/types";
-import { insertHarnessEvent, listMessages, saveMemory, updateVoidLearningState } from "./db";
+import { insertRuntimeEvent, listMessages, saveMemory, updateVoidLearningState } from "./db";
 
 const DEBOUNCE_MS = 1_200;
 const MAX_INPUT_CHARS = 8_000;
@@ -25,7 +25,7 @@ export function queueAgentLearning(conversationId: string): void {
 async function runLearning(conversationId: string): Promise<void> {
   const started = Date.now();
   updateVoidLearningState({ status: "learning" });
-  insertHarnessEvent({
+  insertRuntimeEvent({
     kind: "learning",
     title: "Void learning queued",
     status: "running",
@@ -45,7 +45,7 @@ async function runLearning(conversationId: string): Promise<void> {
       lastLearningAt: Date.now(),
       soulPromptAppend: candidates.map((memory) => memory.content).join(" "),
     });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "learning",
       title: "Void learning completed",
       status: "succeeded",
@@ -58,7 +58,7 @@ async function runLearning(conversationId: string): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     updateVoidLearningState({ status: "failed", lastLearningAt: Date.now(), lastError: message });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "learning",
       title: "Void learning failed",
       status: "failed",
@@ -75,15 +75,14 @@ function extractMemoryCandidates(messages: ReturnType<typeof listMessages>): str
     .join("\n")
     .slice(-MAX_INPUT_CHARS);
   const lines = transcript
-    .split(/[\n。.!?！？]+/)
+    .split(/[\n銆?!?锛侊紵]+/)
     .map((line) => line.trim())
     .filter((line) => line.length >= 8 && line.length <= 240);
 
   const durablePatterns = [
     /\bI (prefer|like|want|need|work|use|am|usually|always)\b/i,
     /\bmy (goal|preference|workflow|project|style|team|job)\b/i,
-    /我(喜欢|希望|需要|倾向|习惯|正在|是|常用|偏好)/,
-    /我的(目标|偏好|工作流|项目|风格|团队|职业|习惯)/,
+    /\b(I|my)\b/i,
   ];
   return [...new Set(lines.filter((line) => durablePatterns.some((pattern) => pattern.test(line))))]
     .filter(isSafeDurableMemory)
@@ -98,10 +97,10 @@ function isSafeDurableMemory(text: string): boolean {
     "token",
     "secret",
     "ssn",
-    "身份证",
-    "密码",
-    "密钥",
-    "令牌",
+    "identity",
+    "瀵嗙爜",
+    "瀵嗛挜",
+    "浠ょ墝",
   ];
   return !sensitiveHints.some((hint) => lower.includes(hint));
 }

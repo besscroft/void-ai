@@ -1,19 +1,19 @@
-import { jsonSchema, tool, type ToolSet } from "ai";
 import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
+import { jsonSchema, tool, type ToolSet } from "ai";
 import type {
   ChatToolDescriptor,
-  McpDiscoveryResult,
-  McpServer,
-  McpTool,
+  ToolDiscoveryResult,
+  ToolRecord,
+  ToolServer,
 } from "../../shared/types";
 import {
   getMcpServer,
   getMcpToolByReference,
-  insertHarnessEvent,
+  insertRuntimeEvent,
   listMcpServers,
   listMcpTools,
-  resolveExtensionSecretReferences,
+  resolveToolSecretReferences,
   updateMcpServerStatus,
   upsertMcpToolDefinitions,
 } from "./db";
@@ -42,24 +42,25 @@ export function createMcpToolDescriptors(): ChatToolDescriptor[] {
     const servers = listMcpServers();
     const serverById = new Map(servers.map((server) => [server.id, server]));
     return listMcpTools().flatMap((mcpTool) => {
-      const server = serverById.get(mcpTool.server_id);
+      const server = mcpTool.server_id ? serverById.get(mcpTool.server_id) : null;
       if (!server) return [];
       const available = server.enabled !== 0 && mcpTool.enabled !== 0;
-      const descriptor: ChatToolDescriptor = {
-        id: mcpToolReference(server.id, mcpTool.name),
-        label: mcpTool.title || `${server.name}: ${mcpTool.name}`,
-        description: mcpTool.description || `MCP tool from ${server.name}.`,
-        kind: "host",
-        execution: "host",
-        category: "mcp",
-        defaultAuto: available && server.auto_use !== 0 && mcpTool.auto_use !== 0,
-        requiresApproval: server.requires_approval !== 0 || mcpTool.requires_approval !== 0,
-        available,
-        unavailableReason: available ? undefined : "MCP server or tool is disabled.",
-        sourceId: server.id,
-        sourceName: server.name,
-      };
-      return [descriptor];
+      return [
+        {
+          id: mcpToolReference(server.id, mcpTool.name),
+          label: mcpTool.title || `${server.name}: ${mcpTool.name}`,
+          description: mcpTool.description || `MCP tool from ${server.name}.`,
+          kind: "host",
+          execution: "host",
+          category: "mcp",
+          defaultAuto: available && server.auto_use !== 0 && mcpTool.auto_use !== 0,
+          requiresApproval: server.requires_approval !== 0 || mcpTool.requires_approval !== 0,
+          available,
+          unavailableReason: available ? undefined : "MCP server or tool is disabled.",
+          sourceId: server.id,
+          sourceName: server.name,
+        } satisfies ChatToolDescriptor,
+      ];
     });
   } catch {
     return [];
@@ -96,11 +97,11 @@ export function createMcpToolSet({
   return { tools, activeTools, approvalToolNames };
 }
 
-export async function testMcpServer(serverId: string): Promise<McpDiscoveryResult> {
+export async function testMcpServer(serverId: string): Promise<ToolDiscoveryResult> {
   return discoverMcpServer(serverId);
 }
 
-export async function discoverMcpServer(serverId: string): Promise<McpDiscoveryResult> {
+export async function discoverMcpServer(serverId: string): Promise<ToolDiscoveryResult> {
   const server = getMcpServer(serverId);
   if (!server) throw new Error("MCP server not found: " + serverId);
   let client: MCPClient | null = null;
@@ -128,10 +129,12 @@ export async function discoverMcpServer(serverId: string): Promise<McpDiscoveryR
         last_error: null,
         last_connected_at: connectedAt,
       }) ?? server;
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "tool",
       title: "MCP discovered: " + server.name,
       status: "succeeded",
+      owner_type: "server",
+      owner_id: server.id,
       detail: { serverId: server.id, tools: tools.length, resources, resourceTemplates, prompts },
     });
     return {
@@ -146,10 +149,12 @@ export async function discoverMcpServer(serverId: string): Promise<McpDiscoveryR
     const message = error instanceof Error ? error.message : String(error);
     const nextServer =
       updateMcpServerStatus(server.id, { status: "error", last_error: message }) ?? server;
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "error",
       title: "MCP discovery failed: " + server.name,
       status: "failed",
+      owner_type: "server",
+      owner_id: server.id,
       detail: { serverId: server.id, error: message },
     });
     return {
@@ -205,36 +210,45 @@ async function executeMcpTool({
       name: mcpTool.name,
       arguments: normalizeToolInput(input),
     });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "tool",
       title: "MCP tool: " + mcpTool.name,
       status: "succeeded",
+      conversation_id: conversationId ?? null,
+      agent_id: agentId ?? null,
+      tool_id: mcpTool.id,
+      owner_type: "server",
+      owner_id: server.id,
+      duration_ms: Date.now() - started,
       detail: {
         serverId: server.id,
         serverName: server.name,
         toolName: mcpTool.name,
-        conversationId,
-        agentId,
         providerId: model.providerId,
         modelId: model.modelId,
-        durationMs: Date.now() - started,
       },
     });
     return output;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     updateMcpServerStatus(server.id, { status: "error", last_error: message });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "error",
       title: "MCP tool failed: " + mcpTool.name,
       status: "failed",
+      conversation_id: conversationId ?? null,
+      agent_id: agentId ?? null,
+      tool_id: mcpTool.id,
+      owner_type: "server",
+      owner_id: server.id,
+      duration_ms: Date.now() - started,
       detail: { serverId: server.id, toolName: mcpTool.name, error: message },
     });
     throw error;
   }
 }
 
-async function getOrCreateClient(server: McpServer): Promise<MCPClient> {
+async function getOrCreateClient(server: ToolServer): Promise<MCPClient> {
   const cached = clientCache.get(server.id);
   if (cached && cached.updatedAt === server.updated_at) return cached.client;
   await closeMcpClient(server.id);
@@ -243,7 +257,7 @@ async function getOrCreateClient(server: McpServer): Promise<MCPClient> {
   return client;
 }
 
-async function createClient(server: McpServer): Promise<MCPClient> {
+async function createClient(server: ToolServer): Promise<MCPClient> {
   const transport =
     server.transport === "stdio"
       ? new Experimental_StdioMCPTransport({
@@ -251,20 +265,24 @@ async function createClient(server: McpServer): Promise<MCPClient> {
           args: safeJsonArray(server.args_json).map(String),
           env: {
             ...stringEnv(process.env),
-            ...resolveExtensionSecretReferences("mcp", server.id, safeJsonRecord(server.env_json)),
+            ...resolveToolSecretReferences("server", server.id, safeJsonRecord(server.env_json)),
           },
           cwd: server.cwd ?? undefined,
         })
-      : {
-          type: server.transport,
-          url: requireUrl(server),
-          headers: resolveExtensionSecretReferences(
-            "mcp",
-            server.id,
-            safeJsonRecord(server.headers_json),
-          ),
-          redirect: "error" as const,
-        };
+      : server.transport === "http" || server.transport === "sse"
+        ? {
+            type: server.transport,
+            url: requireUrl(server),
+            headers: resolveToolSecretReferences(
+              "server",
+              server.id,
+              safeJsonRecord(server.headers_json),
+            ),
+            redirect: "error" as const,
+          }
+        : (() => {
+            throw new Error("Built-in tool servers do not use MCP transport");
+          })();
   return createMCPClient({
     clientName: "void-ai",
     version: "1.0.0",
@@ -285,8 +303,8 @@ function createMcpTool({
   agentId,
 }: {
   reference: string;
-  server: McpServer;
-  mcpTool: McpTool;
+  server: ToolServer;
+  mcpTool: ToolRecord;
   model: ChatToolModelContext;
   conversationId?: string;
   agentId?: string | null;
@@ -298,13 +316,13 @@ function createMcpTool({
   });
 }
 
-function requireCommand(server: McpServer): string {
+function requireCommand(server: ToolServer): string {
   const command = server.command?.trim();
   if (!command) throw new Error("MCP stdio server is missing a command.");
   return command;
 }
 
-function requireUrl(server: McpServer): string {
+function requireUrl(server: ToolServer): string {
   const url = server.url?.trim();
   if (!url) throw new Error("MCP remote server is missing a URL.");
   return url;

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   getChatToolSelectionForConversation,
   withChatToolSelectionForConversation,
-  type ExtensionsSnapshot,
+  type ToolsSnapshot,
   type ModelCapabilities,
   type ProviderInfo,
 } from "@shared/types";
@@ -52,7 +52,7 @@ void describe("chat tool UI helpers", () => {
       "web_search",
       "current_time",
       "memory_search",
-      "workspace_snapshot",
+      "runtime_snapshot",
       "model_capabilities",
       "sandbox_list_files",
       "sandbox_read_file",
@@ -100,12 +100,12 @@ void describe("chat tool UI helpers", () => {
     );
   });
 
-  void it("mixes MCP and Skill extension descriptors with built-in tools", () => {
+  void it("mixes MCP and Skill tool descriptors with built-in tools", () => {
     const providers = [provider("custom", "openai-compatible")];
     const descriptors = createClientChatToolDescriptors({
       selectedModel: "custom/local-model",
       providers,
-      extensions: extensionSnapshot(),
+      tools: toolsnapshot(),
     });
 
     const mcp = descriptors.find((descriptor) => descriptor.id === "mcp:srv-1:search");
@@ -162,14 +162,15 @@ function provider(
   };
 }
 
-function extensionSnapshot(): ExtensionsSnapshot {
+function toolsnapshot(): ToolsSnapshot {
   const now = Date.now();
   return {
-    mcpServers: [
+    toolServers: [
       {
         id: "srv-1",
         name: "Search MCP",
         description: "Search tools",
+        kind: "mcp",
         transport: "http",
         enabled: 1,
         auto_use: 1,
@@ -187,19 +188,28 @@ function extensionSnapshot(): ExtensionsSnapshot {
         updated_at: now,
       },
     ],
-    mcpTools: [
+    toolRecords: [
       {
         id: "tool-1",
         server_id: "srv-1",
         name: "search",
         title: "Search",
         description: "Search through an MCP server.",
+        kind: "mcp",
+        category: "search",
+        reference: "search",
         input_schema_json: "{}",
         output_schema_json: "{}",
+        config_json: "{}",
+        steps_json: "[]",
+        workflow_id: null,
+        trigger_keywords_json: "[]",
+        tags_json: "[]",
         enabled: 1,
         auto_use: 1,
         requires_approval: 1,
         discovered_at: now,
+        last_run_at: null,
         updated_at: now,
       },
     ],
@@ -225,6 +235,6 @@ function extensionSnapshot(): ExtensionsSnapshot {
     ],
     secrets: [],
     workflowRuns: [],
-    harnessEvents: [],
+    runtimeEvents: [],
   };
 }

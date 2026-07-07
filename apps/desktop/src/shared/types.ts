@@ -1,11 +1,11 @@
-/**
- * 主进程与渲染进程共享的类型定义
+﻿/**
+ * 涓昏繘绋嬩笌娓叉煋杩涚▼鍏变韩鐨勭被鍨嬪畾涔?
  *
- * 这些类型描述了通过 IPC 在两个进程间传递的数据结构。
- * main 和 preload 都从这里 import，渲染进程通过 preload 的 d.ts 间接获取。
+ * 杩欎簺绫诲瀷鎻忚堪浜嗛€氳繃 IPC 鍦ㄤ袱涓繘绋嬮棿浼犻€掔殑鏁版嵁缁撴瀯銆?
+ * main 鍜?preload 閮戒粠杩欓噷 import锛屾覆鏌撹繘绋嬮€氳繃 preload 鐨?d.ts 闂存帴鑾峰彇銆?
  */
 
-/** 会话记录 */
+/** 浼氳瘽璁板綍 */
 export interface Conversation {
   id: string;
   title: string;
@@ -15,13 +15,15 @@ export interface Conversation {
   purge_after_at: number | null;
 }
 
-/** 消息记录（对应 DB 中的 messages 表） */
+/** 娑堟伅璁板綍锛堝搴?DB 涓殑 messages 琛級 */
 export interface MessageRow {
   id: string;
   conversation_id: string;
   role: "user" | "assistant" | "system";
-  /** UIMessage JSON 序列化后的字符串 */
+  /** Serialized UIMessage JSON. Kept for renderer compatibility. */
   content: string;
+  content_json?: string;
+  metadata_json?: string;
   created_at: number;
 }
 
@@ -71,6 +73,8 @@ export interface AgentProfile {
   id: string;
   name: string;
   role: string;
+  instructions?: string;
+  persona?: string;
   description: string;
   personality: string;
   soul_prompt: string;
@@ -105,11 +109,12 @@ export interface AgentInput {
   runtime_config_json?: string;
 }
 
-export interface AgentRun {
+export interface RuntimeRun {
   id: string;
   conversation_id: string | null;
-  root_agent_id: string;
+  root_agent_id: string | null;
   final_agent_id: string | null;
+  workflow_id?: string | null;
   status: RunStatus;
   model_ref: string | null;
   started_at: number;
@@ -119,25 +124,28 @@ export interface AgentRun {
   output_summary: string | null;
   error: string | null;
   usage_json: string | null;
+  metadata_json?: string;
+  updated_at?: number;
 }
 
-export type AgentRunStepKind =
-  | "input_guardrail"
+export type RuntimeStepKind =
   | "model"
   | "tool"
-  | "sandbox"
-  | "handoff"
-  | "consult"
   | "approval"
-  | "output_guardrail"
-  | "state"
+  | "handoff"
+  | "memory"
+  | "workflow"
+  | "sandbox"
+  | "guardrail"
+  | "diagnostic"
   | "error";
 
-export interface AgentRunStep {
+export interface RuntimeStep {
   id: string;
   run_id: string;
   agent_id: string | null;
-  kind: AgentRunStepKind;
+  tool_id?: string | null;
+  kind: RuntimeStepKind;
   status: RunStatus;
   title: string;
   detail_json: string;
@@ -178,6 +186,7 @@ export interface MemoryRecord {
   content: string;
   agent_id: string | null;
   conversation_id: string | null;
+  source_run_id?: string | null;
   salience: number;
   pinned: number;
   created_at: number;
@@ -204,11 +213,18 @@ export interface WorkflowDefinition {
   updated_at: number;
 }
 
-export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 export interface WorkflowRun {
   id: string;
   workflow_id: string;
+  runtime_run_id?: string | null;
   status: RunStatus;
   input_json: string | null;
   output_json: string | null;
@@ -216,22 +232,21 @@ export interface WorkflowRun {
   finished_at: number | null;
 }
 
-export interface HarnessEvent {
+export interface RuntimeEvent {
   id: string;
-  kind:
-    | "tool"
-    | "test"
-    | "approval"
-    | "automation"
-    | "error"
-    | "agent"
-    | "handoff"
-    | "learning"
-    | "guardrail"
-    | "sandbox";
-  title: string;
+  run_id: string | null;
+  step_id: string | null;
+  conversation_id: string | null;
+  agent_id: string | null;
+  tool_id: string | null;
+  owner_type: string | null;
+  owner_id: string | null;
+  kind: RuntimeStepKind;
   status: RunStatus;
+  severity: "debug" | "info" | "warning" | "error";
+  title: string;
   detail_json: string;
+  duration_ms: number | null;
   created_at: number;
 }
 
@@ -269,31 +284,22 @@ export interface SandboxArtifact {
   created_at: number;
 }
 
-export interface ServerNode {
-  id: string;
-  name: string;
-  kind: "local" | "cloud" | "mcp" | "sync";
-  url: string;
-  status: "online" | "offline" | "disabled";
-  capabilities_json: string;
-  last_seen_at: number | null;
-  created_at: number;
-  updated_at: number;
-}
+export type ToolStatus = "ready" | "disabled" | "error" | "unknown";
+export type McpTransportKind = "stdio" | "http" | "sse" | "builtin";
+export type ToolServerKind = "mcp" | "local" | "sandbox";
+export type ToolRecordKind = "builtin" | "mcp" | "skill" | "sandbox";
+export type ToolSecretOwnerType = "server" | "tool";
 
-export type ExtensionStatus = "ready" | "disabled" | "error" | "unknown";
-export type McpTransportKind = "stdio" | "http" | "sse";
-export type ExtensionOwnerType = "mcp" | "skill";
-
-export interface McpServer {
+export interface ToolServer {
   id: string;
   name: string;
   description: string;
+  kind: ToolServerKind;
   transport: McpTransportKind;
   enabled: number;
   auto_use: number;
   requires_approval: number;
-  status: ExtensionStatus;
+  status: ToolStatus;
   command: string | null;
   args_json: string;
   url: string | null;
@@ -306,7 +312,7 @@ export interface McpServer {
   updated_at: number;
 }
 
-export interface McpServerInput {
+export interface ToolServerInput {
   name: string;
   description?: string;
   transport: McpTransportKind;
@@ -321,40 +327,49 @@ export interface McpServerInput {
   cwd?: string | null;
 }
 
-export interface McpTool {
+export interface ToolRecord {
   id: string;
-  server_id: string;
+  server_id: string | null;
   name: string;
   title: string | null;
   description: string;
+  kind: ToolRecordKind;
+  category: string;
+  reference: string;
   input_schema_json: string;
   output_schema_json: string;
+  config_json: string;
+  steps_json: string;
+  workflow_id: string | null;
+  trigger_keywords_json: string;
+  tags_json: string;
   enabled: number;
   auto_use: number;
   requires_approval: number;
   discovered_at: number;
+  last_run_at: number | null;
   updated_at: number;
 }
 
-export interface McpDiscoveryResult {
-  server: McpServer;
-  tools: McpTool[];
+export interface ToolDiscoveryResult {
+  server: ToolServer;
+  tools: ToolRecord[];
   resources: number;
   resourceTemplates: number;
   prompts: number;
   message: string;
 }
 
-export type ExtensionSkillStepType = "prompt" | "tool" | "approval" | "memory" | "handoff";
+export type ToolSkillStepType = "prompt" | "tool" | "approval" | "memory" | "handoff";
 
-export interface ExtensionSkillStep {
+export interface ToolSkillStep {
   id: string;
-  type: ExtensionSkillStepType;
+  type: ToolSkillStepType;
   title: string;
   detail: string;
 }
 
-export interface ExtensionSkill {
+export interface ToolSkill {
   id: string;
   name: string;
   description: string;
@@ -373,7 +388,7 @@ export interface ExtensionSkill {
   updated_at: number;
 }
 
-export interface ExtensionSkillInput {
+export interface ToolSkillInput {
   name: string;
   description?: string;
   category?: string;
@@ -384,13 +399,13 @@ export interface ExtensionSkillInput {
   tags?: string[] | string;
   configSchema?: JsonObject | string;
   config?: JsonObject | string;
-  steps?: ExtensionSkillStep[] | string;
+  steps?: ToolSkillStep[] | string;
   workflow_id?: string | null;
 }
 
-export interface ExtensionSecret {
+export interface ToolSecret {
   id: string;
-  owner_type: ExtensionOwnerType;
+  owner_type: ToolSecretOwnerType;
   owner_id: string;
   key: string;
   label: string;
@@ -398,30 +413,30 @@ export interface ExtensionSecret {
   updated_at: number;
 }
 
-export interface ExtensionSecretInput {
-  ownerType: ExtensionOwnerType;
+export interface ToolSecretInput {
+  ownerType: ToolSecretOwnerType;
   ownerId: string;
   key: string;
   label?: string;
   value: string;
 }
 
-export interface ExtensionSecretPublic {
+export interface ToolSecretPublic {
   id: string;
-  owner_type: ExtensionOwnerType;
+  owner_type: ToolSecretOwnerType;
   owner_id: string;
   key: string;
   label: string;
   updated_at: number;
 }
 
-export interface ExtensionsSnapshot {
-  mcpServers: McpServer[];
-  mcpTools: McpTool[];
-  skills: ExtensionSkill[];
-  secrets: ExtensionSecretPublic[];
+export interface ToolsSnapshot {
+  toolServers: ToolServer[];
+  toolRecords: ToolRecord[];
+  skills: ToolSkill[];
+  secrets: ToolSecretPublic[];
   workflowRuns: WorkflowRun[];
-  harnessEvents: HarnessEvent[];
+  runtimeEvents: RuntimeEvent[];
 }
 
 export const CHAT_SESSION_HEADER = "x-void-ai-session";
@@ -461,7 +476,7 @@ export const CHAT_TOOL_IDS = [
   "web_search",
   "current_time",
   "memory_search",
-  "workspace_snapshot",
+  "runtime_snapshot",
   "model_capabilities",
   "conversation_search",
   "memory_save",
@@ -498,7 +513,7 @@ export interface ChatToolDescriptor {
     | "web"
     | "system"
     | "memory"
-    | "workspace"
+    | "runtime"
     | "model"
     | "conversation"
     | "sandbox"
@@ -630,7 +645,7 @@ export function isChatToolId(value: unknown): value is ChatToolId {
   return typeof value === "string" && (CHAT_TOOL_IDS as readonly string[]).includes(value);
 }
 
-export function isMcpToolReference(value: unknown): value is string {
+export function isToolRecordReference(value: unknown): value is string {
   return typeof value === "string" && /^mcp:[A-Za-z0-9_.-]+:.+$/.test(value);
 }
 
@@ -639,7 +654,7 @@ export function isSkillToolReference(value: unknown): value is string {
 }
 
 export function isChatToolReference(value: unknown): value is ChatToolReference {
-  return isChatToolId(value) || isMcpToolReference(value) || isSkillToolReference(value);
+  return isChatToolId(value) || isToolRecordReference(value) || isSkillToolReference(value);
 }
 
 export function isChatToolMode(value: unknown): value is ChatToolMode {
@@ -1168,52 +1183,52 @@ export const DEFAULT_MEDIA_GENERATION_SETTINGS: MediaGenerationSettings = {
   },
 };
 /**
- * 应用设置键名枚举（避免拼写错误）
+ * 搴旂敤璁剧疆閿悕鏋氫妇锛堥伩鍏嶆嫾鍐欓敊璇級
  *
- * 所有设置项统一以字符串存入 settings 表的 KV 结构。
- * 复杂结构（如 accent）也以字符串形式存储，由渲染层解析。
+ * 鎵€鏈夎缃」缁熶竴浠ュ瓧绗︿覆瀛樺叆 settings 琛ㄧ殑 KV 缁撴瀯銆?
+ * 澶嶆潅缁撴瀯锛堝 accent锛変篃浠ュ瓧绗︿覆褰㈠紡瀛樺偍锛岀敱娓叉煋灞傝В鏋愩€?
  */
 export const SettingKey = {
-  // —— 主题 / 外观 ——
-  /** 主题模式：'light' | 'dark' | 'system' */
+  // 鈥斺€?涓婚 / 澶栬 鈥斺€?
+  /** 涓婚妯″紡锛?light' | 'dark' | 'system' */
   Theme: "theme",
   ThemePreset: "theme_preset",
-  /** 强调色预设 id（见 AccentPreset），或自定义 oklch 字符串 */
+  /** 寮鸿皟鑹查璁?id锛堣 AccentPreset锛夛紝鎴栬嚜瀹氫箟 oklch 瀛楃涓?*/
   AccentColor: "accent_color",
-  /** 自定义背景色（hex / oklch 字符串；空字符串表示沿用主题默认） */
+  /** 鑷畾涔夎儗鏅壊锛坔ex / oklch 瀛楃涓诧紱绌哄瓧绗︿覆琛ㄧず娌跨敤涓婚榛樿锛?*/
   BackgroundColor: "background_color",
-  /** 自定义前景/文字色；空字符串表示沿用主题默认 */
+  /** 鑷畾涔夊墠鏅?鏂囧瓧鑹诧紱绌哄瓧绗︿覆琛ㄧず娌跨敤涓婚榛樿 */
   ForegroundColor: "foreground_color",
-  /** UI 字体 CSS font-family；空字符串表示沿用主题默认 */
+  /** UI 瀛椾綋 CSS font-family锛涚┖瀛楃涓茶〃绀烘部鐢ㄤ富棰橀粯璁?*/
   FontFamily: "font_family",
-  /** 等宽字体 CSS font-family；空字符串表示沿用主题默认 */
+  /** 绛夊瀛椾綋 CSS font-family锛涚┖瀛楃涓茶〃绀烘部鐢ㄤ富棰橀粯璁?*/
   MonoFontFamily: "mono_font_family",
-  /** 半透明侧边栏：是否使用 backdrop-blur */
+  /** 鍗婇€忔槑渚ц竟鏍忥細鏄惁浣跨敤 backdrop-blur */
   TranslucentSidebar: "translucent_sidebar",
-  /** 对比度 0~100，用于微调强调色与文字色的明暗对比 */
+  /** 瀵规瘮搴?0~100锛岀敤浜庡井璋冨己璋冭壊涓庢枃瀛楄壊鐨勬槑鏆楀姣?*/
   Contrast: "contrast",
-  /** 交互元素使用指针光标 */
+  /** 浜や簰鍏冪礌浣跨敤鎸囬拡鍏夋爣 */
   UsePointerCursor: "use_pointer_cursor",
-  /** 减少动态效果：'system' | 'on' | 'off' */
+  /** 鍑忓皯鍔ㄦ€佹晥鏋滐細'system' | 'on' | 'off' */
   ReduceMotion: "reduce_motion",
-  /** 字号级别：'xs' | 'sm' | 'base' | 'lg' | 'xl' */
+  /** 瀛楀彿绾у埆锛?xs' | 'sm' | 'base' | 'lg' | 'xl' */
   FontSize: "font_size",
-  /** 代码字体大小（px） */
+  /** 浠ｇ爜瀛椾綋澶у皬锛坧x锛?*/
   CodeFontSizePx: "code_font_size_px",
-  /** 差异标记：'color' | 'symbol' */
+  /** 宸紓鏍囪锛?color' | 'symbol' */
   DiffMark: "diff_mark",
-  /** 界面密度：'compact' | 'comfortable' | 'loose' */
+  /** 鐣岄潰瀵嗗害锛?compact' | 'comfortable' | 'loose' */
   LayoutDensity: "layout_density",
-  /** 界面语言：'zh-CN' | 'en' */
+  /** 鐣岄潰璇█锛?zh-CN' | 'en' */
   Language: "language",
-  // —— 模型 ——
-  /** 当前选中的模型引用，形如 "openai/gpt-4o" */
+  // 鈥斺€?妯″瀷 鈥斺€?
+  /** 褰撳墠閫変腑鐨勬ā鍨嬪紩鐢紝褰㈠ "openai/gpt-4o" */
   SelectedModel: "selected_model",
-  /** 采样温度 0~2，默认 0.7 */
+  /** 閲囨牱娓╁害 0~2锛岄粯璁?0.7 */
   ModelTemperature: "model_temperature",
-  /** 最大输出 token 数，默认 4096 */
+  /** 鏈€澶ц緭鍑?token 鏁帮紝榛樿 4096 */
   ModelMaxTokens: "model_max_tokens",
-  /** nucleus sampling 概率 0~1，默认 1 */
+  /** nucleus sampling 姒傜巼 0~1锛岄粯璁?1 */
   ModelTopP: "model_top_p",
   /** Chat reasoning effort level. */
   ChatReasoningLevel: "chat_reasoning_level",
@@ -1221,41 +1236,41 @@ export const SettingKey = {
   ChatTools: "chat_tools",
   /** Chat media generation defaults. */
   MediaGeneration: "media_generation",
-  /** 缓存上限（MB），默认 200 */
+  /** 缂撳瓨涓婇檺锛圡B锛夛紝榛樿 200 */
   CacheSizeMb: "cache_size_mb",
   /** Custom provider and model catalog JSON. */
   ModelCatalog: "model_catalog",
-  // —— 其它 ——
-  /** 当前会话 ID */
+  // 鈥斺€?鍏跺畠 鈥斺€?
+  /** 褰撳墠浼氳瘽 ID */
   ActiveConversationId: "active_conversation_id",
-  /** 当前智能体 ID */
+  /** 褰撳墠鏅鸿兘浣?ID */
   ActiveAgentId: "active_agent_id",
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
 
 // ============================================================
-// 设置项类型定义
+// 璁剧疆椤圭被鍨嬪畾涔?
 // ============================================================
 
-/** 主题模式 */
+/** 涓婚妯″紡 */
 export type ThemeMode = "light" | "dark" | "system";
 
 export type ThemePresetId = "default" | "ocean" | "forest" | "rose";
 
-/** 字号级别 */
+/** 瀛楀彿绾у埆 */
 export type FontSizeLevel = "xs" | "sm" | "base" | "lg" | "xl";
 
-/** 界面密度 */
+/** 鐣岄潰瀵嗗害 */
 export type LayoutDensity = "compact" | "comfortable" | "loose";
 
-/** 减少动态效果偏好 */
+/** 鍑忓皯鍔ㄦ€佹晥鏋滃亸濂?*/
 export type ReduceMotion = "system" | "on" | "off";
 
-/** 差异标记方式 */
+/** 宸紓鏍囪鏂瑰紡 */
 export type DiffMark = "color" | "symbol";
 
-/** 支持的界面语言 */
+/** 鏀寔鐨勭晫闈㈣瑷€ */
 export type AppLanguage = "zh-CN" | "en";
 
 export type LanguageMode = "system" | AppLanguage;
@@ -1293,70 +1308,70 @@ export const THEME_PRESETS: ThemePreset[] = [
 ];
 
 /**
- * 强调色预设
+ * 寮鸿皟鑹查璁?
  *
- * value 为 oklch 字符串，运行时覆盖 --color-accent。
- * foreground 为配套的前景色（保证对比度），覆盖 --color-accent-foreground。
+ * value 涓?oklch 瀛楃涓诧紝杩愯鏃惰鐩?--color-accent銆?
+ * foreground 涓洪厤濂楃殑鍓嶆櫙鑹诧紙淇濊瘉瀵规瘮搴︼級锛岃鐩?--color-accent-foreground銆?
  */
 export interface AccentPreset {
   id: string;
-  /** 显示名 */
+  /** 鏄剧ず鍚?*/
   label: string;
-  /** oklch 主色 */
+  /** oklch 涓昏壊 */
   value: string;
-  /** oklch 前景色（通常为白/雪色） */
+  /** oklch 鍓嶆櫙鑹诧紙閫氬父涓虹櫧/闆壊锛?*/
   foreground: string;
-  /** 用于预览圆点的十六进制回退色（仅展示） */
+  /** 鐢ㄤ簬棰勮鍦嗙偣鐨勫崄鍏繘鍒跺洖閫€鑹诧紙浠呭睍绀猴級 */
   swatch: string;
 }
 
-/** 预置强调色预设 */
+/** 棰勭疆寮鸿皟鑹查璁?*/
 export const ACCENT_PRESETS: AccentPreset[] = [
   {
     id: "indigo",
-    label: "靛蓝",
+    label: "闈涜摑",
     value: "oklch(0.55 0.22 264)",
     foreground: "oklch(0.98 0.01 264)",
     swatch: "#4f46e5",
   },
   {
     id: "emerald",
-    label: "翡翠",
+    label: "缈＄繝",
     value: "oklch(0.62 0.17 155)",
     foreground: "oklch(0.98 0.01 155)",
     swatch: "#059669",
   },
   {
     id: "rose",
-    label: "玫瑰",
+    label: "鐜懓",
     value: "oklch(0.62 0.22 16)",
     foreground: "oklch(0.98 0.01 16)",
     swatch: "#e11d48",
   },
   {
     id: "amber",
-    label: "琥珀",
+    label: "鐞ョ弨",
     value: "oklch(0.72 0.18 70)",
     foreground: "oklch(0.2 0.02 70)",
     swatch: "#d97706",
   },
   {
     id: "sky",
-    label: "天蓝",
+    label: "澶╄摑",
     value: "oklch(0.62 0.16 230)",
     foreground: "oklch(0.98 0.01 230)",
     swatch: "#0284c7",
   },
   {
     id: "violet",
-    label: "紫罗兰",
+    label: "Violet",
     value: "oklch(0.58 0.22 300)",
     foreground: "oklch(0.98 0.01 300)",
     swatch: "#7c3aed",
   },
 ];
 
-/** 字号级别到像素值的映射（应用于根 font-size） */
+/** 瀛楀彿绾у埆鍒板儚绱犲€肩殑鏄犲皠锛堝簲鐢ㄤ簬鏍?font-size锛?*/
 export const FONT_SIZE_PX: Record<FontSizeLevel, number> = {
   xs: 13,
   sm: 14,
@@ -1365,11 +1380,11 @@ export const FONT_SIZE_PX: Record<FontSizeLevel, number> = {
   xl: 18,
 };
 
-/** UI 字体预设 */
+/** UI 瀛椾綋棰勮 */
 export interface FontPreset {
   id: string;
   label: string;
-  /** CSS font-family 字符串 */
+  /** CSS font-family 瀛楃涓?*/
   value: string;
 }
 
@@ -1381,7 +1396,7 @@ export const FONT_PRESETS: FontPreset[] = [
   },
   {
     id: "sans",
-    label: "Inter / 思源黑体",
+    label: "Inter / 鎬濇簮榛戜綋",
     value: "'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif",
   },
   { id: "rounded", label: "Rounded", value: "'Nunito', 'Quicksand', system-ui, sans-serif" },
@@ -1405,18 +1420,18 @@ export const MONO_FONT_PRESETS: FontPreset[] = [
   { id: "menlo", label: "Menlo / Consolas", value: "Menlo, Consolas, 'Courier New', monospace" },
 ];
 
-/** 缓存统计信息 */
+/** 缂撳瓨缁熻淇℃伅 */
 export interface CacheStats {
-  /** 当前缓存占用字节数 */
+  /** 褰撳墠缂撳瓨鍗犵敤瀛楄妭鏁?*/
   bytes: number;
-  /** 缓存上限（MB），来自设置 */
+  /** 缂撳瓨涓婇檺锛圡B锛夛紝鏉ヨ嚜璁剧疆 */
   limitMb: number;
 }
 
-export interface WorkspaceSnapshot {
+export interface RuntimeSnapshot {
   agents: AgentProfile[];
-  agentRuns: AgentRun[];
-  agentRunSteps: AgentRunStep[];
+  runtimeRuns: RuntimeRun[];
+  runtimeSteps: RuntimeStep[];
   agentRuntimeStates: AgentRuntimeState[];
   conversationAgentStates: ConversationAgentState[];
   sandboxSessions: SandboxSession[];
@@ -1425,16 +1440,15 @@ export interface WorkspaceSnapshot {
   memories: MemoryRecord[];
   workflows: WorkflowDefinition[];
   workflowRuns: WorkflowRun[];
-  harnessEvents: HarnessEvent[];
-  serverNodes: ServerNode[];
+  runtimeEvents: RuntimeEvent[];
   interactionProfiles: InteractionProfile[];
   syncState: SyncState;
 }
 
 /**
- * 应用设置聚合（渲染层使用）
+ * 搴旂敤璁剧疆鑱氬悎锛堟覆鏌撳眰浣跨敤锛?
  *
- * 每个字段都可独立持久化，聚合后便于在 UI 中统一消费与实时应用。
+ * 姣忎釜瀛楁閮藉彲鐙珛鎸佷箙鍖栵紝鑱氬悎鍚庝究浜庡湪 UI 涓粺涓€娑堣垂涓庡疄鏃跺簲鐢ㄣ€?
  */
 export interface AppSettings {
   theme: ThemeMode;
@@ -1462,9 +1476,9 @@ export interface AppSettings {
 }
 
 /**
- * 默认设置
+ * 榛樿璁剧疆
  *
- * "恢复默认设置" 一键重置到此对象。
+ * "鎭㈠榛樿璁剧疆" 涓€閿噸缃埌姝ゅ璞°€?
  */
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",

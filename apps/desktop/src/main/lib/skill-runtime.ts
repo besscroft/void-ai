@@ -1,17 +1,12 @@
 import { jsonSchema, tool, type ToolSet } from "ai";
-import type {
-  ChatToolDescriptor,
-  ExtensionSkill,
-  ExtensionSkillStep,
-  JsonObject,
-} from "../../shared/types";
+import type { ChatToolDescriptor, ToolSkill, ToolSkillStep, JsonObject } from "../../shared/types";
 import {
   createWorkflowRun,
-  getExtensionSkill,
-  insertHarnessEvent,
-  listExtensionSkills,
+  getSkillTool,
+  insertRuntimeEvent,
+  listSkillTools,
   listMemories,
-  markExtensionSkillRun,
+  markSkillToolRun,
   updateWorkflowRun,
 } from "./db";
 import type { ChatToolModelContext } from "./chat-tools";
@@ -31,7 +26,7 @@ export function skillToolRuntimeName(skillId: string): string {
 
 export function createSkillToolDescriptors(): ChatToolDescriptor[] {
   try {
-    return listExtensionSkills().map((skill) => ({
+    return listSkillTools().map((skill) => ({
       id: skillToolReference(skill.id),
       label: skill.name,
       description: skill.description || "Workflow skill",
@@ -67,7 +62,7 @@ export function createSkillToolSet({
   for (const reference of references) {
     const skillId = parseSkillToolReference(reference);
     if (!skillId) continue;
-    const skill = getExtensionSkill(skillId);
+    const skill = getSkillTool(skillId);
     if (!skill || skill.enabled === 0) continue;
     const toolName = skillToolRuntimeName(skill.id);
     tools[toolName] = createSkillTool({ skill, model, conversationId, agentId });
@@ -77,7 +72,7 @@ export function createSkillToolSet({
   return { tools, activeTools, approvalToolNames };
 }
 
-export async function runExtensionSkill({
+export async function runToolSkill({
   skillId,
   input,
   model,
@@ -90,7 +85,7 @@ export async function runExtensionSkill({
   conversationId?: string;
   agentId?: string | null;
 }): Promise<unknown> {
-  const skill = getExtensionSkill(skillId);
+  const skill = getSkillTool(skillId);
   if (!skill || skill.enabled === 0) throw new Error("Skill is unavailable: " + skillId);
   const workflowId = skill.workflow_id;
   if (!workflowId) throw new Error("Skill is missing a workflow: " + skill.name);
@@ -102,8 +97,8 @@ export async function runExtensionSkill({
     output_json: null,
     finished_at: null,
   });
-  insertHarnessEvent({
-    kind: "automation",
+  insertRuntimeEvent({
+    kind: "workflow",
     title: "Skill started: " + skill.name,
     status: "running",
     detail: { skillId: skill.id, workflowId, runId: run.id, conversationId, agentId },
@@ -134,9 +129,9 @@ export async function runExtensionSkill({
       output_json: JSON.stringify(result),
       finished_at: Date.now(),
     });
-    markExtensionSkillRun(skill.id);
-    insertHarnessEvent({
-      kind: "automation",
+    markSkillToolRun(skill.id);
+    insertRuntimeEvent({
+      kind: "workflow",
       title: "Skill completed: " + skill.name,
       status: "succeeded",
       detail: { skillId: skill.id, workflowId, runId: run.id, durationMs: result.durationMs },
@@ -149,7 +144,7 @@ export async function runExtensionSkill({
       output_json: JSON.stringify({ error: message }),
       finished_at: Date.now(),
     });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "error",
       title: "Skill failed: " + skill.name,
       status: "failed",
@@ -165,7 +160,7 @@ function createSkillTool({
   conversationId,
   agentId,
 }: {
-  skill: ExtensionSkill;
+  skill: ToolSkill;
   model: ChatToolModelContext;
   conversationId?: string;
   agentId?: string | null;
@@ -174,7 +169,7 @@ function createSkillTool({
     description: createToolDescription(skill),
     inputSchema: jsonSchema<Record<string, unknown>>(safeJsonSchema(skill.config_schema_json)),
     execute: (input) =>
-      runExtensionSkill({
+      runToolSkill({
         skillId: skill.id,
         input,
         model,
@@ -184,7 +179,7 @@ function createSkillTool({
   });
 }
 
-function executeStep(step: ExtensionSkillStep, input: unknown): JsonObject {
+function executeStep(step: ToolSkillStep, input: unknown): JsonObject {
   if (step.type === "memory") {
     const query = [step.title, step.detail, JSON.stringify(normalizeInput(input))]
       .join(" ")
@@ -202,7 +197,7 @@ function executeStep(step: ExtensionSkillStep, input: unknown): JsonObject {
   return { ...baseStep(step), prompt: step.detail };
 }
 
-function baseStep(step: ExtensionSkillStep): JsonObject {
+function baseStep(step: ToolSkillStep): JsonObject {
   return {
     id: step.id,
     type: step.type,
@@ -211,7 +206,7 @@ function baseStep(step: ExtensionSkillStep): JsonObject {
   };
 }
 
-function createToolDescription(skill: ExtensionSkill): string {
+function createToolDescription(skill: ToolSkill): string {
   const triggers = safeJsonArray(skill.trigger_keywords_json).join(", ");
   const steps = readSteps(skill)
     .map((step, index) => `${index + 1}. ${step.title}`)
@@ -225,12 +220,12 @@ function createToolDescription(skill: ExtensionSkill): string {
     .join("\n");
 }
 
-function readSteps(skill: ExtensionSkill): ExtensionSkillStep[] {
+function readSteps(skill: ToolSkill): ToolSkillStep[] {
   const parsed = safeJsonArray(skill.steps_json);
   return parsed
-    .filter((item): item is ExtensionSkillStep => {
+    .filter((item): item is ToolSkillStep => {
       if (!item || typeof item !== "object") return false;
-      const record = item as Partial<ExtensionSkillStep>;
+      const record = item as Partial<ToolSkillStep>;
       return typeof record.id === "string" && typeof record.title === "string";
     })
     .slice(0, 20);

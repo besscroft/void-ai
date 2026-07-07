@@ -4,7 +4,7 @@ import type { streamText, ToolApprovalConfiguration, ToolChoice, ToolSet } from 
 import {
   CHAT_TOOL_IDS,
   isChatToolId,
-  isMcpToolReference,
+  isToolRecordReference,
   isSkillToolReference,
   normalizeChatToolSelection,
   type ChatToolDescriptor,
@@ -18,8 +18,8 @@ import {
 } from "../../shared/types";
 import type { NativeChatTool } from "./providers";
 import {
-  getWorkspaceSnapshot,
-  insertHarnessEvent,
+  getRuntimeSnapshot,
+  insertRuntimeEvent,
   listMemories,
   listMessages,
   saveMemory,
@@ -80,7 +80,7 @@ export function auditChatToolApprovalResponses({
     const approval = getApprovalResponse(part);
     if (!approval) continue;
     const toolName = getToolPartName(part) ?? "unknown";
-    recordHarnessEvent({
+    recordRuntimeEvent({
       kind: "approval",
       title: `Approval ${approval.approved ? "approved" : "denied"}: ${toolName}`,
       status: approval.approved ? "succeeded" : "cancelled",
@@ -110,7 +110,7 @@ interface MemorySearchInput {
   limit?: number;
 }
 
-interface WorkspaceSnapshotInput {
+interface RuntimeSnapshotInput {
   limit?: number;
 }
 
@@ -161,12 +161,12 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     defaultAuto: true,
     requiresApproval: false,
   },
-  workspace_snapshot: {
-    id: "workspace_snapshot",
-    label: "Workspace snapshot",
-    description: "Read a compact local workspace summary.",
+  runtime_snapshot: {
+    id: "runtime_snapshot",
+    label: "Runtime snapshot",
+    description: "Read a compact local runtime summary.",
     kind: "host",
-    category: "workspace",
+    category: "runtime",
     defaultAuto: true,
     requiresApproval: false,
   },
@@ -398,7 +398,7 @@ export function buildChatToolRuntime({
 
   const dynamicRuntimes = [
     createMcpToolSet({
-      references: selectedIds.filter(isMcpToolReference),
+      references: selectedIds.filter(isToolRecordReference),
       model,
       conversationId,
       agentId,
@@ -473,9 +473,9 @@ export async function executeChatHostTool({
           const results = searchMemories(query, limit);
           return { query, count: results.length, results };
         }
-        case "workspace_snapshot": {
-          const value = input as WorkspaceSnapshotInput;
-          return summarizeWorkspaceSnapshot(normalizeLimit(value.limit, 5, 10));
+        case "runtime_snapshot": {
+          const value = input as RuntimeSnapshotInput;
+          return summarizeRuntimeSnapshot(normalizeLimit(value.limit, 5, 10));
         }
         case "model_capabilities":
           return {
@@ -598,9 +598,9 @@ function createHostTools({
           return { query, count: results.length, results };
         }),
     }),
-    workspace_snapshot: tool({
-      description: TOOL_DEFINITIONS.workspace_snapshot.description,
-      inputSchema: jsonSchema<WorkspaceSnapshotInput>({
+    runtime_snapshot: tool({
+      description: TOOL_DEFINITIONS.runtime_snapshot.description,
+      inputSchema: jsonSchema<RuntimeSnapshotInput>({
         type: "object",
         properties: {
           limit: { type: "number", description: "Maximum recent items per section." },
@@ -608,12 +608,8 @@ function createHostTools({
         additionalProperties: false,
       }),
       execute: (input) =>
-        executeWithAudit(
-          "workspace_snapshot",
-          "Workspace snapshot",
-          model,
-          conversationId,
-          async () => summarizeWorkspaceSnapshot(normalizeLimit(input.limit, 5, 10)),
+        executeWithAudit("runtime_snapshot", "Runtime snapshot", model, conversationId, async () =>
+          summarizeRuntimeSnapshot(normalizeLimit(input.limit, 5, 10)),
         ),
     }),
     model_capabilities: tool({
@@ -725,7 +721,7 @@ function createToolApproval(
 ): ToolApprovalConfiguration<ToolSet, unknown> {
   const approvals: Record<string, () => "user-approval"> = {
     conversation_search: () => {
-      recordHarnessEvent({
+      recordRuntimeEvent({
         kind: "approval",
         title: "Approval requested: conversation_search",
         status: "queued",
@@ -734,7 +730,7 @@ function createToolApproval(
       return "user-approval";
     },
     memory_save: () => {
-      recordHarnessEvent({
+      recordRuntimeEvent({
         kind: "approval",
         title: "Approval requested: memory_save",
         status: "queued",
@@ -746,11 +742,11 @@ function createToolApproval(
 
   for (const toolName of dynamicToolNames) {
     approvals[toolName] = () => {
-      recordHarnessEvent({
+      recordRuntimeEvent({
         kind: "approval",
         title: "Approval requested: " + toolName,
         status: "queued",
-        detail: baseAuditDetail(model, conversationId, { agentId, toolName, source: "extension" }),
+        detail: baseAuditDetail(model, conversationId, { agentId, toolName, source: "tool" }),
       });
       return "user-approval";
     };
@@ -773,7 +769,7 @@ function createStepAuditor({
     for (const result of results) {
       const toolName = getUnknownString(result, "toolName");
       if (!toolName || !providerExecutedToolNames.has(toolName)) continue;
-      recordHarnessEvent({
+      recordRuntimeEvent({
         kind: "tool",
         title: `Provider tool: ${toolName}`,
         status: "succeeded",
@@ -807,7 +803,7 @@ async function executeWithAudit<T>(
   }
   try {
     const output = await execute();
-    recordHarnessEvent({
+    recordRuntimeEvent({
       kind: "tool",
       title,
       status: "succeeded",
@@ -830,7 +826,7 @@ async function executeWithAudit<T>(
     }
     return output;
   } catch (error) {
-    recordHarnessEvent({
+    recordRuntimeEvent({
       kind: "error",
       title,
       status: "failed",
@@ -898,8 +894,8 @@ function searchMemories(
     }));
 }
 
-function summarizeWorkspaceSnapshot(limit: number): unknown {
-  const snapshot = getWorkspaceSnapshot();
+function summarizeRuntimeSnapshot(limit: number): unknown {
+  const snapshot = getRuntimeSnapshot();
   return {
     agents: {
       total: snapshot.agents.length,
@@ -928,18 +924,11 @@ function summarizeWorkspaceSnapshot(limit: number): unknown {
       status: workflow.status,
       trigger: workflow.trigger,
     })),
-    harnessEvents: snapshot.harnessEvents.slice(0, limit).map((event) => ({
+    runtimeEvents: snapshot.runtimeEvents.slice(0, limit).map((event) => ({
       kind: event.kind,
       title: event.title,
       status: event.status,
       created_at: event.created_at,
-    })),
-    serverNodes: snapshot.serverNodes.map((node) => ({
-      id: node.id,
-      name: node.name,
-      kind: node.kind,
-      status: node.status,
-      capabilities: safeJsonParse(node.capabilities_json, []),
     })),
     sync: {
       mode: snapshot.syncState.mode,
@@ -1544,16 +1533,26 @@ function baseAuditDetail(
   };
 }
 
-function recordHarnessEvent(input: {
-  kind: "tool" | "test" | "approval" | "automation" | "error" | "agent" | "handoff" | "learning";
+function recordRuntimeEvent(input: {
+  kind:
+    | "model"
+    | "tool"
+    | "approval"
+    | "handoff"
+    | "memory"
+    | "workflow"
+    | "sandbox"
+    | "guardrail"
+    | "diagnostic"
+    | "error";
   title: string;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   detail: unknown;
 }): void {
   try {
-    insertHarnessEvent(input);
+    insertRuntimeEvent(input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn("[chat-tools] failed to record harness event:", message);
+    console.warn("[chat-tools] failed to record Runtime event:", message);
   }
 }

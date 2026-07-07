@@ -1,4 +1,4 @@
-import { ElectronAPI } from "@electron-toolkit/preload";
+﻿import { ElectronAPI } from "@electron-toolkit/preload";
 import type {
   AgentInput,
   AgentProfile,
@@ -8,41 +8,40 @@ import type {
   CustomProviderInput,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
-  ExtensionSecretInput,
-  ExtensionSecretPublic,
-  ExtensionSkill,
-  ExtensionSkillInput,
-  ExtensionsSnapshot,
-  HarnessEvent,
+  ToolSecretInput,
+  ToolSecretPublic,
+  ToolSkill,
+  ToolSkillInput,
+  ToolsSnapshot,
+  RuntimeEvent,
   InteractionProfile,
   LocalServerInfo,
   ManagedModelInfo,
   MemoryRecord,
   MessageRow,
-  McpDiscoveryResult,
-  McpServer,
-  McpServerInput,
-  McpTool,
+  ToolDiscoveryResult,
+  ToolServer,
+  ToolServerInput,
+  ToolRecord,
   ProviderModelSyncResult,
   ProviderInfo,
   ProviderTestResult,
-  ServerNode,
   SyncState,
   WorkflowDefinition,
   WorkflowRun,
-  WorkspaceSnapshot,
+  RuntimeSnapshot,
 } from "../shared/types";
 
 /**
- * Void AI 暴露给渲染进程的 API
+ * Void AI 鏆撮湶缁欐覆鏌撹繘绋嬬殑 API
  *
- * 设计原则：
- * - 仅通过 contextBridge 暴露白名单方法，渲染层无法直接访问 Node API
- * - API key 明文不出主进程；这里只提供 set/list，不提供 get
- * - 所有方法返回 Promise（ipcRenderer.invoke 的语义）
+ * 璁捐鍘熷垯锛?
+ * - 浠呴€氳繃 contextBridge 鏆撮湶鐧藉悕鍗曟柟娉曪紝娓叉煋灞傛棤娉曠洿鎺ヨ闂?Node API
+ * - API key 鏄庢枃涓嶅嚭涓昏繘绋嬶紱杩欓噷鍙彁渚?set/list锛屼笉鎻愪緵 get
+ * - 鎵€鏈夋柟娉曡繑鍥?Promise锛坕pcRenderer.invoke 鐨勮涔夛級
  */
 export interface VoidAIApi {
-  // 会话历史
+  // 浼氳瘽鍘嗗彶
   conversations: {
     list: () => Promise<Conversation[]>;
     listDeleted: () => Promise<Conversation[]>;
@@ -55,26 +54,29 @@ export interface VoidAIApi {
     purgeExpired: () => Promise<number>;
     touch: (id: string, title?: string) => Promise<boolean>;
   };
-  // 消息
+  // 娑堟伅
   messages: {
     list: (conversationId: string) => Promise<MessageRow[]>;
     save: (msg: MessageRow) => Promise<boolean>;
     saveBatch: (msgs: MessageRow[]) => Promise<boolean>;
   };
-  // 应用设置
+  // 搴旂敤璁剧疆
   settings: {
     get: (key: string) => Promise<string | null>;
     set: (key: string, value: string) => Promise<boolean>;
     getAll: (keys: string[]) => Promise<Record<string, string | null>>;
   };
-  // API Key 管理（明文不外泄）
+  // API Key 绠＄悊锛堟槑鏂囦笉澶栨硠锛?
   apikeys: {
     list: () => Promise<string[]>;
     set: (provider: string, apiKey: string) => Promise<boolean>;
     delete: (provider: string) => Promise<boolean>;
   };
-  workspace: {
-    snapshot: () => Promise<WorkspaceSnapshot>;
+  runtime: {
+    snapshot: () => Promise<RuntimeSnapshot>;
+    events: {
+      list: () => Promise<RuntimeEvent[]>;
+    };
   };
   agents: {
     list: () => Promise<AgentProfile[]>;
@@ -87,9 +89,9 @@ export interface VoidAIApi {
     queueLearning: (conversationId: string) => Promise<boolean>;
     runtimeSnapshot: () => Promise<
       Pick<
-        WorkspaceSnapshot,
-        | "agentRuns"
-        | "agentRunSteps"
+        RuntimeSnapshot,
+        | "runtimeRuns"
+        | "runtimeSteps"
         | "agentRuntimeStates"
         | "conversationAgentStates"
         | "sandboxSessions"
@@ -108,12 +110,6 @@ export interface VoidAIApi {
     list: () => Promise<WorkflowDefinition[]>;
     runs: () => Promise<WorkflowRun[]>;
   };
-  harness: {
-    list: () => Promise<HarnessEvent[]>;
-  };
-  serverNodes: {
-    list: () => Promise<ServerNode[]>;
-  };
   interactions: {
     list: () => Promise<InteractionProfile[]>;
   };
@@ -131,30 +127,30 @@ export interface VoidAIApi {
   sync: {
     get: () => Promise<SyncState>;
   };
-  // Provider 元信息
-  extensions: {
-    snapshot: () => Promise<ExtensionsSnapshot>;
+  // Provider 鍏冧俊鎭?
+  tools: {
+    snapshot: () => Promise<ToolsSnapshot>;
     mcp: {
-      create: (input: McpServerInput) => Promise<McpServer>;
-      update: (id: string, input: Partial<McpServerInput>) => Promise<McpServer>;
+      create: (input: ToolServerInput) => Promise<ToolServer>;
+      update: (id: string, input: Partial<ToolServerInput>) => Promise<ToolServer>;
       delete: (id: string) => Promise<boolean>;
-      setEnabled: (id: string, enabled: boolean) => Promise<McpServer>;
-      test: (id: string) => Promise<McpDiscoveryResult>;
-      discover: (id: string) => Promise<McpDiscoveryResult>;
+      setEnabled: (id: string, enabled: boolean) => Promise<ToolServer>;
+      test: (id: string) => Promise<ToolDiscoveryResult>;
+      discover: (id: string) => Promise<ToolDiscoveryResult>;
       updateTool: (
         id: string,
         patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
-      ) => Promise<McpTool>;
-      setSecret: (input: ExtensionSecretInput) => Promise<ExtensionSecretPublic>;
+      ) => Promise<ToolRecord>;
+      setSecret: (input: ToolSecretInput) => Promise<ToolSecretPublic>;
       deleteSecret: (id: string) => Promise<boolean>;
     };
     skills: {
-      create: (input: ExtensionSkillInput) => Promise<ExtensionSkill>;
-      update: (id: string, input: Partial<ExtensionSkillInput>) => Promise<ExtensionSkill>;
+      create: (input: ToolSkillInput) => Promise<ToolSkill>;
+      update: (id: string, input: Partial<ToolSkillInput>) => Promise<ToolSkill>;
       delete: (id: string) => Promise<boolean>;
-      setEnabled: (id: string, enabled: boolean) => Promise<ExtensionSkill>;
+      setEnabled: (id: string, enabled: boolean) => Promise<ToolSkill>;
       run: (skillId: string, input?: unknown) => Promise<unknown>;
-      setSecret: (input: ExtensionSecretInput) => Promise<ExtensionSecretPublic>;
+      setSecret: (input: ToolSecretInput) => Promise<ToolSecretPublic>;
       deleteSecret: (id: string) => Promise<boolean>;
     };
   };
@@ -173,7 +169,7 @@ export interface VoidAIApi {
     deleteModelApiKey: (providerId: string, modelId: string) => Promise<boolean>;
     deleteCustomModel: (providerId: string, modelId: string) => Promise<boolean>;
   };
-  // 本地 AI 服务
+  // 鏈湴 AI 鏈嶅姟
   server: {
     port: () => Promise<number>;
     info: () => Promise<LocalServerInfo>;
@@ -181,7 +177,7 @@ export interface VoidAIApi {
   system: {
     locale: () => Promise<string>;
   };
-  // 缓存管理
+  // 缂撳瓨绠＄悊
   cache: {
     stats: () => Promise<CacheStats>;
     clear: () => Promise<number>;

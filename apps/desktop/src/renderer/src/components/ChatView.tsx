@@ -1,15 +1,15 @@
-/**
+﻿/**
  * ChatView
  *
- * 渲染层：把"会话"和"消息"两件事串起来
+ * 娓叉煋灞傦細鎶?浼氳瘽"鍜?娑堟伅"涓や欢浜嬩覆璧锋潵
  *
- * 职责：
- *  - 加载历史消息 -> 交给 useChat
- *  - 发送：把用户消息写入 DB（pre-save）后再 sendMessage
- *  - 流式结束 -> 把最新快照写回 DB
- *  - 头部展示：对话状态徽章（流式 / 就绪 / 错误 / 停止）+ 上下文用量
- *  - 标题自动生成：首次 user + assistant 完整出现后调用 /api/title
- *  - 消息动作（Edit / Resend / Delete）由本组件实现，传递给 MessageList
+ * 鑱岃矗锛?
+ *  - 鍔犺浇鍘嗗彶娑堟伅 -> 浜ょ粰 useChat
+ *  - 鍙戦€侊細鎶婄敤鎴锋秷鎭啓鍏?DB锛坧re-save锛夊悗鍐?sendMessage
+ *  - 娴佸紡缁撴潫 -> 鎶婃渶鏂板揩鐓у啓鍥?DB
+ *  - 澶撮儴灞曠ず锛氬璇濈姸鎬佸窘绔狅紙娴佸紡 / 灏辩华 / 閿欒 / 鍋滄锛? 涓婁笅鏂囩敤閲?
+ *  - 鏍囬鑷姩鐢熸垚锛氶娆?user + assistant 瀹屾暣鍑虹幇鍚庤皟鐢?/api/title
+ *  - 娑堟伅鍔ㄤ綔锛圗dit / Resend / Delete锛夌敱鏈粍浠跺疄鐜帮紝浼犻€掔粰 MessageList
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
@@ -20,7 +20,7 @@ import {
 } from "ai";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
-import { api, type WorkspaceSnapshot } from "../lib/api";
+import { api, type RuntimeSnapshot } from "../lib/api";
 import { hasMeaningfulConversationTitle } from "../lib/conversation-title";
 import { getChatErrorMessage } from "../lib/errors";
 import {
@@ -75,9 +75,9 @@ interface ChatViewProps {
 }
 
 /**
- * 模型上下文窗口查找（粗略）。
- *  - 部分主流模型从已知的"厂商惯例"给默认值
- *  - 找不到则回落到 32K
+ * 妯″瀷涓婁笅鏂囩獥鍙ｆ煡鎵撅紙绮楃暐锛夈€?
+ *  - 閮ㄥ垎涓绘祦妯″瀷浠庡凡鐭ョ殑"鍘傚晢鎯緥"缁欓粯璁ゅ€?
+ *  - 鎵句笉鍒板垯鍥炶惤鍒?32K
  */
 const CONTEXT_WINDOW_BY_MODEL: Array<{ match: RegExp; tokens: number }> = [
   { match: /^gpt-4o-mini|^gpt-4o$|^chatgpt-4o/i, tokens: 128_000 },
@@ -129,9 +129,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   );
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [runtimeSnapshot, setRuntimeSnapshot] = useState<Pick<
-    WorkspaceSnapshot,
-    | "agentRuns"
-    | "agentRunSteps"
+    RuntimeSnapshot,
+    | "runtimeRuns"
+    | "runtimeSteps"
     | "agentRuntimeStates"
     | "conversationAgentStates"
     | "sandboxSessions"
@@ -142,9 +142,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const [toolSelection, setToolSelection] = useState<ChatToolSelectionRequest>(
     DEFAULT_CHAT_TOOL_SELECTION,
   );
-  /** 是否已为本对话生成过标题（防止重复生成） */
+  /** 鏄惁宸蹭负鏈璇濈敓鎴愯繃鏍囬锛堥槻姝㈤噸澶嶇敓鎴愶級 */
   const titledRef = useRef<Set<string>>(new Set());
-  /** 上一次发送时的消息数（用于识别"本轮回复完成"） */
+  /** 涓婁竴娆″彂閫佹椂鐨勬秷鎭暟锛堢敤浜庤瘑鍒?鏈疆鍥炲瀹屾垚"锛?*/
   const lastSentCountRef = useRef(0);
   const createdAtRef = useRef<Map<string, number>>(new Map());
   const selectedModelRef = useRef<string | null>(null);
@@ -252,7 +252,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     setToolSelection(DEFAULT_CHAT_TOOL_SELECTION);
     createdAtRef.current = new Map();
     hydratedConversationRef.current = null;
-    // 不重置 titledRef：保留跨会话记录，避免重复生成（切换回到旧对话也不重生成）
+    // 涓嶉噸缃?titledRef锛氫繚鐣欒法浼氳瘽璁板綍锛岄伩鍏嶉噸澶嶇敓鎴愶紙鍒囨崲鍥炲埌鏃у璇濅篃涓嶉噸鐢熸垚锛?
     lastSentCountRef.current = 0;
 
     void api.messages.list(conversationId).then((rows) => {
@@ -260,7 +260,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       createdAtRef.current = new Map(rows.map((row) => [row.id, row.created_at]));
       setInitialMessages(messages);
       setHistoryLoaded(true);
-      // 如果历史中已经有标题（DB 已有），标记为已生成，避免再次触发
+      // 濡傛灉鍘嗗彶涓凡缁忔湁鏍囬锛圖B 宸叉湁锛夛紝鏍囪涓哄凡鐢熸垚锛岄伩鍏嶅啀娆¤Е鍙?
       void api.conversations.get(conversationId).then((conv) => {
         if (hasMeaningfulConversationTitle(conv?.title)) {
           titledRef.current.add(conversationId);
@@ -285,7 +285,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         .then(() => api.agents.queueLearning(conversationId))
         .catch((err) => console.error("[chat] failed to persist messages or queue learning:", err));
       void api.conversations.touch(conversationId);
-      // 自动生成标题：本轮发送了消息 + assistant 完整产生 + 还没生成过
+      // 鑷姩鐢熸垚鏍囬锛氭湰杞彂閫佷簡娑堟伅 + assistant 瀹屾暣浜х敓 + 杩樻病鐢熸垚杩?
       tryAutoTitle(conversationId, messages, lastSentCountRef.current, titledRef);
     },
     onError: (err) => {
@@ -329,7 +329,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     };
   }, [conversationId, isLoading]);
 
-  /* ---------- 状态映射 ---------- */
+  /* ---------- 鐘舵€佹槧灏?---------- */
   const statusKind: ConversationStatusKind = chat.error
     ? "error"
     : isMediaGenerating
@@ -358,7 +358,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     return { usedTokens, maxTokens, costUsd: undefined as number | undefined };
   }, [chat.messages, modelContextWindows, selectedModel]);
 
-  /* ---------- 发送 ---------- */
+  /* ---------- 鍙戦€?---------- */
   const handleMediaSettingsChange = (next: MediaGenerationSettings): void => {
     mediaSettingsRef.current = next;
     setMediaSettings(next);
@@ -602,7 +602,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       .catch((err) => console.error("[chat] failed to persist tool selection:", err));
   };
 
-  /* ---------- 消息动作：编辑 ---------- */
+  /* ---------- 娑堟伅鍔ㄤ綔锛氱紪杈?---------- */
   const handleReactMessage = (messageId: string, emoji: string, label: string): void => {
     const nextMessages = updateMessageReaction({
       messages: latestMessagesRef.current,
@@ -620,7 +620,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     const target = chat.messages[idx];
     if (target.role !== "user") return;
 
-    // 1. 找到该 user 消息，替换 text part，删除后续所有消息
+    // 1. 鎵惧埌璇?user 娑堟伅锛屾浛鎹?text part锛屽垹闄ゅ悗缁墍鏈夋秷鎭?
     const updated: UIMessage = {
       ...target,
       parts: [
@@ -632,13 +632,13 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     chat.setMessages(nextMessages);
     createdAtRef.current.delete(messageId);
 
-    // 2. 持久化新快照（删除后续消息）
+    // 2. 鎸佷箙鍖栨柊蹇収锛堝垹闄ゅ悗缁秷鎭級
     void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
     setIsStopped(false);
     setChatError(null);
     chat.clearError();
 
-    // 3. 触发重新生成
+    // 3. 瑙﹀彂閲嶆柊鐢熸垚
     lastSentCountRef.current = nextMessages.length;
     try {
       await chat.regenerate({ messageId: target.id });
@@ -650,24 +650,24 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     }
   };
 
-  /* ---------- 消息动作：重新发送 ---------- */
+  /* ---------- 娑堟伅鍔ㄤ綔锛氶噸鏂板彂閫?---------- */
   const handleResendMessage = async (messageId: string): Promise<void> => {
     const idx = chat.messages.findIndex((m) => m.id === messageId);
     if (idx < 0) return;
     const target = chat.messages[idx];
     if (target.role !== "user") return;
 
-    // 1. 截断到该 user 消息
+    // 1. 鎴柇鍒拌 user 娑堟伅
     const nextMessages = chat.messages.slice(0, idx + 1);
     chat.setMessages(nextMessages);
     setIsStopped(false);
     setChatError(null);
     chat.clearError();
 
-    // 2. 持久化（删除后续消息）
+    // 2. 鎸佷箙鍖栵紙鍒犻櫎鍚庣画娑堟伅锛?
     void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
 
-    // 3. 触发重新生成
+    // 3. 瑙﹀彂閲嶆柊鐢熸垚
     lastSentCountRef.current = nextMessages.length;
     try {
       await chat.regenerate({ messageId: target.id });
@@ -679,7 +679,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     }
   };
 
-  /* ---------- 消息动作：删除 ---------- */
+  /* ---------- 娑堟伅鍔ㄤ綔锛氬垹闄?---------- */
   const handleDeleteMessage = (messageId: string): void => {
     const idx = chat.messages.findIndex((m) => m.id === messageId);
     if (idx < 0) return;
@@ -687,7 +687,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     const confirmed = window.confirm(t("msg.delete.confirm"));
     if (!confirmed) return;
 
-    // 1. 删除目标 + 如果目标是 user 消息，紧跟的 assistant 也一并删除
+    // 1. 鍒犻櫎鐩爣 + 濡傛灉鐩爣鏄?user 娑堟伅锛岀揣璺熺殑 assistant 涔熶竴骞跺垹闄?
     const next = [...chat.messages];
     next.splice(idx, 1);
     if (target.role === "user" && next[idx]?.role === "assistant") {
@@ -696,10 +696,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     chat.setMessages(next);
     createdAtRef.current.delete(messageId);
     if (next[idx - 1]?.role === "user") {
-      // 同步删除可能存在的 createdAt
+      // 鍚屾鍒犻櫎鍙兘瀛樺湪鐨?createdAt
     }
 
-    // 2. 持久化（目标消息与可能的 assistant 同步从 DB 中删除）
+    // 2. 鎸佷箙鍖栵紙鐩爣娑堟伅涓庡彲鑳界殑 assistant 鍚屾浠?DB 涓垹闄わ級
     void persistMessagesSnapshot(conversationId, next, createdAtRef.current);
     notify.success(t("chat.messageDeleted"));
   };
@@ -770,7 +770,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   );
 }
 
-/* ---------- 头部 ---------- */
+/* ---------- 澶撮儴 ---------- */
 
 interface ChatHeaderProps {
   status: ConversationStatusKind;
@@ -778,7 +778,7 @@ interface ChatHeaderProps {
 }
 
 /**
- * 头部只展示"对话名 + 状态徽章"；上下文用量已迁至输入框的 ContextPopover。
+ * 澶撮儴鍙睍绀?瀵硅瘽鍚?+ 鐘舵€佸窘绔?锛涗笂涓嬫枃鐢ㄩ噺宸茶縼鑷宠緭鍏ユ鐨?ContextPopover銆?
  */
 function ChatHeader({ status, runtimeSummary }: ChatHeaderProps): React.JSX.Element {
   const { t } = useT();
@@ -807,13 +807,13 @@ function ChatHeader({ status, runtimeSummary }: ChatHeaderProps): React.JSX.Elem
   );
 }
 
-/* ---------- 持久化 ---------- */
+/* ---------- 鎸佷箙鍖?---------- */
 
 function formatRuntimeSummary(
   snapshot: Pick<
-    WorkspaceSnapshot,
-    | "agentRuns"
-    | "agentRunSteps"
+    RuntimeSnapshot,
+    | "runtimeRuns"
+    | "runtimeSteps"
     | "agentRuntimeStates"
     | "conversationAgentStates"
     | "sandboxSessions"
@@ -833,32 +833,32 @@ function formatRuntimeSummary(
   if (conversationState?.summary) return conversationState.summary;
 
   const run =
-    snapshot.agentRuns.find(
+    snapshot.runtimeRuns.find(
       (item) => item.conversation_id === conversationId && item.status === "running",
     ) ??
-    snapshot.agentRuns.find(
+    snapshot.runtimeRuns.find(
       (item) => item.conversation_id === conversationId && item.status === "queued",
     );
   if (!run) return undefined;
 
   const currentStep = conversationState?.current_step_id
-    ? snapshot.agentRunSteps.find((step) => step.id === conversationState.current_step_id)
+    ? snapshot.runtimeSteps.find((step) => step.id === conversationState.current_step_id)
     : undefined;
   if (currentStep) return currentStep.title;
 
-  const latestStep = snapshot.agentRunSteps
+  const latestStep = snapshot.runtimeSteps
     .filter((step) => step.run_id === run.id)
     .sort((a, b) => b.started_at - a.started_at)[0];
   if (latestStep) return latestStep.title;
   return t("chat.runtime.preparing");
 }
 
-/* ---------- 自动标题生成 ---------- */
+/* ---------- 鑷姩鏍囬鐢熸垚 ---------- */
 
 /**
- * 当本轮 user + assistant 完整出现后，调用 /api/title 生成标题
- *  - 仅首次（已生成过的对话不再生成）
- *  - 仅在对话的前 2 条消息为 user + assistant 且当前正在完成第一个 assistant 时
+ * 褰撴湰杞?user + assistant 瀹屾暣鍑虹幇鍚庯紝璋冪敤 /api/title 鐢熸垚鏍囬
+ *  - 浠呴娆★紙宸茬敓鎴愯繃鐨勫璇濅笉鍐嶇敓鎴愶級
+ *  - 浠呭湪瀵硅瘽鐨勫墠 2 鏉℃秷鎭负 user + assistant 涓斿綋鍓嶆鍦ㄥ畬鎴愮涓€涓?assistant 鏃?
  */
 function tryAutoTitle(
   conversationId: string,
@@ -873,12 +873,12 @@ function tryAutoTitle(
   if (!first || !second) return;
   if (first.role !== "user" || second.role !== "assistant") return;
 
-  // 取第一个 user + 第一个 assistant 的纯文本作为 prompt
+  // 鍙栫涓€涓?user + 绗竴涓?assistant 鐨勭函鏂囨湰浣滀负 prompt
   const excerpt: UIMessage[] = [first, second];
   void api.server
     .info()
     .then((info) => {
-      // 若 DB 中已有标题则跳过 LLM 调用
+      // 鑻?DB 涓凡鏈夋爣棰樺垯璺宠繃 LLM 璋冪敤
       return api.conversations.get(conversationId).then((conv) => {
         if (hasMeaningfulConversationTitle(conv?.title)) {
           titledRef.current.add(conversationId);
@@ -893,7 +893,7 @@ function tryAutoTitle(
       return api.conversations.touch(conversationId, title).then(() => title);
     })
     .then((title) => {
-      // 通知侧栏刷新（携带最新 title，避免重新拉取整张列表）
+      // 閫氱煡渚ф爮鍒锋柊锛堟惡甯︽渶鏂?title锛岄伩鍏嶉噸鏂版媺鍙栨暣寮犲垪琛級
       window.dispatchEvent(
         new CustomEvent("void-ai:conversation-renamed", {
           detail: { id: conversationId, title },
@@ -928,7 +928,7 @@ async function fetchTitle(
   }
 }
 
-/* ---------- 空态 ---------- */
+/* ---------- 绌烘€?---------- */
 
 function EmptyState({
   title,

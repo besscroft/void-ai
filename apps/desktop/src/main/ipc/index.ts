@@ -1,4 +1,4 @@
-import { app, ipcMain, type BrowserWindow } from "electron";
+﻿import { app, ipcMain, type BrowserWindow } from "electron";
 import { getServerInfo, getServerPort } from "../server";
 import {
   listConversations,
@@ -33,23 +33,22 @@ import {
   deleteMemory,
   listWorkflows,
   listWorkflowRuns,
-  listHarnessEvents,
-  listServerNodes,
+  listRuntimeEvents,
   listInteractionProfiles,
   getSyncState,
-  getWorkspaceSnapshot,
-  getExtensionsSnapshot,
-  createMcpServer,
-  updateMcpServer,
-  deleteMcpServer,
-  setMcpServerEnabled,
-  updateMcpTool,
-  createExtensionSkill,
-  updateExtensionSkill,
-  deleteExtensionSkill,
-  setExtensionSkillEnabled,
-  setExtensionSecret,
-  deleteExtensionSecret,
+  getRuntimeSnapshot,
+  getToolsSnapshot,
+  createToolServer,
+  updateToolServer,
+  deleteToolServer,
+  setToolServerEnabled,
+  updateToolRecord,
+  createSkillTool,
+  updateSkillTool,
+  deleteSkillTool,
+  setSkillToolEnabled,
+  setToolSecret,
+  deleteToolSecret,
 } from "../lib/db";
 import {
   clearProviderApiKey,
@@ -73,30 +72,30 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
-  ExtensionSecretInput,
-  ExtensionSkillInput,
+  ToolSecretInput,
+  ToolSkillInput,
   MemoryRecord,
   MessageRow,
-  McpServerInput,
+  ToolServerInput,
 } from "../../shared/types";
 import { queueAgentLearning } from "../lib/agent-learning";
 import { closeMcpClient, discoverMcpServer, testMcpServer } from "../lib/mcp-manager";
-import { runExtensionSkill } from "../lib/skill-runtime";
+import { runToolSkill } from "../lib/skill-runtime";
 
 /**
- * IPC handlers 注册
+ * IPC handlers 娉ㄥ唽
  *
- * 命名约定：channel 形如 "domain:action"
+ * 鍛藉悕绾﹀畾锛歝hannel 褰㈠ "domain:action"
  *  - conversations:list / conversations:create / conversations:delete / conversations:get
  *  - messages:list / messages:save
  *  - settings:get / settings:set
  *  - apikeys:list / apikeys:set / apikeys:delete
- *  - server:port         获取本地 AI 服务端口
- *  - providers:list      获取 provider 列表（含模型、helpUrl）
+ *  - server:port         鑾峰彇鏈湴 AI 鏈嶅姟绔彛
+ *  - providers:list      鑾峰彇 provider 鍒楄〃锛堝惈妯″瀷銆乭elpUrl锛?
  */
 
 export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
-  // ---------- 会话历史 ----------
+  // ---------- 浼氳瘽鍘嗗彶 ----------
   ipcMain.handle("conversations:list", () => listConversations());
 
   ipcMain.handle("conversations:get", (_e, id: string) => getConversation(id));
@@ -133,7 +132,7 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
 
   ipcMain.handle("conversations:purgeExpired", () => purgeExpiredDeletedConversations());
 
-  // ---------- 消息 ----------
+  // ---------- 娑堟伅 ----------
   ipcMain.handle("messages:list", (_e, conversationId: string) => listMessages(conversationId));
 
   ipcMain.handle("messages:save", (_e, msg: MessageRow) => {
@@ -146,7 +145,7 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     return true;
   });
 
-  // ---------- 设置 ----------
+  // ---------- 璁剧疆 ----------
   ipcMain.handle("settings:get", (_e, key: string) => getSetting(key));
 
   ipcMain.handle("settings:set", (_e, key: string, value: string) => {
@@ -172,10 +171,10 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     deleteApiKey(provider);
     return true;
   });
-  // 注意：不暴露 apikeys:get 明文接口，渲染层无需读取明文 key
+  // 娉ㄦ剰锛氫笉鏆撮湶 apikeys:get 鏄庢枃鎺ュ彛锛屾覆鏌撳眰鏃犻渶璇诲彇鏄庢枃 key
 
-  // ---------- AI 工作台 ----------
-  ipcMain.handle("workspace:snapshot", () => getWorkspaceSnapshot());
+  // ---------- AI 宸ヤ綔鍙?----------
+  ipcMain.handle("runtime:snapshot", () => getRuntimeSnapshot());
   ipcMain.handle("agents:list", () => listAgents());
   ipcMain.handle("agents:get", (_e, id: string) => getAgent(id));
   ipcMain.handle("agents:create", (_e, input: AgentInput) => createAgent(input));
@@ -205,36 +204,32 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   });
   ipcMain.handle("workflows:list", () => listWorkflows());
   ipcMain.handle("workflowRuns:list", () => listWorkflowRuns());
-  ipcMain.handle("harness:list", () => listHarnessEvents());
-  ipcMain.handle("serverNodes:list", () => listServerNodes());
+  ipcMain.handle("runtime:events:list", () => listRuntimeEvents());
   ipcMain.handle("interactions:list", () => listInteractionProfiles());
   ipcMain.handle("sync:get", () => getSyncState());
 
-  // ---------- Extensions: MCP + Workflow Skills ----------
-  ipcMain.handle("extensions:snapshot", () => getExtensionsSnapshot());
-  ipcMain.handle("extensions:mcp:create", (_e, input: McpServerInput) => createMcpServer(input));
-  ipcMain.handle(
-    "extensions:mcp:update",
-    async (_e, id: string, input: Partial<McpServerInput>) => {
-      const server = updateMcpServer(id, input);
-      await closeMcpClient(id);
-      return server;
-    },
-  );
-  ipcMain.handle("extensions:mcp:delete", async (_e, id: string) => {
+  // ---------- tools: MCP + Workflow Skills ----------
+  ipcMain.handle("tools:snapshot", () => getToolsSnapshot());
+  ipcMain.handle("tools:mcp:create", (_e, input: ToolServerInput) => createToolServer(input));
+  ipcMain.handle("tools:mcp:update", async (_e, id: string, input: Partial<ToolServerInput>) => {
+    const server = updateToolServer(id, input);
     await closeMcpClient(id);
-    deleteMcpServer(id);
+    return server;
+  });
+  ipcMain.handle("tools:mcp:delete", async (_e, id: string) => {
+    await closeMcpClient(id);
+    deleteToolServer(id);
     return true;
   });
-  ipcMain.handle("extensions:mcp:setEnabled", async (_e, id: string, enabled: boolean) => {
-    const server = setMcpServerEnabled(id, enabled);
+  ipcMain.handle("tools:mcp:setEnabled", async (_e, id: string, enabled: boolean) => {
+    const server = setToolServerEnabled(id, enabled);
     if (!enabled) await closeMcpClient(id);
     return server;
   });
-  ipcMain.handle("extensions:mcp:test", (_e, id: string) => testMcpServer(id));
-  ipcMain.handle("extensions:mcp:discover", (_e, id: string) => discoverMcpServer(id));
+  ipcMain.handle("tools:mcp:test", (_e, id: string) => testMcpServer(id));
+  ipcMain.handle("tools:mcp:discover", (_e, id: string) => discoverMcpServer(id));
   ipcMain.handle(
-    "extensions:mcp:updateTool",
+    "tools:mcp:updateTool",
     (
       _e,
       id: string,
@@ -243,38 +238,35 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
         auto_use?: boolean | number;
         requires_approval?: boolean | number;
       },
-    ) => updateMcpTool(id, patch),
+    ) => updateToolRecord(id, patch),
   );
-  ipcMain.handle("extensions:mcp:setSecret", (_e, input: ExtensionSecretInput) =>
-    setExtensionSecret({ ...input, ownerType: "mcp" }),
+  ipcMain.handle("tools:mcp:setSecret", (_e, input: ToolSecretInput) =>
+    setToolSecret({ ...input, ownerType: "server" }),
   );
-  ipcMain.handle("extensions:mcp:deleteSecret", (_e, id: string) => {
-    deleteExtensionSecret(id);
+  ipcMain.handle("tools:mcp:deleteSecret", (_e, id: string) => {
+    deleteToolSecret(id);
     return true;
   });
 
-  ipcMain.handle("extensions:skills:create", (_e, input: ExtensionSkillInput) =>
-    createExtensionSkill(input),
+  ipcMain.handle("tools:skills:create", (_e, input: ToolSkillInput) => createSkillTool(input));
+  ipcMain.handle("tools:skills:update", (_e, id: string, input: Partial<ToolSkillInput>) =>
+    updateSkillTool(id, input),
   );
-  ipcMain.handle(
-    "extensions:skills:update",
-    (_e, id: string, input: Partial<ExtensionSkillInput>) => updateExtensionSkill(id, input),
-  );
-  ipcMain.handle("extensions:skills:delete", (_e, id: string) => {
-    deleteExtensionSkill(id);
+  ipcMain.handle("tools:skills:delete", (_e, id: string) => {
+    deleteSkillTool(id);
     return true;
   });
-  ipcMain.handle("extensions:skills:setEnabled", (_e, id: string, enabled: boolean) =>
-    setExtensionSkillEnabled(id, enabled),
+  ipcMain.handle("tools:skills:setEnabled", (_e, id: string, enabled: boolean) =>
+    setSkillToolEnabled(id, enabled),
   );
-  ipcMain.handle("extensions:skills:run", (_e, skillId: string, input?: unknown) =>
-    runExtensionSkill({ skillId, input }),
+  ipcMain.handle("tools:skills:run", (_e, skillId: string, input?: unknown) =>
+    runToolSkill({ skillId, input }),
   );
-  ipcMain.handle("extensions:skills:setSecret", (_e, input: ExtensionSecretInput) =>
-    setExtensionSecret({ ...input, ownerType: "skill" }),
+  ipcMain.handle("tools:skills:setSecret", (_e, input: ToolSecretInput) =>
+    setToolSecret({ ...input, ownerType: "tool" }),
   );
-  ipcMain.handle("extensions:skills:deleteSecret", (_e, id: string) => {
-    deleteExtensionSecret(id);
+  ipcMain.handle("tools:skills:deleteSecret", (_e, id: string) => {
+    deleteToolSecret(id);
     return true;
   });
   // ---------- Provider metadata ----------
@@ -344,13 +336,13 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   // ---------- System information ----------
   ipcMain.handle("system:locale", () => app.getLocale());
 
-  // ---------- 缓存管理 ----------
-  // 统计缓存占用与上限
+  // ---------- 缂撳瓨绠＄悊 ----------
+  // 缁熻缂撳瓨鍗犵敤涓庝笂闄?
   ipcMain.handle("cache:stats", () => getCacheStats());
 
-  // 清理缓存，返回清理后剩余字节数
+  // 娓呯悊缂撳瓨锛岃繑鍥炴竻鐞嗗悗鍓╀綑瀛楄妭鏁?
   ipcMain.handle("cache:clear", async () => clearCache());
 }
 
-/** 导出类型供 preload 使用 */
+/** 瀵煎嚭绫诲瀷渚?preload 浣跨敤 */
 export type { Conversation, MessageRow };

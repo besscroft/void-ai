@@ -1,14 +1,14 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+﻿import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
 /**
- * 暴露给渲染进程的 API
+ * 鏆撮湶缁欐覆鏌撹繘绋嬬殑 API
  *
- * 设计要点：
- * - 仅通过 contextBridge.exposeInMainWorld 暴露白名单方法
- * - 渲染层通过 window.api.* 调用，无直接 ipcRenderer 访问
- * - 所有方法返回 Promise（ipcRenderer.invoke 语义）
- * - API key 明文不出主进程（无 get 方法）
+ * 璁捐瑕佺偣锛?
+ * - 浠呴€氳繃 contextBridge.exposeInMainWorld 鏆撮湶鐧藉悕鍗曟柟娉?
+ * - 娓叉煋灞傞€氳繃 window.api.* 璋冪敤锛屾棤鐩存帴 ipcRenderer 璁块棶
+ * - 鎵€鏈夋柟娉曡繑鍥?Promise锛坕pcRenderer.invoke 璇箟锛?
+ * - API key 鏄庢枃涓嶅嚭涓昏繘绋嬶紙鏃?get 鏂规硶锛?
  */
 const api = {
   conversations: {
@@ -39,8 +39,11 @@ const api = {
     set: (provider: string, apiKey: string) => ipcRenderer.invoke("apikeys:set", provider, apiKey),
     delete: (provider: string) => ipcRenderer.invoke("apikeys:delete", provider),
   },
-  workspace: {
-    snapshot: () => ipcRenderer.invoke("workspace:snapshot"),
+  runtime: {
+    snapshot: () => ipcRenderer.invoke("runtime:snapshot"),
+    events: {
+      list: () => ipcRenderer.invoke("runtime:events:list"),
+    },
   },
   agents: {
     list: () => ipcRenderer.invoke("agents:list"),
@@ -63,12 +66,6 @@ const api = {
   workflows: {
     list: () => ipcRenderer.invoke("workflows:list"),
     runs: () => ipcRenderer.invoke("workflowRuns:list"),
-  },
-  harness: {
-    list: () => ipcRenderer.invoke("harness:list"),
-  },
-  serverNodes: {
-    list: () => ipcRenderer.invoke("serverNodes:list"),
   },
   interactions: {
     list: () => ipcRenderer.invoke("interactions:list"),
@@ -95,33 +92,31 @@ const api = {
   sync: {
     get: () => ipcRenderer.invoke("sync:get"),
   },
-  extensions: {
-    snapshot: () => ipcRenderer.invoke("extensions:snapshot"),
+  tools: {
+    snapshot: () => ipcRenderer.invoke("tools:snapshot"),
     mcp: {
-      create: (input: unknown) => ipcRenderer.invoke("extensions:mcp:create", input),
-      update: (id: string, input: unknown) =>
-        ipcRenderer.invoke("extensions:mcp:update", id, input),
-      delete: (id: string) => ipcRenderer.invoke("extensions:mcp:delete", id),
+      create: (input: unknown) => ipcRenderer.invoke("tools:mcp:create", input),
+      update: (id: string, input: unknown) => ipcRenderer.invoke("tools:mcp:update", id, input),
+      delete: (id: string) => ipcRenderer.invoke("tools:mcp:delete", id),
       setEnabled: (id: string, enabled: boolean) =>
-        ipcRenderer.invoke("extensions:mcp:setEnabled", id, enabled),
-      test: (id: string) => ipcRenderer.invoke("extensions:mcp:test", id),
-      discover: (id: string) => ipcRenderer.invoke("extensions:mcp:discover", id),
+        ipcRenderer.invoke("tools:mcp:setEnabled", id, enabled),
+      test: (id: string) => ipcRenderer.invoke("tools:mcp:test", id),
+      discover: (id: string) => ipcRenderer.invoke("tools:mcp:discover", id),
       updateTool: (id: string, patch: unknown) =>
-        ipcRenderer.invoke("extensions:mcp:updateTool", id, patch),
-      setSecret: (input: unknown) => ipcRenderer.invoke("extensions:mcp:setSecret", input),
-      deleteSecret: (id: string) => ipcRenderer.invoke("extensions:mcp:deleteSecret", id),
+        ipcRenderer.invoke("tools:mcp:updateTool", id, patch),
+      setSecret: (input: unknown) => ipcRenderer.invoke("tools:mcp:setSecret", input),
+      deleteSecret: (id: string) => ipcRenderer.invoke("tools:mcp:deleteSecret", id),
     },
     skills: {
-      create: (input: unknown) => ipcRenderer.invoke("extensions:skills:create", input),
-      update: (id: string, input: unknown) =>
-        ipcRenderer.invoke("extensions:skills:update", id, input),
-      delete: (id: string) => ipcRenderer.invoke("extensions:skills:delete", id),
+      create: (input: unknown) => ipcRenderer.invoke("tools:skills:create", input),
+      update: (id: string, input: unknown) => ipcRenderer.invoke("tools:skills:update", id, input),
+      delete: (id: string) => ipcRenderer.invoke("tools:skills:delete", id),
       setEnabled: (id: string, enabled: boolean) =>
-        ipcRenderer.invoke("extensions:skills:setEnabled", id, enabled),
+        ipcRenderer.invoke("tools:skills:setEnabled", id, enabled),
       run: (skillId: string, input?: unknown) =>
-        ipcRenderer.invoke("extensions:skills:run", skillId, input),
-      setSecret: (input: unknown) => ipcRenderer.invoke("extensions:skills:setSecret", input),
-      deleteSecret: (id: string) => ipcRenderer.invoke("extensions:skills:deleteSecret", id),
+        ipcRenderer.invoke("tools:skills:run", skillId, input),
+      setSecret: (input: unknown) => ipcRenderer.invoke("tools:skills:setSecret", input),
+      deleteSecret: (id: string) => ipcRenderer.invoke("tools:skills:deleteSecret", id),
     },
   },
   providers: {
@@ -161,7 +156,7 @@ const api = {
   },
 } as const;
 
-// contextIsolation 启用时通过 contextBridge 暴露；否则直接挂到 window
+// contextIsolation 鍚敤鏃堕€氳繃 contextBridge 鏆撮湶锛涘惁鍒欑洿鎺ユ寕鍒?window
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld("electron", electronAPI);
@@ -170,8 +165,8 @@ if (process.contextIsolated) {
     console.error(error);
   }
 } else {
-  // @ts-expect-error 由 d.ts 声明
+  // @ts-expect-error 鐢?d.ts 澹版槑
   window.electron = electronAPI;
-  // @ts-expect-error 由 d.ts 声明
+  // @ts-expect-error 鐢?d.ts 澹版槑
   window.api = api;
 }

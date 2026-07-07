@@ -1,0 +1,162 @@
+import {
+  normalizeChatToolSelection,
+  type ChatToolDescriptor,
+  type ChatToolId,
+  type ChatToolReference,
+  type ChatToolSelectionRequest,
+  type ModelCapabilities,
+  type ModelProviderKind,
+} from "../../shared/types";
+import type { NativeChatTool } from "./providers";
+import { DEFAULT_BUILTIN_TOOL_SEEDS } from "./runtime-defaults";
+
+export interface ChatToolModelContext {
+  providerId: string;
+  providerKind: ModelProviderKind;
+  modelId: string;
+  capabilities: ModelCapabilities;
+  nativeTools: NativeChatTool[];
+}
+
+export type ToolRegistryChoice = "auto" | "none" | "required" | { type: "tool"; toolName: string };
+
+export interface ToolRegistryPreview {
+  descriptors: ChatToolDescriptor[];
+  activeTools: string[];
+  toolChoice: ToolRegistryChoice;
+}
+
+export class ToolRegistrySelectionError extends Error {
+  readonly status = 400;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolRegistrySelectionError";
+  }
+}
+
+const DEFAULT_AUTO_TOOL_IDS = new Set<ChatToolId>([
+  "web_search",
+  "current_time",
+  "memory_search",
+  "runtime_snapshot",
+  "model_capabilities",
+  "sandbox_list_files",
+  "sandbox_read_file",
+  "sandbox_snapshot",
+  "sandbox_list_artifacts",
+]);
+
+export function createBuiltinToolDescriptors(model: ChatToolModelContext): ChatToolDescriptor[] {
+  const supportsTools = model.capabilities.toolCalling;
+  const webSearchExecution = getWebSearchExecution(model);
+
+  return DEFAULT_BUILTIN_TOOL_SEEDS.map((seed) => {
+    const id = seed.id;
+    const isWebSearch = id === "web_search";
+    const available = supportsTools && (!isWebSearch || !!webSearchExecution);
+    const unavailableReason = available
+      ? undefined
+      : !supportsTools
+        ? "Selected model does not advertise tool calling."
+        : isWebSearch
+          ? webSearchUnavailableReason(model)
+          : "Tool calling is unavailable for the selected model.";
+
+    return {
+      id,
+      label: seed.title,
+      description:
+        isWebSearch && webSearchExecution === "provider"
+          ? "Search the live web with the selected model provider."
+          : isWebSearch && webSearchExecution === "host"
+            ? "Search the live web through the app when native provider search is unavailable."
+            : seed.description,
+      kind: isWebSearch && webSearchExecution === "provider" ? "provider" : "host",
+      execution: isWebSearch ? webSearchExecution : undefined,
+      category: seed.category,
+      defaultAuto: DEFAULT_AUTO_TOOL_IDS.has(id),
+      requiresApproval: seed.requiresApproval === 1,
+      available,
+      unavailableReason,
+    } satisfies ChatToolDescriptor;
+  });
+}
+
+export function buildToolRegistryPreview({
+  selection: rawSelection,
+  model,
+}: {
+  selection?: ChatToolSelectionRequest;
+  model: ChatToolModelContext;
+}): ToolRegistryPreview {
+  const selection = normalizeChatToolSelection(rawSelection);
+  const descriptors = createBuiltinToolDescriptors(model);
+  const descriptorById = new Map<ChatToolReference, ChatToolDescriptor>(
+    descriptors.map((descriptor) => [descriptor.id, descriptor]),
+  );
+
+  if (selection.mode === "off" || !model.capabilities.toolCalling) {
+    if (selection.mode === "manual" && selection.selectedToolIds.length > 0) {
+      throw new ToolRegistrySelectionError("Selected model does not support chat tools.");
+    }
+    return { descriptors, activeTools: [], toolChoice: "none" };
+  }
+
+  const selectedIds =
+    selection.mode === "auto"
+      ? descriptors
+          .filter((descriptor) => descriptor.defaultAuto && descriptor.available)
+          .map((descriptor) => descriptor.id)
+      : selection.selectedToolIds;
+
+  const activeTools = selectedIds.map((id) => {
+    const descriptor = descriptorById.get(id);
+    if (!descriptor) throw new ToolRegistrySelectionError("Unknown chat tool: " + id);
+    if (!descriptor.available) {
+      throw new ToolRegistrySelectionError(
+        `${descriptor.label} is unavailable: ${descriptor.unavailableReason ?? "unsupported"}`,
+      );
+    }
+    return id === "web_search"
+      ? (model.nativeTools.find((tool) => tool.id === id)?.toolName ?? id)
+      : id;
+  });
+
+  return {
+    descriptors,
+    activeTools,
+    toolChoice: resolveToolChoice(selection.mode, activeTools, model),
+  };
+}
+
+function resolveToolChoice(
+  mode: ChatToolSelectionRequest["mode"],
+  activeTools: string[],
+  model: ChatToolModelContext,
+): ToolRegistryChoice {
+  if (activeTools.length === 0) return "none";
+  if (mode !== "manual") return "auto";
+  if (model.providerKind === "openai-compatible") return "auto";
+  return activeTools.length === 1 ? { type: "tool", toolName: activeTools[0] } : "required";
+}
+
+function isNativeWebSearchProvider(model: ChatToolModelContext): boolean {
+  return (
+    model.providerKind === "openai" ||
+    model.providerKind === "anthropic" ||
+    model.providerKind === "google"
+  );
+}
+
+function getWebSearchExecution(model: ChatToolModelContext): "provider" | "host" | undefined {
+  if (!model.capabilities.toolCalling) return undefined;
+  const hasNativeWebSearch = model.nativeTools.some((item) => item.id === "web_search");
+  if (isNativeWebSearchProvider(model)) return hasNativeWebSearch ? "provider" : undefined;
+  return "host";
+}
+
+function webSearchUnavailableReason(model: ChatToolModelContext): string {
+  if (!isNativeWebSearchProvider(model)) return "Web search requires a tool-calling model.";
+  return "Native web search is not available for this provider configuration.";
+}

@@ -1,54 +1,12 @@
-{
+﻿{
   "version": "7",
   "dialect": "sqlite",
   "entries": [
     {
       "idx": 0,
       "version": "6",
-      "when": 1782531085193,
+      "when": 1783431947143,
       "tag": "0000_initial",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1783081590212,
-      "tag": "0001_even_ben_grimm",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1783083777260,
-      "tag": "0002_jazzy_marrow",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1783092075237,
-      "tag": "0003_model_api_keys",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1783387017008,
-      "tag": "0004_outstanding_thaddeus_ross",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1783393094637,
-      "tag": "0005_boring_frightful_four",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1783400976299,
-      "tag": "0006_square_bromley",
       "breakpoints": true
     }
   ]

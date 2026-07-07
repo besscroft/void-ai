@@ -1,0 +1,146 @@
+import type { AgentInput } from "../../shared/types";
+
+export const DEFAULT_CHILD_AGENT_SEEDS: AgentInput[] = [
+  {
+    name: "Researcher",
+    role: "Research and synthesis",
+    description: "Finds context, compares sources, and returns concise findings.",
+    personality: "Curious and exacting.",
+    soul_prompt: "Use tools to verify unstable facts before advising.",
+    avatar: "R",
+    status: "active",
+    enabled: 1,
+  },
+  {
+    name: "Operator",
+    role: "Implementation and verification",
+    description: "Turns decisions into edits, commands, tests, and runtime evidence.",
+    personality: "Practical and detail-oriented.",
+    soul_prompt: "Prefer small verified steps. Record errors and test outcomes.",
+    avatar: "O",
+    status: "active",
+    enabled: 1,
+  },
+];
+
+export const DEFAULT_WORKFLOW_SEEDS = [
+  {
+    id: "workflow-runtime-review",
+    name: "Runtime review",
+    description: "Summarize failed runtime events and suggest a next action.",
+    status: "enabled",
+    steps: [
+      { id: "read-events", type: "memory", title: "Read recent events", detail: "" },
+      { id: "diagnose", type: "prompt", title: "Diagnose", detail: "" },
+    ],
+    trigger: "manual",
+  },
+] as const;
+
+export const DEFAULT_BUILTIN_TOOL_SEEDS = [
+  {
+    id: "web_search",
+    title: "Web search",
+    description: "Search the live web when the model/provider supports it.",
+    category: "web",
+    requiresApproval: 0,
+  },
+  {
+    id: "current_time",
+    title: "Current time",
+    description: "Read the current system time and timezone.",
+    category: "system",
+    requiresApproval: 0,
+  },
+  {
+    id: "memory_search",
+    title: "Memory search",
+    description: "Search local memory records.",
+    category: "memory",
+    requiresApproval: 0,
+  },
+  {
+    id: "runtime_snapshot",
+    title: "Runtime snapshot",
+    description: "Read a compact local runtime summary.",
+    category: "runtime",
+    requiresApproval: 0,
+  },
+  {
+    id: "model_capabilities",
+    title: "Model capabilities",
+    description: "Inspect selected model capabilities.",
+    category: "model",
+    requiresApproval: 0,
+  },
+  {
+    id: "conversation_search",
+    title: "Conversation search",
+    description: "Search local conversation history.",
+    category: "conversation",
+    requiresApproval: 1,
+  },
+  {
+    id: "memory_save",
+    title: "Save memory",
+    description: "Persist a new local memory.",
+    category: "memory",
+    requiresApproval: 1,
+  },
+  {
+    id: "sandbox_list_files",
+    title: "Sandbox files",
+    description: "List files in the active sandbox.",
+    category: "sandbox",
+    requiresApproval: 0,
+  },
+  {
+    id: "sandbox_read_file",
+    title: "Read sandbox file",
+    description: "Read text from the active sandbox.",
+    category: "sandbox",
+    requiresApproval: 0,
+  },
+  {
+    id: "sandbox_write_file",
+    title: "Write sandbox file",
+    description: "Write a file in the active sandbox.",
+    category: "sandbox",
+    requiresApproval: 1,
+  },
+  {
+    id: "sandbox_run_command",
+    title: "Run sandbox command",
+    description: "Run a command in the active sandbox.",
+    category: "sandbox",
+    requiresApproval: 1,
+  },
+  {
+    id: "sandbox_snapshot",
+    title: "Create sandbox snapshot",
+    description: "Save a restorable sandbox snapshot.",
+    category: "sandbox",
+    requiresApproval: 0,
+  },
+  {
+    id: "sandbox_restore",
+    title: "Restore sandbox snapshot",
+    description: "Restore a sandbox snapshot.",
+    category: "sandbox",
+    requiresApproval: 1,
+  },
+  {
+    id: "sandbox_list_artifacts",
+    title: "Sandbox artifacts",
+    description: "List exported sandbox artifacts.",
+    category: "sandbox",
+    requiresApproval: 0,
+  },
+  {
+    id: "sandbox_preview_port",
+    title: "Preview sandbox port",
+    description: "Expose a local sandbox preview port.",
+    category: "sandbox",
+    requiresApproval: 1,
+  },
+] as const;

@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AgentInput,
   AgentProfile,
   CacheStats,
@@ -7,43 +7,42 @@ import type {
   CustomProviderInput,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
-  ExtensionSecretInput,
-  ExtensionSecretPublic,
-  ExtensionSkill,
-  ExtensionSkillInput,
-  ExtensionsSnapshot,
-  HarnessEvent,
+  ToolSecretInput,
+  ToolSecretPublic,
+  ToolSkill,
+  ToolSkillInput,
+  ToolsSnapshot,
+  RuntimeEvent,
   InteractionProfile,
   LocalServerInfo,
   ManagedModelInfo,
   MemoryRecord,
   MessageRow,
-  McpDiscoveryResult,
-  McpServer,
-  McpServerInput,
-  McpTool,
+  ToolDiscoveryResult,
+  ToolServer,
+  ToolServerInput,
+  ToolRecord,
   ProviderModelSyncResult,
   ProviderInfo,
   ProviderTestResult,
-  ServerNode,
   SyncState,
   WorkflowDefinition,
   WorkflowRun,
-  WorkspaceSnapshot,
+  RuntimeSnapshot,
 } from "@shared/types";
 
 /**
- * 渲染层对 window.api 的类型化封装
+ * 娓叉煋灞傚 window.api 鐨勭被鍨嬪寲灏佽
  *
- * 通过此模块统一访问 IPC，便于：
- * - 类型推导
- * - 单点修改 IPC 调用方式
- * - 单元测试 mock
+ * 閫氳繃姝ゆā鍧楃粺涓€璁块棶 IPC锛屼究浜庯細
+ * - 绫诲瀷鎺ㄥ
+ * - 鍗曠偣淇敼 IPC 璋冪敤鏂瑰紡
+ * - 鍗曞厓娴嬭瘯 mock
  */
 
 function assertApi(): NonNullable<Window["api"]> {
   if (!window.api) {
-    throw new Error("window.api 未注入：请确认 preload 已正确加载");
+    throw new Error("window.api is not available. Ensure preload has loaded correctly.");
   }
   return window.api;
 }
@@ -83,8 +82,11 @@ export const api = {
       assertApi().apikeys.set(provider, apiKey),
     delete: (provider: string): Promise<boolean> => assertApi().apikeys.delete(provider),
   },
-  workspace: {
-    snapshot: (): Promise<WorkspaceSnapshot> => assertApi().workspace.snapshot(),
+  runtime: {
+    snapshot: (): Promise<RuntimeSnapshot> => assertApi().runtime.snapshot(),
+    events: {
+      list: (): Promise<RuntimeEvent[]> => assertApi().runtime.events.list(),
+    },
   },
   agents: {
     list: (): Promise<AgentProfile[]> => assertApi().agents.list(),
@@ -99,9 +101,9 @@ export const api = {
       assertApi().agents.queueLearning(conversationId),
     runtimeSnapshot: (): Promise<
       Pick<
-        WorkspaceSnapshot,
-        | "agentRuns"
-        | "agentRunSteps"
+        RuntimeSnapshot,
+        | "runtimeRuns"
+        | "runtimeSteps"
         | "agentRuntimeStates"
         | "conversationAgentStates"
         | "sandboxSessions"
@@ -119,12 +121,6 @@ export const api = {
   workflows: {
     list: (): Promise<WorkflowDefinition[]> => assertApi().workflows.list(),
     runs: (): Promise<WorkflowRun[]> => assertApi().workflows.runs(),
-  },
-  harness: {
-    list: (): Promise<HarnessEvent[]> => assertApi().harness.list(),
-  },
-  serverNodes: {
-    list: (): Promise<ServerNode[]> => assertApi().serverNodes.list(),
   },
   interactions: {
     list: (): Promise<InteractionProfile[]> => assertApi().interactions.list(),
@@ -148,41 +144,37 @@ export const api = {
   sync: {
     get: (): Promise<SyncState> => assertApi().sync.get(),
   },
-  extensions: {
-    snapshot: (): Promise<ExtensionsSnapshot> => assertApi().extensions.snapshot(),
+  tools: {
+    snapshot: (): Promise<ToolsSnapshot> => assertApi().tools.snapshot(),
     mcp: {
-      create: (input: McpServerInput): Promise<McpServer> =>
-        assertApi().extensions.mcp.create(input),
-      update: (id: string, input: Partial<McpServerInput>): Promise<McpServer> =>
-        assertApi().extensions.mcp.update(id, input),
-      delete: (id: string): Promise<boolean> => assertApi().extensions.mcp.delete(id),
-      setEnabled: (id: string, enabled: boolean): Promise<McpServer> =>
-        assertApi().extensions.mcp.setEnabled(id, enabled),
-      test: (id: string): Promise<McpDiscoveryResult> => assertApi().extensions.mcp.test(id),
-      discover: (id: string): Promise<McpDiscoveryResult> =>
-        assertApi().extensions.mcp.discover(id),
+      create: (input: ToolServerInput): Promise<ToolServer> => assertApi().tools.mcp.create(input),
+      update: (id: string, input: Partial<ToolServerInput>): Promise<ToolServer> =>
+        assertApi().tools.mcp.update(id, input),
+      delete: (id: string): Promise<boolean> => assertApi().tools.mcp.delete(id),
+      setEnabled: (id: string, enabled: boolean): Promise<ToolServer> =>
+        assertApi().tools.mcp.setEnabled(id, enabled),
+      test: (id: string): Promise<ToolDiscoveryResult> => assertApi().tools.mcp.test(id),
+      discover: (id: string): Promise<ToolDiscoveryResult> => assertApi().tools.mcp.discover(id),
       updateTool: (
         id: string,
         patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
-      ): Promise<McpTool> => assertApi().extensions.mcp.updateTool(id, patch),
-      setSecret: (input: ExtensionSecretInput): Promise<ExtensionSecretPublic> =>
-        assertApi().extensions.mcp.setSecret(input),
-      deleteSecret: (id: string): Promise<boolean> => assertApi().extensions.mcp.deleteSecret(id),
+      ): Promise<ToolRecord> => assertApi().tools.mcp.updateTool(id, patch),
+      setSecret: (input: ToolSecretInput): Promise<ToolSecretPublic> =>
+        assertApi().tools.mcp.setSecret(input),
+      deleteSecret: (id: string): Promise<boolean> => assertApi().tools.mcp.deleteSecret(id),
     },
     skills: {
-      create: (input: ExtensionSkillInput): Promise<ExtensionSkill> =>
-        assertApi().extensions.skills.create(input),
-      update: (id: string, input: Partial<ExtensionSkillInput>): Promise<ExtensionSkill> =>
-        assertApi().extensions.skills.update(id, input),
-      delete: (id: string): Promise<boolean> => assertApi().extensions.skills.delete(id),
-      setEnabled: (id: string, enabled: boolean): Promise<ExtensionSkill> =>
-        assertApi().extensions.skills.setEnabled(id, enabled),
+      create: (input: ToolSkillInput): Promise<ToolSkill> => assertApi().tools.skills.create(input),
+      update: (id: string, input: Partial<ToolSkillInput>): Promise<ToolSkill> =>
+        assertApi().tools.skills.update(id, input),
+      delete: (id: string): Promise<boolean> => assertApi().tools.skills.delete(id),
+      setEnabled: (id: string, enabled: boolean): Promise<ToolSkill> =>
+        assertApi().tools.skills.setEnabled(id, enabled),
       run: (skillId: string, input?: unknown): Promise<unknown> =>
-        assertApi().extensions.skills.run(skillId, input),
-      setSecret: (input: ExtensionSecretInput): Promise<ExtensionSecretPublic> =>
-        assertApi().extensions.skills.setSecret(input),
-      deleteSecret: (id: string): Promise<boolean> =>
-        assertApi().extensions.skills.deleteSecret(id),
+        assertApi().tools.skills.run(skillId, input),
+      setSecret: (input: ToolSecretInput): Promise<ToolSecretPublic> =>
+        assertApi().tools.skills.setSecret(input),
+      deleteSecret: (id: string): Promise<boolean> => assertApi().tools.skills.deleteSecret(id),
     },
   },
   providers: {
@@ -232,26 +224,25 @@ export type {
   CustomProviderInput,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
-  ExtensionSecretInput,
-  ExtensionSecretPublic,
-  ExtensionSkill,
-  ExtensionSkillInput,
-  ExtensionsSnapshot,
-  HarnessEvent,
+  ToolSecretInput,
+  ToolSecretPublic,
+  ToolSkill,
+  ToolSkillInput,
+  ToolsSnapshot,
+  RuntimeEvent,
   InteractionProfile,
   LocalServerInfo,
   MemoryRecord,
   MessageRow,
-  McpDiscoveryResult,
-  McpServer,
-  McpServerInput,
-  McpTool,
+  ToolDiscoveryResult,
+  ToolServer,
+  ToolServerInput,
+  ToolRecord,
   ProviderModelSyncResult,
   ProviderInfo,
   ProviderTestResult,
-  ServerNode,
   SyncState,
   WorkflowDefinition,
   WorkflowRun,
-  WorkspaceSnapshot,
+  RuntimeSnapshot,
 };

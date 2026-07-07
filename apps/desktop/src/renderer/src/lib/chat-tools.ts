@@ -5,7 +5,7 @@ import {
   type ChatToolDescriptor,
   type ChatToolId,
   type ChatToolSelectionRequest,
-  type ExtensionsSnapshot,
+  type ToolsSnapshot,
   type ModelOption,
   type ProviderInfo,
 } from "@shared/types";
@@ -14,7 +14,7 @@ const DEFAULT_AUTO_TOOL_IDS = new Set<ChatToolId>([
   "web_search",
   "current_time",
   "memory_search",
-  "workspace_snapshot",
+  "runtime_snapshot",
   "model_capabilities",
   "sandbox_list_files",
   "sandbox_read_file",
@@ -47,11 +47,11 @@ const TOOL_METADATA: Record<
     category: "memory",
     requiresApproval: false,
   },
-  workspace_snapshot: {
-    label: "Workspace snapshot",
-    description: "Read a compact local workspace summary.",
+  runtime_snapshot: {
+    label: "Runtime snapshot",
+    description: "Read a compact local runtime summary.",
     kind: "host",
-    category: "workspace",
+    category: "runtime",
     requiresApproval: false,
   },
   model_capabilities: {
@@ -155,11 +155,11 @@ export function findSelectedChatModel(
 export function createClientChatToolDescriptors({
   selectedModel,
   providers,
-  extensions,
+  tools,
 }: {
   selectedModel: string | null | undefined;
   providers: ProviderInfo[];
-  extensions?: ExtensionsSnapshot | null;
+  tools?: ToolsSnapshot | null;
 }): ChatToolDescriptor[] {
   const selected = findSelectedChatModel(selectedModel, providers);
   const supportsToolCalling = selected?.model.capabilities.toolCalling === true;
@@ -191,7 +191,7 @@ export function createClientChatToolDescriptors({
     };
   });
 
-  return [...builtIn, ...createExtensionChatToolDescriptors(extensions, supportsToolCalling)];
+  return [...builtIn, ...createtoolChatToolDescriptors(tools, supportsToolCalling)];
 }
 
 export function getActiveChatToolIds(
@@ -211,38 +211,45 @@ export function getActiveChatToolIds(
   return normalized.selectedToolIds.filter((id) => availableIds.has(id));
 }
 
-function createExtensionChatToolDescriptors(
-  extensions: ExtensionsSnapshot | null | undefined,
+function createtoolChatToolDescriptors(
+  tools: ToolsSnapshot | null | undefined,
   supportsToolCalling: boolean,
 ): ChatToolDescriptor[] {
-  if (!extensions) return [];
-  const serverById = new Map(extensions.mcpServers.map((server) => [server.id, server]));
-  const mcpDescriptors = extensions.mcpTools.map((mcpTool) => {
-    const server = serverById.get(mcpTool.server_id);
-    const enabled = !!server && server.enabled !== 0 && mcpTool.enabled !== 0;
-    const available = supportsToolCalling && enabled;
-    return {
-      id: `mcp:${mcpTool.server_id}:${mcpTool.name}`,
-      label: mcpTool.title || `${server?.name ?? mcpTool.server_id}: ${mcpTool.name}`,
-      description: mcpTool.description || `MCP tool from ${server?.name ?? "server"}.`,
-      kind: "host",
-      execution: "host",
-      category: "mcp",
-      defaultAuto:
-        supportsToolCalling && enabled && (server?.auto_use ?? 0) !== 0 && mcpTool.auto_use !== 0,
-      requiresApproval: (server?.requires_approval ?? 1) !== 0 || mcpTool.requires_approval !== 0,
-      available,
-      unavailableReason: available
-        ? undefined
-        : supportsToolCalling
-          ? "MCP server or tool is disabled."
-          : "Selected model does not advertise tool calling.",
-      sourceId: mcpTool.server_id,
-      sourceName: server?.name,
-    } satisfies ChatToolDescriptor;
-  });
+  if (!tools) return [];
+  const serverById = new Map(tools.toolServers.map((server) => [server.id, server]));
+  const mcpDescriptors = tools.toolRecords
+    .filter((toolRecord) => toolRecord.kind === "mcp")
+    .map((toolRecord) => {
+      const serverId = toolRecord.server_id ?? "";
+      const server = serverId ? serverById.get(serverId) : undefined;
+      const enabled = !!server && server.enabled !== 0 && toolRecord.enabled !== 0;
+      const available = supportsToolCalling && enabled;
+      return {
+        id: `mcp:${serverId}:${toolRecord.name}`,
+        label: toolRecord.title || `${server?.name ?? serverId}: ${toolRecord.name}`,
+        description: toolRecord.description || `MCP tool from ${server?.name ?? "server"}.`,
+        kind: "host",
+        execution: "host",
+        category: "mcp",
+        defaultAuto:
+          supportsToolCalling &&
+          enabled &&
+          (server?.auto_use ?? 0) !== 0 &&
+          toolRecord.auto_use !== 0,
+        requiresApproval:
+          (server?.requires_approval ?? 1) !== 0 || toolRecord.requires_approval !== 0,
+        available,
+        unavailableReason: available
+          ? undefined
+          : supportsToolCalling
+            ? "MCP server or tool is disabled."
+            : "Selected model does not advertise tool calling.",
+        sourceId: serverId || undefined,
+        sourceName: server?.name,
+      } satisfies ChatToolDescriptor;
+    });
 
-  const skillDescriptors = extensions.skills.map((skill) => {
+  const skillDescriptors = tools.skills.map((skill) => {
     const enabled = skill.enabled !== 0;
     const available = supportsToolCalling && enabled;
     return {

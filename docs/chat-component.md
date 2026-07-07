@@ -1,176 +1,176 @@
-# Chat 组件设计与 API 文档
+﻿# Chat 缁勪欢璁捐涓?API 鏂囨。
 
-> 基于 [AI Elements](https://elements.ai-sdk.dev/) 组件库规范，结合 Vercel AI SDK useChat，
-> 在 Void AI 渲染层实现的「创意型 Chat 体验」完整设计稿与 API 手册。
+> 鍩轰簬 [AI Elements](https://elements.ai-sdk.dev/) 缁勪欢搴撹鑼冿紝缁撳悎 Vercel AI SDK useChat锛?
+> 鍦?Void AI 娓叉煋灞傚疄鐜扮殑銆屽垱鎰忓瀷 Chat 浣撻獙銆嶅畬鏁磋璁＄涓?API 鎵嬪唽銆?
 
 ---
 
-## 目录
+## 鐩綍
 
-1. [设计目标与原则](#1-设计目标与原则)
-2. [整体架构](#2-整体架构)
-3. [视觉设计规范](#3-视觉设计规范)
-4. [核心组件 API](#4-核心组件-api)
+1. [璁捐鐩爣涓庡師鍒橾(#1-璁捐鐩爣涓庡師鍒?
+2. [鏁翠綋鏋舵瀯](#2-鏁翠綋鏋舵瀯)
+3. [瑙嗚璁捐瑙勮寖](#3-瑙嗚璁捐瑙勮寖)
+4. [鏍稿績缁勪欢 API](#4-鏍稿績缁勪欢-api)
    - [4.1 ChatView](#41-chatview)
    - [4.2 MessageInput](#42-messageinput)
    - [4.3 MessageList](#43-messagelist)
-   - [4.4 ai-elements 子组件](#44-ai-elements-子组件)
-5. [数据流与文件附件](#5-数据流与文件附件)
-6. [聊天历史管理](#6-聊天历史管理)
-7. [i18n 文案扩展](#7-i18n-文案扩展)
-8. [使用示例](#8-使用示例)
-9. [可扩展点](#9-可扩展点)
-10. [已知限制](#10-已知限制)
+   - [4.4 ai-elements 瀛愮粍浠禲(#44-ai-elements-瀛愮粍浠?
+5. [鏁版嵁娴佷笌鏂囦欢闄勪欢](#5-鏁版嵁娴佷笌鏂囦欢闄勪欢)
+6. [鑱婂ぉ鍘嗗彶绠＄悊](#6-鑱婂ぉ鍘嗗彶绠＄悊)
+7. [i18n 鏂囨鎵╁睍](#7-i18n-鏂囨鎵╁睍)
+8. [浣跨敤绀轰緥](#8-浣跨敤绀轰緥)
+9. [鍙墿灞曠偣](#9-鍙墿灞曠偣)
+10. [宸茬煡闄愬埗](#10-宸茬煡闄愬埗)
 
 ---
 
-## 1. 设计目标与原则
+## 1. 璁捐鐩爣涓庡師鍒?
 
-### 1.1 设计目标
+### 1.1 璁捐鐩爣
 
-在保留核心聊天功能的基础上，融入**创新交互**与**视觉设计**，主要围绕六个方面：
+鍦ㄤ繚鐣欐牳蹇冭亰澶╁姛鑳界殑鍩虹涓婏紝铻嶅叆**鍒涙柊浜や簰**涓?\*瑙嗚璁捐\*\*锛屼富瑕佸洿缁曞叚涓柟闈細
 
-| 模块     | 基础能力               | 创意增强                                        |
-| -------- | ---------------------- | ----------------------------------------------- |
-| 消息展示 | 文本 / 工具调用 / 推理 | 一键复制 · Hover 快捷反应 · 文件附件画廊        |
-| 输入框   | 文本输入 / 发送        | 自适应高度 · ⌘+Enter 强制发送 · 智能占位        |
-| 发送按钮 | 发送 / 停止            | 发送态切换动画 · 流式脉冲                       |
-| 表情选择 | 文本 emoji             | 6 分类网格 + 关键字搜索（中英文）· 光标精准插入 |
-| 文件上传 | 选择文件               | 拖拽 · 粘贴 · 缩略图 · 大小限制                 |
-| 历史记录 | 列表显示               | 实时搜索 · 日期分组（今天/昨天/本周/更早）      |
+| 妯″潡        | 鍩虹鑳藉姏                    | 鍒涙剰澧炲己                                                       |
+| ------------ | ------------------------------ | ------------------------------------------------------------------ |
+| 娑堟伅灞曠ず | 鏂囨湰 / 宸ュ叿璋冪敤 / 鎺ㄧ悊 | 涓€閿鍒?路 Hover 蹇嵎鍙嶅簲 路 鏂囦欢闄勪欢鐢诲粖               |
+| 杈撳叆妗?    | 鏂囨湰杈撳叆 / 鍙戦€?          | 鑷€傚簲楂樺害 路 鈱?Enter 寮哄埗鍙戦€?路 鏅鸿兘鍗犱綅             |
+| 鍙戦€佹寜閽? | 鍙戦€?/ 鍋滄                  | 鍙戦€佹€佸垏鎹㈠姩鐢?路 娴佸紡鑴夊啿                               |
+| 琛ㄦ儏閫夋嫨 | 鏂囨湰 emoji                   | 6 鍒嗙被缃戞牸 + 鍏抽敭瀛楁悳绱紙涓嫳鏂囷級路 鍏夋爣绮惧噯鎻掑叆 |
+| 鏂囦欢涓婁紶 | 閫夋嫨鏂囦欢                   | 鎷栨嫿 路 绮樿创 路 缂╃暐鍥?路 澶у皬闄愬埗                         |
+| 鍘嗗彶璁板綍 | 鍒楄〃鏄剧ず                   | 瀹炴椂鎼滅储 路 鏃ユ湡鍒嗙粍锛堜粖澶?鏄ㄥぉ/鏈懆/鏇存棭锛?        |
 
-### 1.2 设计原则
+### 1.2 璁捐鍘熷垯
 
 ```
-安全性 = 正确性 > 最小变更 > 可读性 > 一致性
+瀹夊叏鎬?= 姝ｇ‘鎬?> 鏈€灏忓彉鏇?> 鍙鎬?> 涓€鑷存€?
 ```
 
-- **架构清晰** —— 复用 ai-elements，扩展点收敛在 `ai-elements/` 子目录
-- **依赖最小化** —— 不引入 emoji 库；att 文件用标准 Web API
-- **类型安全** —— 所有新组件导出 `Props` 接口；与 ai-sdk `FileUIPart` 协议兼容
-- **可访问性** —— 全部交互元素含 `aria-label`、键盘可达、focus-visible 可见
-- **响应式** —— 桌面端从 1024px 起自适应；input 高度 16px → 152px 自动撑高
-- **暗色优先** —— 同时兼容 HeroUI v3 的 `data-theme` 与 Tailwind v4 的 `dark` 变体
+- **鏋舵瀯娓呮櫚** 鈥斺€?澶嶇敤 ai-elements锛屾墿灞曠偣鏀舵暃鍦?`ai-elements/` 瀛愮洰褰?
+- **渚濊禆鏈€灏忓寲** 鈥斺€?涓嶅紩鍏?emoji 搴擄紱att 鏂囦欢鐢ㄦ爣鍑?Web API
+- **绫诲瀷瀹夊叏** 鈥斺€?鎵€鏈夋柊缁勪欢瀵煎嚭 `Props` 鎺ュ彛锛涗笌 ai-sdk `FileUIPart` 鍗忚鍏煎
+- \*_鍙闂€?_ 鈥斺€?鍏ㄩ儴浜や簰鍏冪礌鍚?`aria-label`銆侀敭鐩樺彲杈俱€乫ocus-visible 鍙
+- \*_鍝嶅簲寮?_ 鈥斺€?妗岄潰绔粠 1024px 璧疯嚜閫傚簲锛沬nput 楂樺害 16px 鈫?152px 鑷姩鎾戦珮
+- **鏆楄壊浼樺厛** 鈥斺€?鍚屾椂鍏煎 HeroUI v3 鐨?`data-theme` 涓?Tailwind v4 鐨?`dark` 鍙樹綋
 
-### 1.3 创意交互亮点
+### 1.3 鍒涙剰浜や簰浜偣
 
-1. **拖拽 / 粘贴上传** —— Composer 整个区域是 drop zone，拖入文件时高亮（accent 色 + 4px ring）
-2. **Hover 复制 / 表情反应** —— 鼠标移上 assistant 消息时浮现工具条，玻璃拟态 + scale 动画
-3. **空态建议** —— 新对话自动展示 4 条 prompt，点击直接发送
-4. **日期分组** —— 左侧历史按今天 / 昨天 / 本周 / 更早 分组
-5. **拖拽式粘贴剪贴板图片** —— 直接 `Ctrl+V` 把截图转附件
+1. **鎷栨嫿 / 绮樿创涓婁紶** 鈥斺€?Composer 鏁翠釜鍖哄煙鏄?drop zone锛屾嫋鍏ユ枃浠舵椂楂樹寒锛坅ccent 鑹?+ 4px ring锛?
+2. **Hover 澶嶅埗 / 琛ㄦ儏鍙嶅簲** 鈥斺€?榧犳爣绉讳笂 assistant 娑堟伅鏃舵诞鐜板伐鍏锋潯锛岀幓鐠冩嫙鎬?+ scale 鍔ㄧ敾
+3. \*_绌烘€佸缓璁?_ 鈥斺€?鏂板璇濊嚜鍔ㄥ睍绀?4 鏉?prompt锛岀偣鍑荤洿鎺ュ彂閫?
+4. **鏃ユ湡鍒嗙粍** 鈥斺€?宸︿晶鍘嗗彶鎸変粖澶?/ 鏄ㄥぉ / 鏈懆 / 鏇存棭 鍒嗙粍
+5. **鎷栨嫿寮忕矘璐村壀璐存澘鍥剧墖** 鈥斺€?鐩存帴 `Ctrl+V` 鎶婃埅鍥捐浆闄勪欢
 
 ---
 
-## 2. 整体架构
+## 2. 鏁翠綋鏋舵瀯
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          App.tsx                                 │
-│   ┌──────────┐  ┌──────────────────────────────────────────┐   │
-│   │AppShell  │  │           ChatView (route)                │   │
-│   │          │  │   ┌──────────────────────────────────┐    │   │
-│   │ · nav    │  │   │        MessageList                │   │   │
-│   │ · hist   │  │   │  ┌─────────┐  ┌────────────────┐  │   │   │
-│   │ · search │  │   │  │ Message │→ │ QuickReactions │  │   │   │
-│   │ · group  │  │   │  └─────────┘  └────────────────┘  │   │   │
-│   └──────────┘  │   │  ┌─────────┐  ┌────────────────┐  │   │   │
-│                 │   │  │ Message │→ │ MsgAttachments │  │   │   │
-│                 │   │  └─────────┘  └────────────────┘  │   │   │
-│                 │   └──────────────────────────────────┘    │   │
-│                 │   ┌──────────────────────────────────┐    │   │
-│                 │   │       MessageInput (Composer)     │   │   │
-│                 │   │  [😊] [📎] [Agent] [Model]   [↑]  │   │   │
-│                 │   └──────────────────────────────────┘    │   │
-│                 └──────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹?                         App.tsx                                 鈹?
+鈹?  鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  鈹?
+鈹?  鈹侫ppShell  鈹? 鈹?          ChatView (route)                鈹?  鈹?
+鈹?  鈹?         鈹? 鈹?  鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?   鈹?  鈹?
+鈹?  鈹?路 nav    鈹? 鈹?  鈹?       MessageList                鈹?  鈹?  鈹?
+鈹?  鈹?路 hist   鈹? 鈹?  鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?  鈹?  鈹?
+鈹?  鈹?路 search 鈹? 鈹?  鈹? 鈹?Message 鈹傗啋 鈹?QuickReactions 鈹? 鈹?  鈹?  鈹?
+鈹?  鈹?路 group  鈹? 鈹?  鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?  鈹?  鈹?
+鈹?  鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?  鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?  鈹?  鈹?
+鈹?                鈹?  鈹? 鈹?Message 鈹傗啋 鈹?MsgAttachments 鈹? 鈹?  鈹?  鈹?
+鈹?                鈹?  鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?  鈹?  鈹?
+鈹?                鈹?  鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?   鈹?  鈹?
+鈹?                鈹?  鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?   鈹?  鈹?
+鈹?                鈹?  鈹?      MessageInput (Composer)     鈹?  鈹?  鈹?
+鈹?                鈹?  鈹? [馃槉] [馃搸] [Agent] [Model]   [鈫慮  鈹?  鈹?  鈹?
+鈹?                鈹?  鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?   鈹?  鈹?
+鈹?                鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  鈹?
+鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
 
-         ▼  data flow  ▼
+         鈻? data flow  鈻?
 
-┌─────────────────────────────────────────────────────────────────┐
-│ ai-elements/                                                      │
-│   ├─ prompt-input.tsx         (受控 textarea + submit)            │
-│   ├─ conversation.tsx         (滚动容器)                          │
-│   ├─ message.tsx              (气泡)                              │
-│   ├─ reasoning.tsx            (折叠推理)                          │
-│   ├─ tool.tsx                 (工具调用)                          │
-│   ├─ emoji-picker.tsx    ★新增 (分类 + 搜索)                      │
-│   ├─ attachment-chip.tsx ★新增 (待发送 chip)                     │
-│   ├─ quick-reactions.tsx ★新增 (hover 反应)                      │
-│   ├─ message-attachments.tsx ★新增 (消息附件画廊)                 │
-│   └─ prompt-suggestions.tsx   ★新增 (空态建议)                    │
-└─────────────────────────────────────────────────────────────────┘
+鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹?ai-elements/                                                      鈹?
+鈹?  鈹溾攢 prompt-input.tsx         (鍙楁帶 textarea + submit)            鈹?
+鈹?  鈹溾攢 conversation.tsx         (婊氬姩瀹瑰櫒)                          鈹?
+鈹?  鈹溾攢 message.tsx              (姘旀场)                              鈹?
+鈹?  鈹溾攢 reasoning.tsx            (鎶樺彔鎺ㄧ悊)                          鈹?
+鈹?  鈹溾攢 tool.tsx                 (宸ュ叿璋冪敤)                          鈹?
+鈹?  鈹溾攢 emoji-picker.tsx    鈽呮柊澧?(鍒嗙被 + 鎼滅储)                      鈹?
+鈹?  鈹溾攢 attachment-chip.tsx 鈽呮柊澧?(寰呭彂閫?chip)                     鈹?
+鈹?  鈹溾攢 quick-reactions.tsx 鈽呮柊澧?(hover 鍙嶅簲)                      鈹?
+鈹?  鈹溾攢 message-attachments.tsx 鈽呮柊澧?(娑堟伅闄勪欢鐢诲粖)                 鈹?
+鈹?  鈹斺攢 prompt-suggestions.tsx   鈽呮柊澧?(绌烘€佸缓璁?                    鈹?
+鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
 ```
 
-### 2.1 模块分层
+### 2.1 妯″潡鍒嗗眰
 
-| 层          | 关注点                            | 文件                                  |
-| ----------- | --------------------------------- | ------------------------------------- |
-| 路由 / 容器 | 加载历史、错误处理、发送控制      | `ChatView.tsx`                        |
-| 展示        | 消息渲染、composer、附件展示      | `MessageList.tsx`, `MessageInput.tsx` |
-| 原子组件    | emoji、chip、reaction、suggestion | `ai-elements/*.tsx`                   |
-| 持久化      | IPC / DB                          | `lib/api.ts`（preload 暴露）          |
+| 灞?            | 鍏虫敞鐐?                                | 鏂囦欢                                |
+| -------------- | ---------------------------------------- | ------------------------------------- |
+| 璺敱 / 瀹瑰櫒 | 鍔犺浇鍘嗗彶銆侀敊璇鐞嗐€佸彂閫佹帶鍒? | `ChatView.tsx`                        |
+| 灞曠ず         | 娑堟伅娓叉煋銆乧omposer銆侀檮浠跺睍绀?   | `MessageList.tsx`, `MessageInput.tsx` |
+| 鍘熷瓙缁勪欢   | emoji銆乧hip銆乺eaction銆乻uggestion     | `ai-elements/*.tsx`                   |
+| 鎸佷箙鍖?      | IPC / DB                                 | `lib/api.ts`锛坧reload 鏆撮湶锛?      |
 
-### 2.2 不变式（重要约束）
+### 2.2 涓嶅彉寮忥紙閲嶈绾︽潫锛?
 
-- **onSend 签名**：`(payload: { text, files: FilePartLike[] }) => void`
-- **files[i] 字段**：`type, mediaType, filename, url`（与 ai-sdk `FileUIPart` 一致；url 字段承载 dataURL）
-- **历史回填**：`api.messages.list` 返回的 `content` 字段是 JSON 序列化的 UIMessage（含 parts）
-- **会话切换**：通过 `conversationId` prop；`useChat({ id: conversationId })` 触发重新订阅
+- **onSend 绛惧悕**锛歚(payload: { text, files: FilePartLike[] }) => void`
+- **files[i] 瀛楁**锛歚type, mediaType, filename, url`锛堜笌 ai-sdk `FileUIPart` 涓€鑷达紱url 瀛楁鎵胯浇 dataURL锛?
+- **鍘嗗彶鍥炲～**锛歚api.messages.list` 杩斿洖鐨?`content` 瀛楁鏄?JSON 搴忓垪鍖栫殑 UIMessage锛堝惈 parts锛?
+- **浼氳瘽鍒囨崲**锛氶€氳繃 `conversationId` prop锛沗useChat({ id: conversationId })` 瑙﹀彂閲嶆柊璁㈤槄
 
 ---
 
-## 3. 视觉设计规范
+## 3. 瑙嗚璁捐瑙勮寖
 
-### 3.1 设计令牌（继承自 HeroUI v3 + Tailwind v4）
+### 3.1 璁捐浠ょ墝锛堢户鎵胯嚜 HeroUI v3 + Tailwind v4锛?
 
 ```css
-/* 颜色（强调色随主题变化） */
---color-accent        /* 主强调色（按钮、链接、focus ring） */
---color-accent-soft   /* 强调色 10% 透明（背景） */
+/* 棰滆壊锛堝己璋冭壊闅忎富棰樺彉鍖栵級 */
+--color-accent        /* 涓诲己璋冭壊锛堟寜閽€侀摼鎺ャ€乫ocus ring锛?*/
+--color-accent-soft   /* 寮鸿皟鑹?10% 閫忔槑锛堣儗鏅級 */
 
-/* 语义色 */
---color-success       /* 复制成功、发送成功 */
---color-warning       /* 缺少模型、未选模型警告 */
---color-danger        /* 错误、删除 */
+/* 璇箟鑹?*/
+--color-success       /* 澶嶅埗鎴愬姛銆佸彂閫佹垚鍔?*/
+--color-warning       /* 缂哄皯妯″瀷銆佹湭閫夋ā鍨嬭鍛?*/
+--color-danger        /* 閿欒銆佸垹闄?*/
 
-/* 文字层级 */
---color-foreground         /* 主文字 */
---color-foreground-70%     /* 次级文字 */
---color-foreground-45%     /* 提示文字 */
---color-foreground-35%     /* 极弱提示 */
---color-foreground-10%     /* 分隔线 */
+/* 鏂囧瓧灞傜骇 */
+--color-foreground         /* 涓绘枃瀛?*/
+--color-foreground-70%     /* 娆＄骇鏂囧瓧 */
+--color-foreground-45%     /* 鎻愮ず鏂囧瓧 */
+--color-foreground-35%     /* 鏋佸急鎻愮ず */
+--color-foreground-10%     /* 鍒嗛殧绾?*/
 
-/* 圆角 */
---radius-input-card: 24px  /* Composer 圆角 */
---radius-bubble: 20px      /* 消息气泡 */
---radius-chip: 12px        /* 附件 chip */
---radius-emoji-grid: 8px   /* emoji 格子 */
+/* 鍦嗚 */
+--radius-input-card: 24px  /* Composer 鍦嗚 */
+--radius-bubble: 20px      /* 娑堟伅姘旀场 */
+--radius-chip: 12px        /* 闄勪欢 chip */
+--radius-emoji-grid: 8px   /* emoji 鏍煎瓙 */
 
-/* 阴影 */
+/* 闃村奖 */
 --shadow-composer: 0 18px 60px -42px rgba(15, 23, 42, 0.65)
 --shadow-emoji-picker: 2xl  /* z-50, mb-2 */
 --shadow-bubble: subtle
 
-/* 间距 */
+/* 闂磋窛 */
 --gap-composer-padding-x: 16px
 --gap-composer-padding-y: 12px
 --gap-attachment-row: 6px
 ```
 
-### 3.2 关键界面示意
+### 3.2 鍏抽敭鐣岄潰绀烘剰
 
-#### 3.2.1 Composer（消息输入框）
+#### 3.2.1 Composer锛堟秷鎭緭鍏ユ锛?
 
 ```
-┌──────────────────────────────────────────────────────┐
-│ [🖼️ 1.png] [📄 readme.pdf]                ← 附件预览 │
-│ ┌──────────────────────────────────────────────────┐ │
-│ │ Ask Void anything...                              │ │
-│ │ (auto-expand up to 152px)                          │ │
-│ └──────────────────────────────────────────────────┘ │
-│ [😊] [📎] │ [Agent] [Model]               [⏹ / ↑]   │
-└──────────────────────────────────────────────────────┘
+鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹?[馃柤锔?1.png] [馃搫 readme.pdf]                鈫?闄勪欢棰勮 鈹?
+鈹?鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹?
+鈹?鈹?Ask Void anything...                              鈹?鈹?
+鈹?鈹?(auto-expand up to 152px)                          鈹?鈹?
+鈹?鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹?
+鈹?[馃槉] [馃搸] 鈹?[Agent] [Model]               [鈴?/ 鈫慮   鈹?
+鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
    border: foreground/15
    focus-within: border-accent/45 + ring-accent/10
    drag-over:   border-accent/60 + ring-accent/15
@@ -180,133 +180,133 @@
 #### 3.2.2 Emoji Picker
 
 ```
-┌────────────────────────────┐
-│ 🔍 搜索 emoji...        ✕  │  ← 搜索框
-├────────────────────────────┤
-│ 😀 😂 😃 😄 😁 😆 😅 🤣   │  ← 分类 tab
-├────────────────────────────┤
-│ 😀 😃 😄 😁 😆 😅 🤣 😂   │  ← 8 列网格
-│ 🙂 🙃 😉 😊 😇 🥰 😍 🤩   │
-│ 😘 😗 😚 😙 🥲 😋 😛 😜   │
-│ ... (max-h-240 滚动)       │
-└────────────────────────────┘
-   尺寸: 320 × 自适应
-   圆角: 16px
-   背景: 玻璃拟态
+鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹?馃攳 鎼滅储 emoji...        鉁? 鈹? 鈫?鎼滅储妗?
+鈹溾攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹?馃榾 馃槀 馃槂 馃槃 馃榿 馃槅 馃槄 馃ぃ   鈹? 鈫?鍒嗙被 tab
+鈹溾攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹?馃榾 馃槂 馃槃 馃榿 馃槅 馃槄 馃ぃ 馃槀   鈹? 鈫?8 鍒楃綉鏍?
+鈹?馃檪 馃檭 馃槈 馃槉 馃槆 馃グ 馃槏 馃ぉ   鈹?
+鈹?馃槝 馃槜 馃槡 馃槞 馃ゲ 馃構 馃槢 馃槣   鈹?
+鈹?... (max-h-240 婊氬姩)       鈹?
+鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+   灏哄: 320 脳 鑷€傚簲
+   鍦嗚: 16px
+   鑳屾櫙: 鐜荤拑鎷熸€?
 ```
 
-#### 3.2.3 Hover 工具条（消息）
+#### 3.2.3 Hover 宸ュ叿鏉★紙娑堟伅锛?
 
 ```
-                            ┌─────────────────┐
-                            │ 👍 ❤️ 🎉 😂 🤔 🔥│  ← QuickReactions
-                            └─────────────────┘
-   ┌──────────────────────────────────────────┐
-   │ 这是 AI 的回复...                            │  ← 助手消息
-   │                                          │  ← 文本
-   │ [📋 复制]   已复制                          │  ← Copy (hover 显示)
-   └──────────────────────────────────────────┘
+                            鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                            鈹?馃憤 鉂わ笍 馃帀 馃槀 馃 馃敟鈹? 鈫?QuickReactions
+                            鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+   鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+   鈹?杩欐槸 AI 鐨勫洖澶?..                            鈹? 鈫?鍔╂墜娑堟伅
+   鈹?                                         鈹? 鈫?鏂囨湰
+   鈹?[馃搵 澶嶅埗]   宸插鍒?                         鈹? 鈫?Copy (hover 鏄剧ず)
+   鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
 ```
 
-#### 3.2.4 消息附件
+#### 3.2.4 娑堟伅闄勪欢
 
 ```
-   用户消息:
-   ┌──────────────────────────────────────┐
-   │ [图1] [图2] [图3]                     │  ← 图片网格（最多 3 列）
-   │ [📄 readme.pdf]  2.3 MB              │  ← 文件 chip
-   │ 这是问题描述...                         │  ← 文本
-   └──────────────────────────────────────┘
+   鐢ㄦ埛娑堟伅:
+   鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+   鈹?[鍥?] [鍥?] [鍥?]                     鈹? 鈫?鍥剧墖缃戞牸锛堟渶澶?3 鍒楋級
+   鈹?[馃搫 readme.pdf]  2.3 MB              鈹? 鈫?鏂囦欢 chip
+   鈹?杩欐槸闂鎻忚堪...                         鈹? 鈫?鏂囨湰
+   鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
 ```
 
-#### 3.2.5 侧栏历史分组
+#### 3.2.5 渚ф爮鍘嗗彶鍒嗙粍
 
 ```
-   ─────────────  对话历史          [+] ───
-   🔍 搜索会话...                         ← 搜索框
+   鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€  瀵硅瘽鍘嗗彶          [+] 鈹€鈹€鈹€
+   馃攳 鎼滅储浼氳瘽...                         鈫?鎼滅储妗?
 
-   今天
-     💬 解释量子计算                🗑
-     💬 React 组件设计                🗑
+   浠婂ぉ
+     馃挰 瑙ｉ噴閲忓瓙璁＄畻                馃棏
+     馃挰 React 缁勪欢璁捐                馃棏
 
-   昨天
-     💬 关于 TypeScript                🗑
+   鏄ㄥぉ
+     馃挰 鍏充簬 TypeScript                馃棏
 
-   本周
-     💬 周会议程                      🗑
+   鏈懆
+     馃挰 鍛ㄤ細璁▼                      馃棏
 
-   更早
-     💬 旅行计划                      🗑
+   鏇存棭
+     馃挰 鏃呰璁″垝                      馃棏
 ```
 
-### 3.3 动效规范
+### 3.3 鍔ㄦ晥瑙勮寖
 
-| 元素                 | 动效                               | 时长  | 缓动     |
-| -------------------- | ---------------------------------- | ----- | -------- |
-| Emoji Picker 出现    | fade + scale(0.95→1) + slideUp 4px | 150ms | ease-out |
-| Quick Reactions 出现 | scale(0.95→1) + fade               | 150ms | ease-out |
-| Suggestion hover     | translateY(-2px) + border 变       | 150ms | ease-out |
-| 附件 chip 出现       | fade                               | 200ms | ease-out |
-| 拖拽高亮             | border + ring 变                   | 200ms | ease-out |
-| Drop overlay 出现    | fade                               | 100ms | ease-out |
+| 鍏冪礌                 | 鍔ㄦ晥                              | 鏃堕暱 | 缂撳姩   |
+| ---------------------- | ----------------------------------- | ------ | -------- |
+| Emoji Picker 鍑虹幇    | fade + scale(0.95鈫?) + slideUp 4px | 150ms  | ease-out |
+| Quick Reactions 鍑虹幇 | scale(0.95鈫?) + fade               | 150ms  | ease-out |
+| Suggestion hover       | translateY(-2px) + border 鍙?       | 150ms  | ease-out |
+| 闄勪欢 chip 鍑虹幇     | fade                                | 200ms  | ease-out |
+| 鎷栨嫿楂樹寒           | border + ring 鍙?                   | 200ms  | ease-out |
+| Drop overlay 鍑虹幇    | fade                                | 100ms  | ease-out |
 
-### 3.4 颜色对比度（无障碍）
+### 3.4 棰滆壊瀵规瘮搴︼紙鏃犻殰纰嶏級
 
-- 主文字 / 背景：≥ 7:1
-- 次级文字 / 背景：≥ 4.5:1
-- 强调色按钮文字：始终白/深色（自动对比）
-- 焦点环：accent + 4px ring（不依赖颜色感知）
+- 涓绘枃瀛?/ 鑳屾櫙锛氣墺 7:1
+- 娆＄骇鏂囧瓧 / 鑳屾櫙锛氣墺 4.5:1
+- 寮鸿皟鑹叉寜閽枃瀛楋細濮嬬粓鐧?娣辫壊锛堣嚜鍔ㄥ姣旓級
+- 鐒︾偣鐜細accent + 4px ring锛堜笉渚濊禆棰滆壊鎰熺煡锛?
 
 ---
 
-## 4. 核心组件 API
+## 4. 鏍稿績缁勪欢 API
 
 ### 4.1 ChatView
 
 ```ts
 interface ChatViewProps {
   conversationId: string;
-  serverInfo: LocalServerInfo; // 来自 main 进程（port + token）
+  serverInfo: LocalServerInfo; // 鏉ヨ嚜 main 杩涚▼锛坧ort + token锛?
 }
 ```
 
-**职责**：
+**鑱岃矗**锛?
 
-- 加载会话历史
-- 管理 `useChat`（Vercel AI SDK）
-- 错误捕获 + 持久化
-- 渲染空态 / 列表 / Composer
+- 鍔犺浇浼氳瘽鍘嗗彶
+- 绠＄悊 `useChat`锛圴ercel AI SDK锛?
+- 閿欒鎹曡幏 + 鎸佷箙鍖?
+- 娓叉煋绌烘€?/ 鍒楄〃 / Composer
 
-**状态**：
+\**鐘舵€?*锛?
 
-| 状态              | 类型             | 用途                          |
-| ----------------- | ---------------- | ----------------------------- |
-| `selectedModel`   | `string \| null` | 关联 SettingKey.SelectedModel |
-| `selectedAgentId` | `string \| null` | 关联 SettingKey.ActiveAgentId |
-| `initialMessages` | `UIMessage[]`    | 从 DB 加载                    |
-| `historyLoaded`   | `boolean`        | 控制 loading 态               |
-| `chatError`       | `string \| null` | UI 错误展示                   |
+| 鐘舵€?            | 绫诲瀷           | 鐢ㄩ€?                          |
+| ----------------- | ---------------- | ------------------------------- |
+| `selectedModel`   | `string \| null` | 鍏宠仈 SettingKey.SelectedModel |
+| `selectedAgentId` | `string \| null` | 鍏宠仈 SettingKey.ActiveAgentId |
+| `initialMessages` | `UIMessage[]`    | 浠?DB 鍔犺浇                    |
+| `historyLoaded`   | `boolean`        | 鎺у埗 loading 鎬?               |
+| `chatError`       | `string \| null` | UI 閿欒灞曠ず                  |
 
-**关键行为**：
+**鍏抽敭琛屼负**锛?
 
 ```ts
-// 1) 历史加载：每次 conversationId 变化
+// 1) 鍘嗗彶鍔犺浇锛氭瘡娆?conversationId 鍙樺寲
 useEffect(() => {
   void api.messages.list(conversationId).then((rows) => {
-    // row.content 是 JSON 序列化的 UIMessage
+    // row.content 鏄?JSON 搴忓垪鍖栫殑 UIMessage
     const msgs = rows.map((row) => JSON.parse(row.content));
     setInitialMessages(msgs);
   });
 }, [conversationId]);
 
-// 2) 发送消息（支持附件）
+// 2) 鍙戦€佹秷鎭紙鏀寔闄勪欢锛?
 const handleSend = async ({ text, files }) => {
-  // 把 FilePartLike[] 转 ai-sdk FileUIPart[]
-  // 预保存到 DB（异步）
-  // 触发流式响应
+  // 鎶?FilePartLike[] 杞?ai-sdk FileUIPart[]
+  // 棰勪繚瀛樺埌 DB锛堝紓姝ワ級
+  // 瑙﹀彂娴佸紡鍝嶅簲
 };
 
-// 3) 错误处理：onError 持久化到 DB + toast
+// 3) 閿欒澶勭悊锛歰nError 鎸佷箙鍖栧埌 DB + toast
 ```
 
 ---
@@ -316,48 +316,48 @@ const handleSend = async ({ text, files }) => {
 ```ts
 interface MessageInputProps {
   isLoading: boolean;
-  /** 发送回调：包含文本与文件（ai-sdk FileUIPart[]） */
+  /** 鍙戦€佸洖璋冿細鍖呭惈鏂囨湰涓庢枃浠讹紙ai-sdk FileUIPart[]锛?*/
   onSend: (payload: { text: string; files: FilePartLike[] }) => void;
-  /** 流式中允许停止 */
+  /** 娴佸紡涓厑璁稿仠姝?*/
   onStop?: () => void;
   selectedModel: string | null;
   selectedAgentId: string | null;
   onModelChange: (modelRef: string | null) => void;
   onAgentChange: (agentId: string) => void;
-  /** 单个附件最大字节数（默认 10MB） */
+  /** 鍗曚釜闄勪欢鏈€澶у瓧鑺傛暟锛堥粯璁?10MB锛?*/
   maxFileSize?: number;
-  /** 允许的 MIME 类型前缀 */
+  /** 鍏佽鐨?MIME 绫诲瀷鍓嶇紑 */
   accept?: string;
 }
 ```
 
-**特性**：
+\**鐗规€?*锛?
 
-- 自适应高度（16px → 152px）
-- ⌘/Ctrl + Enter 强制发送
-- 拖拽 / 粘贴文件
-- Emoji 选择器（光标位置插入）
-- 实时显示附件预览与大小
-- 流式中显示停止按钮，停止时不影响下次发送
+- 鑷€傚簲楂樺害锛?6px 鈫?152px锛?
+- 鈱?Ctrl + Enter 寮哄埗鍙戦€?
+- 鎷栨嫿 / 绮樿创鏂囦欢
+- Emoji 閫夋嫨鍣紙鍏夋爣浣嶇疆鎻掑叆锛?
+- 瀹炴椂鏄剧ず闄勪欢棰勮涓庡ぇ灏?
+- 娴佸紡涓樉绀哄仠姝㈡寜閽紝鍋滄鏃朵笉褰卞搷涓嬫鍙戦€?
 
-**内部子组件**：
+\**鍐呴儴瀛愮粍浠?*锛?
 
 ```
 <PromptInput status={status} onSubmit={handleSubmit}>
   <PromptInputTextarea ref={textareaRef} ... />
   <EmojiPicker open={emojiOpen} onOpenChange={setEmojiOpen} onSelect={handleEmojiSelect} />
-  <AttachmentChip item={a} onRemove={removeAttachment} />  // 每个附件
+  <AttachmentChip item={a} onRemove={removeAttachment} />  // 姣忎釜闄勪欢
   <AgentSelector />
   <ModelSelector />
   <PromptInputSubmit status={status} disabled={!canSend} />
 </PromptInput>
 ```
 
-**暴露的 PendingAttachment 类型**：
+**鏆撮湶鐨?PendingAttachment 绫诲瀷**锛?
 
 ```ts
 export interface PendingAttachment extends AttachmentItem {
-  file: File; // 原始 File 引用
+  file: File; // 鍘熷 File 寮曠敤
 }
 ```
 
@@ -376,7 +376,7 @@ interface MessageListProps {
 }
 ```
 
-**内部结构**：
+**鍐呴儴缁撴瀯**锛?
 
 ```
 <Conversation>
@@ -384,11 +384,11 @@ interface MessageListProps {
     {messages.map(m => (
       <Message from={m.role}>
         <Reasoning>...</Reasoning>
-        <MessageAttachments parts={fileParts} />   {/* 图片 + 文件 */}
+        <MessageAttachments parts={fileParts} />   {/* 鍥剧墖 + 鏂囦欢 */}
         <MessageResponse>...</MessageResponse>
         <Tool>...</Tool>
-        <QuickReactions onReact={...} />           {/* 创意 */}
-        <CopyButton />                             {/* hover 复制 */}
+        <QuickReactions onReact={...} />           {/* 鍒涙剰 */}
+        <CopyButton />                             {/* hover 澶嶅埗 */}
       </Message>
     ))}
     {error && <ErrorBanner />}
@@ -399,42 +399,42 @@ interface MessageListProps {
 
 ---
 
-### 4.4 ai-elements 子组件
+### 4.4 ai-elements 瀛愮粍浠?
 
 #### 4.4.1 `<EmojiPicker>`
 
 ```ts
 interface EmojiPickerProps {
-  open: boolean; // 受控
+  open: boolean; // 鍙楁帶
   onOpenChange: (open: boolean) => void;
-  onSelect: (emoji: string) => void; // 选中回调
+  onSelect: (emoji: string) => void; // 閫変腑鍥炶皟
   onCategoryChange?: (id: string) => void;
-  categories?: EmojiCategory[]; // 自定义分类
+  categories?: EmojiCategory[]; // 鑷畾涔夊垎绫?
   placeholder?: string;
 }
 ```
 
-**内置数据**：`DEFAULT_EMOJI_CATEGORIES`（6 类 ~180 个 emoji，附关键字）
+**鍐呯疆鏁版嵁**锛歚DEFAULT_EMOJI_CATEGORIES`锛? 绫?~180 涓?emoji锛岄檮鍏抽敭瀛楋級
 
-**使用示例**：
+**浣跨敤绀轰緥**锛?
 
 ```tsx
 const [open, setOpen] = useState(false);
 
-<button onClick={() => setOpen(true)}>😊</button>
+<button onClick={() => setOpen(true)}>馃槉</button>
 <EmojiPicker
   open={open}
   onOpenChange={setOpen}
   onSelect={(e) => insertAtCursor(e)}
-  placeholder="搜索..."
+  placeholder="鎼滅储..."
 />
 ```
 
-**键盘交互**：
+**閿洏浜や簰**锛?
 
-- Esc 关闭
-- 点击外部关闭
-- 输入关键字过滤当前分类
+- Esc 鍏抽棴
+- 鐐瑰嚮澶栭儴鍏抽棴
+- 杈撳叆鍏抽敭瀛楄繃婊ゅ綋鍓嶅垎绫?
 
 ---
 
@@ -453,12 +453,12 @@ interface AttachmentItem {
 
 interface AttachmentChipProps {
   item: AttachmentItem;
-  onRemove?: (id: string) => void; // 不传则不显示移除按钮
-  compact?: boolean; // 紧凑模式（消息中展示）
+  onRemove?: (id: string) => void; // 涓嶄紶鍒欎笉鏄剧ず绉婚櫎鎸夐挳
+  compact?: boolean; // 绱у噾妯″紡锛堟秷鎭腑灞曠ず锛?
 }
 ```
 
-**使用示例**：
+**浣跨敤绀轰緥**锛?
 
 ```tsx
 <AttachmentChip
@@ -467,26 +467,33 @@ interface AttachmentChipProps {
 />
 ```
 
-**变体**：
+**鍙樹綋**锛?
 
-- `image`：显示缩略图（ObjectURL）
-- `video` / `audio` / `file`：显示 SVG icon 占位
+- `image`锛氭樉绀虹缉鐣ュ浘锛圤bjectURL锛?
+- `video` / `audio` / `file`锛氭樉绀?SVG icon 鍗犱綅
 
 ---
 
 #### 4.4.3 `<QuickReactions>`
 
 ```ts
-export const DEFAULT_REACTIONS: readonly string[] = ["👍", "❤️", "🎉", "😂", "🤔", "🔥"];
+export const DEFAULT_REACTIONS: readonly string[] = [
+  "馃憤",
+  "鉂わ笍",
+  "馃帀",
+  "馃槀",
+  "馃",
+  "馃敟",
+];
 
 interface QuickReactionsProps {
   onReact: (emoji: string) => void;
-  reactions?: readonly string[]; // 自定义
+  reactions?: readonly string[]; // 鑷畾涔?
   placement?: "top-right" | "top-left" | "bottom-right" | "bottom-left";
 }
 ```
 
-**使用**：必须放在 `className="group/msg"` 容器内（默认 hover 行为通过 `group-hover/msg:opacity-100` 触发）
+**浣跨敤**锛氬繀椤绘斁鍦?`className="group/msg"` 瀹瑰櫒鍐咃紙榛樿 hover 琛屼负閫氳繃 `group-hover/msg:opacity-100` 瑙﹀彂锛?
 
 ```tsx
 <div className="group/msg relative">
@@ -495,7 +502,7 @@ interface QuickReactionsProps {
 </div>
 ```
 
-**视觉**：玻璃拟态，hover/focus 容器时透明度 0→1 + scale 0.95→1
+**瑙嗚**锛氱幓鐠冩嫙鎬侊紝hover/focus 瀹瑰櫒鏃堕€忔槑搴?0鈫? + scale 0.95鈫?
 
 ---
 
@@ -506,8 +513,8 @@ export interface FilePartLike {
   type: string;
   mediaType?: string;
   filename?: string;
-  url?: string; // ai-sdk 标准
-  data?: string; // 兼容旧字段
+  url?: string; // ai-sdk 鏍囧噯
+  data?: string; // 鍏煎鏃у瓧娈?
 }
 
 interface MessageAttachmentsProps {
@@ -516,12 +523,12 @@ interface MessageAttachmentsProps {
 }
 ```
 
-**渲染规则**：
+**娓叉煋瑙勫垯**锛?
 
-- 图片：自适应网格（1 / 2 / 3 列）
-- 其他：横排 chip
+- 鍥剧墖锛氳嚜閫傚簲缃戞牸锛? / 2 / 3 鍒楋級
+- 鍏朵粬锛氭í鎺?chip
 
-**使用**：
+**浣跨敤**锛?
 
 ```tsx
 const fileParts = message.parts.filter((p) => p.type === "file");
@@ -540,146 +547,146 @@ interface PromptSuggestionsProps extends Omit<HTMLAttributes<HTMLDivElement>, "o
 }
 ```
 
-**使用**（典型：空态）：
+**浣跨敤**锛堝吀鍨嬶細绌烘€侊級锛?
 
 ```tsx
 <PromptSuggestions
-  title="试试这些问题"
-  suggestions={["解释量子计算", "写一首诗", "..."]}
+  title="璇曡瘯杩欎簺闂"
+  suggestions={["瑙ｉ噴閲忓瓙璁＄畻", "鍐欎竴棣栬瘲", "..."]}
   onSelect={(s) => sendMessage(s)}
 />
 ```
 
 ---
 
-## 5. 数据流与文件附件
+## 5. 鏁版嵁娴佷笌鏂囦欢闄勪欢
 
-### 5.1 文件附件完整流程
+### 5.1 鏂囦欢闄勪欢瀹屾暣娴佺▼
 
 ```
-┌──────────────┐    用户拖拽/粘贴/选择
-│  File 对象   │ ─────────────────────────────────┐
-└──────────────┘                                  ▼
-                              ┌──────────────────────────────────┐
-                              │  MessageInput.ingestFiles()     │
-                              │  - 大小校验 (<10MB)              │
-                              │  - MIME 校验                    │
-                              │  - 生成 PendingAttachment      │
-                              │  - 显示 AttachmentChip          │
-                              └──────────────────────────────────┘
-                                                  │ 用户点击发送
-                                                  ▼
-                              ┌──────────────────────────────────┐
-                              │  MessageInput.flushSubmit()      │
-                              │  - readFileAsDataURL(file)        │
-                              │  - 构造 FilePartLike             │
-                              │  - 调用 onSend                   │
-                              └──────────────────────────────────┘
-                                                  │
-                                                  ▼
-                              ┌──────────────────────────────────┐
-                              │  ChatView.handleSend()          │
-                              │  - 转 ai-sdk FileUIPart          │
-                              │  - 预保存到 DB（API）            │
-                              │  - chat.sendMessage({text,files})│
-                              └──────────────────────────────────┘
-                                                  │
-                                                  ▼
-                              ┌──────────────────────────────────┐
-                              │  Hono Server (main process)      │
-                              │  - 解析 multipart                │
-                              │  - 调用 AI SDK                   │
-                              │  - 流式返回                      │
-                              └──────────────────────────────────┘
+鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?   鐢ㄦ埛鎷栨嫿/绮樿创/閫夋嫨
+鈹? File 瀵硅薄   鈹?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                                 鈻?
+                              鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                              鈹? MessageInput.ingestFiles()     鈹?
+                              鈹? - 澶у皬鏍￠獙 (<10MB)              鈹?
+                              鈹? - MIME 鏍￠獙                    鈹?
+                              鈹? - 鐢熸垚 PendingAttachment      鈹?
+                              鈹? - 鏄剧ず AttachmentChip          鈹?
+                              鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                                                  鈹?鐢ㄦ埛鐐瑰嚮鍙戦€?
+                                                  鈻?
+                              鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                              鈹? MessageInput.flushSubmit()      鈹?
+                              鈹? - readFileAsDataURL(file)        鈹?
+                              鈹? - 鏋勯€?FilePartLike             鈹?
+                              鈹? - 璋冪敤 onSend                   鈹?
+                              鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                                                  鈹?
+                                                  鈻?
+                              鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                              鈹? ChatView.handleSend()          鈹?
+                              鈹? - 杞?ai-sdk FileUIPart          鈹?
+                              鈹? - 棰勪繚瀛樺埌 DB锛圓PI锛?           鈹?
+                              鈹? - chat.sendMessage({text,files})鈹?
+                              鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                                                  鈹?
+                                                  鈻?
+                              鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                              鈹? Hono Server (main process)      鈹?
+                              鈹? - 瑙ｆ瀽 multipart                鈹?
+                              鈹? - 璋冪敤 AI SDK                   鈹?
+                              鈹? - 娴佸紡杩斿洖                      鈹?
+                              鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
 ```
 
-### 5.2 数据格式约定
+### 5.2 鏁版嵁鏍煎紡绾﹀畾
 
-| 字段                   | 类型                  | 协议                                          |
-| ---------------------- | --------------------- | --------------------------------------------- |
-| `FileUIPart.url`       | `string`              | base64 dataURL（`data:image/png;base64,...`） |
-| `FileUIPart.mediaType` | `string`              | IANA MIME                                     |
-| `FileUIPart.filename`  | `string \| undefined` | 文件名                                        |
+| 瀛楁                  | 绫诲瀷                | 鍗忚                                           |
+| ---------------------- | --------------------- | ----------------------------------------------- |
+| `FileUIPart.url`       | `string`              | base64 dataURL锛坄data:image/png;base64,...`锛? |
+| `FileUIPart.mediaType` | `string`              | IANA MIME                                       |
+| `FileUIPart.filename`  | `string \| undefined` | 鏂囦欢鍚?                                       |
 
-**关键点**：ai-sdk v2+ 的 `FileUIPart` 用 `url` 字段承载 dataURL（不是 `data`）。本项目统一使用 `url`。
+\**鍏抽敭鐐?*锛歛i-sdk v2+ 鐨?`FileUIPart` 鐢?`url` 瀛楁鎵胯浇 dataURL锛堜笉鏄?`data`锛夈€傛湰椤圭洰缁熶竴浣跨敤 `url`銆?
 
-### 5.3 历史消息回填
+### 5.3 鍘嗗彶娑堟伅鍥炲～
 
-- DB 中 `messages.content` 是完整 UIMessage JSON 字符串
-- 包含所有 parts（text / file / tool-\* / reasoning）
-- 加载时直接 `JSON.parse` 后交给 `useChat` 作为 initialMessages
+- DB 涓?`messages.content` 鏄畬鏁?UIMessage JSON 瀛楃涓?
+- 鍖呭惈鎵€鏈?parts锛坱ext / file / tool-\* / reasoning锛?
+- 鍔犺浇鏃剁洿鎺?`JSON.parse` 鍚庝氦缁?`useChat` 浣滀负 initialMessages
 
 ---
 
-## 6. 聊天历史管理
+## 6. 鑱婂ぉ鍘嗗彶绠＄悊
 
-### 6.1 增强特性
+### 6.1 澧炲己鐗规€?
 
-`AppShell` 的会话列表新增了三个能力：
+`AppShell` 鐨勪細璇濆垪琛ㄦ柊澧炰簡涓変釜鑳藉姏锛?
 
-1. **搜索框**（仅在有会话时显示）
-2. **日期分组**（今天 / 昨天 / 本周 / 更早）
-3. **删除按钮的视觉提示**（hover 浮现，红化）
+1. \**鎼滅储妗?*锛堜粎鍦ㄦ湁浼氳瘽鏃舵樉绀猴級
+2. **鏃ユ湡鍒嗙粍**锛堜粖澶?/ 鏄ㄥぉ / 鏈懆 / 鏇存棭锛?
+3. \**鍒犻櫎鎸夐挳鐨勮瑙夋彁绀?*锛坔over 娴幇锛岀孩鍖栵級
 
-### 6.2 实现要点
+### 6.2 瀹炵幇瑕佺偣
 
 ```ts
-// 过滤 + 分组
+// 杩囨护 + 鍒嗙粍
 const groupedConversations = useMemo(() => {
   const q = searchQuery.trim().toLowerCase();
   const filtered = q
     ? conversations.filter((c) => c.title.toLowerCase().includes(q))
     : conversations;
-  // 按 updated_at 分组到 4 个固定 label
-  // 顺序：今天 → 昨天 → 本周 → 更早
+  // 鎸?updated_at 鍒嗙粍鍒?4 涓浐瀹?label
+  // 椤哄簭锛氫粖澶?鈫?鏄ㄥぉ 鈫?鏈懆 鈫?鏇存棭
 }, [conversations, searchQuery, t]);
 ```
 
-### 6.3 API 与现有 IPC 兼容
+### 6.3 API 涓庣幇鏈?IPC 鍏煎
 
-- 仍使用 `api.conversations.list / .delete / .touch`
-- 不增加 IPC 调用次数
-- 不影响 Trash 行为
+- 浠嶄娇鐢?`api.conversations.list / .delete / .touch`
+- 涓嶅鍔?IPC 璋冪敤娆℃暟
+- 涓嶅奖鍝?Trash 琛屼负
 
 ---
 
-## 7. i18n 文案扩展
+## 7. i18n 鏂囨鎵╁睍
 
-新增键（zh-CN + en）：
+鏂板閿紙zh-CN + en锛夛細
 
 ```ts
 // AppShell
-"shell.conversations":       "对话历史" / "Conversations"
-"shell.searchPlaceholder":   "搜索会话…" / "Search conversations…"
-"shell.noSearchResult":      "没有匹配的会话" / "No matching conversations"
-"shell.group.today":         "今天" / "Today"
-"shell.group.yesterday":     "昨天" / "Yesterday"
-"shell.group.thisWeek":      "本周" / "This week"
-"shell.group.earlier":       "更早" / "Earlier"
+"shell.conversations":       "瀵硅瘽鍘嗗彶" / "Conversations"
+"shell.searchPlaceholder":   "鎼滅储浼氳瘽鈥? / "Search conversations鈥?
+"shell.noSearchResult":      "娌℃湁鍖归厤鐨勪細璇? / "No matching conversations"
+"shell.group.today":         "浠婂ぉ" / "Today"
+"shell.group.yesterday":     "鏄ㄥぉ" / "Yesterday"
+"shell.group.thisWeek":      "鏈懆" / "This week"
+"shell.group.earlier":       "鏇存棭" / "Earlier"
 
 // ChatView
-"chat.empty.title":          "开始一段新对话" / "Start a new conversation"
-"chat.empty.subtitle":       "向 Void 提问..." / "Ask Void anything..."
-"chat.copy":                 "复制消息" / "Copy message"
-"chat.copied":               "已复制" / "Copied"
+"chat.empty.title":          "寮€濮嬩竴娈垫柊瀵硅瘽" / "Start a new conversation"
+"chat.empty.subtitle":       "鍚?Void 鎻愰棶..." / "Ask Void anything..."
+"chat.copy":                 "澶嶅埗娑堟伅" / "Copy message"
+"chat.copied":               "宸插鍒? / "Copied"
 
 // MessageInput
-"input.placeholder.withAttachments": "添加一些文字..." / "Add some text..."
-"input.emoji":               "插入表情" / "Insert emoji"
-"input.attach":              "上传附件" / "Attach file"
-"input.dropHint":            "松手即可附加文件" / "Drop files to attach"
-"input.shortcutHint":        "Enter 发送 · ..." / "Enter to send · ..."
+"input.placeholder.withAttachments": "娣诲姞涓€浜涙枃瀛?.." / "Add some text..."
+"input.emoji":               "鎻掑叆琛ㄦ儏" / "Insert emoji"
+"input.attach":              "涓婁紶闄勪欢" / "Attach file"
+"input.dropHint":            "鏉炬墜鍗冲彲闄勫姞鏂囦欢" / "Drop files to attach"
+"input.shortcutHint":        "Enter 鍙戦€?路 ..." / "Enter to send 路 ..."
 
 // MessageList
-"msg.copy":                  "复制" / "Copy"
-"msg.copied":                "已复制" / "Copied"
+"msg.copy":                  "澶嶅埗" / "Copy"
+"msg.copied":                "宸插鍒? / "Copied"
 ```
 
 ---
 
-## 8. 使用示例
+## 8. 浣跨敤绀轰緥
 
-### 8.1 最小化集成
+### 8.1 鏈€灏忓寲闆嗘垚
 
 ```tsx
 import { ChatView } from "@/components/ChatView";
@@ -689,7 +696,7 @@ function App() {
 }
 ```
 
-### 8.2 自定义 Emoji 分类
+### 8.2 鑷畾涔?Emoji 鍒嗙被
 
 ```tsx
 import { EmojiPicker, type EmojiCategory } from "@/components/ai-elements";
@@ -697,11 +704,11 @@ import { EmojiPicker, type EmojiCategory } from "@/components/ai-elements";
 const myCategories: EmojiCategory[] = [
   {
     id: "reactions",
-    label: "常用",
-    icon: "⚡",
+    label: "甯哥敤",
+    icon: "鈿?,
     entries: [
-      { char: "👍", keywords: ["thumbs", "up"] },
-      { char: "❤️", keywords: ["heart"] },
+      { char: "馃憤", keywords: ["thumbs", "up"] },
+      { char: "鉂わ笍", keywords: ["heart"] },
     ],
   },
 ];
@@ -709,15 +716,15 @@ const myCategories: EmojiCategory[] = [
 <EmojiPicker open={open} onOpenChange={setOpen} onSelect={onSelect} categories={myCategories} />;
 ```
 
-### 8.3 自定义空态建议
+### 8.3 鑷畾涔夌┖鎬佸缓璁?
 
 ```tsx
-const mySuggestions = ["总结今天的会议", "为新项目起个名字", "解释 TypeScript 的类型系统"];
+const mySuggestions = ["鎬荤粨浠婂ぉ鐨勪細璁?, "涓烘柊椤圭洰璧蜂釜鍚嶅瓧", "瑙ｉ噴 TypeScript 鐨勭被鍨嬬郴缁?];
 
-<PromptSuggestions title="试试这些" suggestions={mySuggestions} onSelect={(s) => handleSend(s)} />;
+<PromptSuggestions title="璇曡瘯杩欎簺" suggestions={mySuggestions} onSelect={(s) => handleSend(s)} />;
 ```
 
-### 8.4 自定义文件大小限制
+### 8.4 鑷畾涔夋枃浠跺ぇ灏忛檺鍒?
 
 ```tsx
 <MessageInput
@@ -732,7 +739,7 @@ const mySuggestions = ["总结今天的会议", "为新项目起个名字", "解
 />
 ```
 
-### 8.5 完整自定义消息渲染
+### 8.5 瀹屾暣鑷畾涔夋秷鎭覆鏌?
 
 ```tsx
 import {
@@ -759,116 +766,116 @@ function CustomMessage({ message, onReact }) {
 
 ---
 
-## 9. 可扩展点
+## 9. 鍙墿灞曠偣
 
-### 9.1 替换 Emoji 字典
+### 9.1 鏇挎崲 Emoji 瀛楀吀
 
-`EmojiPicker` 接受 `categories` prop，可注入完整自定义字典（如品牌专属 emoji）。
+`EmojiPicker` 鎺ュ彈 `categories` prop锛屽彲娉ㄥ叆瀹屾暣鑷畾涔夊瓧鍏革紙濡傚搧鐗屼笓灞?emoji锛夈€?
 
-### 9.2 自定义附件 Chip 行为
+### 9.2 鑷畾涔夐檮浠?Chip 琛屼负
 
-`<AttachmentChip onRemove={...}>` 可省略，变为纯展示模式；可以传入更复杂的 `variant` 来扩展。
+`<AttachmentChip onRemove={...}>` 鍙渷鐣ワ紝鍙樹负绾睍绀烘ā寮忥紱鍙互浼犲叆鏇村鏉傜殑 `variant` 鏉ユ墿灞曘€?
 
-### 9.3 替换 QuickReactions
+### 9.3 鏇挎崲 QuickReactions
 
-通过 `reactions` prop 改变默认 6 个反应；通过 `placement` 改变位置。
+閫氳繃 `reactions` prop 鏀瑰彉榛樿 6 涓弽搴旓紱閫氳繃 `placement` 鏀瑰彉浣嶇疆銆?
 
-### 9.4 主题色扩展
+### 9.4 涓婚鑹叉墿灞?
 
-所有强调色 / 焦点环使用 `accent` token。修改 HeroUI v3 的主题 bundle 或 Tailwind v4 的 `@theme` 即可全局生效。
+鎵€鏈夊己璋冭壊 / 鐒︾偣鐜娇鐢?`accent` token銆備慨鏀?HeroUI v3 鐨勪富棰?bundle 鎴?Tailwind v4 鐨?`@theme` 鍗冲彲鍏ㄥ眬鐢熸晥銆?
 
-### 9.5 i18n 扩展
+### 9.5 i18n 鎵╁睍
 
-仅需在 `lib/i18n.tsx` 增加新键；新语言只需在 `LOCALES` 数组中追加并补全字典。
+浠呴渶鍦?`lib/i18n.tsx` 澧炲姞鏂伴敭锛涙柊璇█鍙渶鍦?`LOCALES` 鏁扮粍涓拷鍔犲苟琛ュ叏瀛楀吀銆?
 
-### 9.6 文件上传管线扩展
+### 9.6 鏂囦欢涓婁紶绠＄嚎鎵╁睍
 
-`flushSubmit` 中可插入：
+`flushSubmit` 涓彲鎻掑叆锛?
 
-- 客户端压缩（图片）
-- 上传到对象存储后用 URL 替代 dataURL
-- 病毒扫描钩子
-
----
-
-## 10. 已知限制
-
-1. **大文件占用内存**：当前所有文件 base64 后驻留在内存中；超过 10MB 的文件会被拒绝（默认）。如需更大文件，建议客户端压缩后上传。
-2. **图片画廊无全屏预览**：`<MessageAttachments>` 当前只展示缩略图，点击打开新标签页（浏览器行为）。如需 Lightbox，需自行实现。
-3. **历史分组基于本地时间**：`AppShell` 的日期分组按客户端时区计算。跨时区切换可能导致分组位置变化。
-4. **表情反应未持久化**：`<QuickReactions>` 当前回调只触发 `console.log + toast`，未写入 DB。如需保留反馈，可扩展 `handleReaction` 与 messages 表。
-5. **拖拽上传不显示实时进度**：当前为「松手即附加」。如需显示上传进度条，可在 `flushSubmit` 中加入进度状态。
+- 瀹㈡埛绔帇缂╋紙鍥剧墖锛?
+- 涓婁紶鍒板璞″瓨鍌ㄥ悗鐢?URL 鏇夸唬 dataURL
+- 鐥呮瘨鎵弿閽╁瓙
 
 ---
 
-## 附录 A：文件清单
+## 10. 宸茬煡闄愬埗
 
-| 文件                                             | 状态     | 行数（约） | 用途            |
-| ------------------------------------------------ | -------- | ---------- | --------------- |
-| `components/ChatView.tsx`                        | 重构     | 350        | 路由 + 发送控制 |
-| `components/MessageList.tsx`                     | 重构     | 240        | 消息渲染        |
-| `components/MessageInput.tsx`                    | 重构     | 415        | Composer        |
-| `components/AppShell.tsx`                        | 增强     | 305        | 侧栏 + 历史分组 |
-| `components/ai-elements/emoji-picker.tsx`        | **新增** | 360        | 表情选择        |
-| `components/ai-elements/attachment-chip.tsx`     | **新增** | 145        | 附件 chip       |
-| `components/ai-elements/quick-reactions.tsx`     | **新增** | 70         | hover 反应      |
-| `components/ai-elements/message-attachments.tsx` | **新增** | 95         | 消息附件        |
-| `components/ai-elements/prompt-suggestions.tsx`  | **新增** | 55         | 空态建议        |
-| `components/ai-elements/prompt-input.tsx`        | 增强     | 230        | 暴露 ref        |
-| `components/ai-elements/index.ts`                | 更新     | —          | 导出新组件      |
-| `components/icons.tsx`                           | 增强     | —          | 新增 6 个 icon  |
-| `lib/i18n.tsx`                                   | 增强     | —          | 新增 14 个键    |
-| `docs/chat-component.md`                         | **新增** | —          | 本文档          |
+1. \**澶ф枃浠跺崰鐢ㄥ唴瀛?*锛氬綋鍓嶆墍鏈夋枃浠?base64 鍚庨┗鐣欏湪鍐呭瓨涓紱瓒呰繃 10MB 鐨勬枃浠朵細琚嫆缁濓紙榛樿锛夈€傚闇€鏇村ぇ鏂囦欢锛屽缓璁鎴风鍘嬬缉鍚庝笂浼犮€?
+2. \**鍥剧墖鐢诲粖鏃犲叏灞忛瑙?*锛歚<MessageAttachments>` 褰撳墠鍙睍绀虹缉鐣ュ浘锛岀偣鍑绘墦寮€鏂版爣绛鹃〉锛堟祻瑙堝櫒琛屼负锛夈€傚闇€ Lightbox锛岄渶鑷瀹炵幇銆?
+3. **鍘嗗彶鍒嗙粍鍩轰簬鏈湴鏃堕棿**锛歚AppShell` 鐨勬棩鏈熷垎缁勬寜瀹㈡埛绔椂鍖鸿绠椼€傝法鏃跺尯鍒囨崲鍙兘瀵艰嚧鍒嗙粍浣嶇疆鍙樺寲銆?
+4. **琛ㄦ儏鍙嶅簲鏈寔涔呭寲**锛歚<QuickReactions>` 褰撳墠鍥炶皟鍙Е鍙?`console.log + toast`锛屾湭鍐欏叆 DB銆傚闇€淇濈暀鍙嶉锛屽彲鎵╁睍 `handleReaction` 涓?messages 琛ㄣ€?
+5. \**鎷栨嫿涓婁紶涓嶆樉绀哄疄鏃惰繘搴?*锛氬綋鍓嶄负銆屾澗鎵嬪嵆闄勫姞銆嶃€傚闇€鏄剧ず涓婁紶杩涘害鏉★紝鍙湪 `flushSubmit` 涓姞鍏ヨ繘搴︾姸鎬併€?
 
-## 附录 B：ASCII 界面总览
+---
+
+## 闄勫綍 A锛氭枃浠舵竻鍗?
+
+| 鏂囦欢                                           | 鐘舵€?    | 琛屾暟锛堢害锛? | 鐢ㄩ€?               |
+| ------------------------------------------------ | --------- | --------------- | -------------------- |
+| `components/ChatView.tsx`                        | 閲嶆瀯    | 350             | 璺敱 + 鍙戦€佹帶鍒? |
+| `components/MessageList.tsx`                     | 閲嶆瀯    | 240             | 娑堟伅娓叉煋         |
+| `components/MessageInput.tsx`                    | 閲嶆瀯    | 415             | Composer             |
+| `components/AppShell.tsx`                        | 澧炲己    | 305             | 渚ф爮 + 鍘嗗彶鍒嗙粍 |
+| `components/ai-elements/emoji-picker.tsx`        | **鏂板** | 360             | 琛ㄦ儏閫夋嫨         |
+| `components/ai-elements/attachment-chip.tsx`     | **鏂板** | 145             | 闄勪欢 chip          |
+| `components/ai-elements/quick-reactions.tsx`     | **鏂板** | 70              | hover 鍙嶅簲         |
+| `components/ai-elements/message-attachments.tsx` | **鏂板** | 95              | 娑堟伅闄勪欢         |
+| `components/ai-elements/prompt-suggestions.tsx`  | **鏂板** | 55              | 绌烘€佸缓璁?         |
+| `components/ai-elements/prompt-input.tsx`        | 澧炲己    | 230             | 鏆撮湶 ref           |
+| `components/ai-elements/index.ts`                | 鏇存柊    | 鈥?             | 瀵煎嚭鏂扮粍浠?      |
+| `components/icons.tsx`                           | 澧炲己    | 鈥?             | 鏂板 6 涓?icon      |
+| `lib/i18n.tsx`                                   | 澧炲己    | 鈥?             | 鏂板 14 涓敭       |
+| `docs/chat-component.md`                         | **鏂板** | 鈥?             | 鏈枃妗?             |
+
+## 闄勫綍 B锛欰SCII 鐣岄潰鎬昏
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Void AI                                  local                              │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│  🏠 Void OS       ┌─ 对话历史                       [+] ─┐                  │
-│  💬 Chat          │ 🔍 搜索会话…                          │                  │
-│  🤖 Agents        │                                        │                  │
-│  ⚙️ Workflows    │ 今天                                    │                  │
-│  💾 Memory        │   💬 解释量子计算                🗑    │                  │
-│  🔐 Harness       │   💬 React 组件设计              🗑    │                  │
-│  🌐 Server        │                                        │                  │
-│  🖥️ Interactions │ 昨天                                    │                  │
-│  ☀️ Sync          │   💬 TypeScript 学习               🗑    │                  │
-│                  │                                        │                  │
-│                  │ 本周                                    │                  │
-│                  │   💬 周会议程                       🗑    │                  │
-│                  │                                        │                  │
-│                  │ 更早                                    │                  │
-│                  │   💬 旅行计划                       🗑    │                  │
-│                  │                                        │                  │
-│                  │ [⚙️ Settings]                          │                  │
-│                  └────────────────────────────────────────┘                  │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│  对话                                                                       │
-│                                                                             │
-│                                          ┌───────────────────────────────┐ │
-│                                          │ 这是 AI 的回复内容...            │ │
-│                                          │ [📋 复制]   已复制              │ │
-│                                          └───────────────────────────────┘ │
-│  ┌────────────────────────────────────────┐                                  │
-│  │ 这是用户的问题...                          │                                  │
-│  │ [🖼️ photo.png] [📄 readme.pdf]              │                                  │
-│  └────────────────────────────────────────┘                                  │
-│                                                                             │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │ Ask Void anything...                                                  │  │
-│  │ (auto-expand to 152px)                                                │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│  [😊] [📎] │ [Agent] [Model]                                    [⏹ / ↑]   │
-│  Enter 发送 · Shift+Enter 换行 · ⌘/Ctrl+Enter 强制发送                       │
-└──────────────────────────────────────────────────────────────────────────────┘
+鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹? Void AI                                  local                              鈹?
+鈹?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ 鈹?
+鈹? 馃彔 Void OS       鈹屸攢 瀵硅瘽鍘嗗彶                       [+] 鈹€鈹?                 鈹?
+鈹? 馃挰 Chat          鈹?馃攳 鎼滅储浼氳瘽鈥?                         鈹?                 鈹?
+鈹? 馃 Agents        鈹?                                       鈹?                 鈹?
+鈹? 鈿欙笍 Workflows    鈹?浠婂ぉ                                    鈹?                 鈹?
+鈹? 馃捑 Memory        鈹?  馃挰 瑙ｉ噴閲忓瓙璁＄畻                馃棏    鈹?                 鈹?
+鈹? 馃攼 Runtime       鈹?  馃挰 React 缁勪欢璁捐              馃棏    鈹?                 鈹?
+鈹? 馃寪 Server        鈹?                                       鈹?                 鈹?
+鈹? 馃枼锔?Interactions 鈹?鏄ㄥぉ                                    鈹?                 鈹?
+鈹? 鈽€锔?Sync          鈹?  馃挰 TypeScript 瀛︿範               馃棏    鈹?                 鈹?
+鈹?                 鈹?                                       鈹?                 鈹?
+鈹?                 鈹?鏈懆                                    鈹?                 鈹?
+鈹?                 鈹?  馃挰 鍛ㄤ細璁▼                       馃棏    鈹?                 鈹?
+鈹?                 鈹?                                       鈹?                 鈹?
+鈹?                 鈹?鏇存棭                                    鈹?                 鈹?
+鈹?                 鈹?  馃挰 鏃呰璁″垝                       馃棏    鈹?                 鈹?
+鈹?                 鈹?                                       鈹?                 鈹?
+鈹?                 鈹?[鈿欙笍 Settings]                          鈹?                 鈹?
+鈹?                 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                 鈹?
+鈹?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ 鈹?
+鈹? 瀵硅瘽                                                                       鈹?
+鈹?                                                                            鈹?
+鈹?                                         鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹?
+鈹?                                         鈹?杩欐槸 AI 鐨勫洖澶嶅唴瀹?..            鈹?鈹?
+鈹?                                         鈹?[馃搵 澶嶅埗]   宸插鍒?             鈹?鈹?
+鈹?                                         鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹?
+鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                                 鈹?
+鈹? 鈹?杩欐槸鐢ㄦ埛鐨勯棶棰?..                          鈹?                                 鈹?
+鈹? 鈹?[馃柤锔?photo.png] [馃搫 readme.pdf]              鈹?                                 鈹?
+鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                                 鈹?
+鈹?                                                                            鈹?
+鈹?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ 鈹?
+鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
+鈹? 鈹?Ask Void anything...                                                  鈹? 鈹?
+鈹? 鈹?(auto-expand to 152px)                                                鈹? 鈹?
+鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
+鈹? [馃槉] [馃搸] 鈹?[Agent] [Model]                                    [鈴?/ 鈫慮   鈹?
+鈹? Enter 鍙戦€?路 Shift+Enter 鎹㈣ 路 鈱?Ctrl+Enter 寮哄埗鍙戦€?                      鈹?
+鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
 ```
 
 ---
 
-**版本**：v1.0（2026-07-04）
-**作者**：Void AI Team
-**依赖**：React 19, HeroUI v3, Tailwind v4, Vercel AI SDK, ai-elements
-**许可**：MIT
+**鐗堟湰**锛歷1.0锛?026-07-04锛?
+**浣滆€?\*锛歏oid AI Team
+**渚濊禆**锛歊eact 19, HeroUI v3, Tailwind v4, Vercel AI SDK, ai-elements
+**璁稿彲\*\*锛歁IT

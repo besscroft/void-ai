@@ -1,34 +1,69 @@
-/**
- * 数据库访问层（Drizzle ORM + better-sqlite3）
- *
- * 设计要点：
- * - 运行时数据库文件位于 `app.getPath('userData')/data/void-ai.db`，符合各平台规范
- * - 启用 WAL / foreign_keys / busy_timeout 提升并发与数据完整性
- * - schema 由 drizzle-kit 生成迁移文件，运行时 migrate() 自动应用
- * - 所有导出函数签名与旧版（node:sqlite 版）保持一致，IPC/renderer 无需改动
- *
- * 错误处理策略：
- * - 可恢复错误（如 API key 解密失败）就近返回 null 并记录日志
- * - 不可恢复错误（DB 未初始化、SQL 失败）由上层捕获，drizzle 自身会抛出
- */
-
-import Database from "better-sqlite3";
-import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { eq, desc, asc, and, isNull, isNotNull, lt } from "drizzle-orm";
-import { existsSync, mkdirSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+﻿import Database from "better-sqlite3";
 import { app } from "electron";
 import { is } from "@electron-toolkit/utils";
-import { encrypt, decrypt, type EncryptedPayload } from "./crypto";
+import { and, desc, eq, isNotNull, isNull, lt } from "drizzle-orm";
+import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { decrypt, encrypt, type EncryptedPayload } from "./crypto";
+import {
+  DEFAULT_BUILTIN_TOOL_SEEDS,
+  DEFAULT_CHILD_AGENT_SEEDS,
+  DEFAULT_WORKFLOW_SEEDS,
+} from "./runtime-defaults";
+import {
+  agentPolicies,
+  agents,
+  apiKeys,
+  conversations,
+  interactionProfiles,
+  memories,
+  messages,
+  modelApiKeys,
+  runtimeEvents,
+  runtimeRuns,
+  runtimeSteps,
+  sandboxArtifacts,
+  sandboxSessions,
+  sandboxSnapshots,
+  schema,
+  settings,
+  syncProfiles,
+  toolSecrets,
+  toolServers,
+  tools,
+  workflowRuns,
+  workflows,
+  type AgentPolicy as DbAgentPolicy,
+  type AgentProfile as DbAgentProfile,
+  type NewRuntimeEvent,
+  type NewRuntimeRun,
+  type NewRuntimeStep,
+  type NewSandboxArtifact,
+  type NewSandboxSession,
+  type NewSandboxSnapshot,
+  type NewToolRecord,
+  type NewToolSecret,
+  type NewToolServer,
+  type RuntimeEvent as DbRuntimeEvent,
+  type RuntimeRun as DbRuntimeRun,
+  type RuntimeStep as DbRuntimeStep,
+  type SandboxArtifact,
+  type SandboxSession,
+  type SandboxSnapshot,
+  type ToolRecord as DbToolRecord,
+  type ToolSecret as DbToolSecret,
+  type ToolServer as DbToolServer,
+} from "./schema";
 import {
   DEFAULT_AGENT_HANDOFF_CONFIG,
+  DEFAULT_AGENT_ID as SHARED_DEFAULT_AGENT_ID,
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
-  DESKTOP_PET_PROFILE_ID,
-  DEFAULT_AGENT_ID as SHARED_DEFAULT_AGENT_ID,
   DEFAULT_DESKTOP_PET_CONFIG,
+  DESKTOP_PET_PROFILE_ID,
   SettingKey,
   mergeDesktopPetConfig,
   moodFromAgentRuntimeStatus,
@@ -36,117 +71,74 @@ import {
   normalizeAgentRuntimeConfig,
   normalizeAgentToolPolicy,
   normalizeDesktopPetConfig,
-  type DesktopPetConfig,
+  type AgentInput,
+  type AgentProfile,
+  type AgentRuntimeState,
+  type AgentRuntimeStatus,
+  type Conversation,
+  type ConversationAgentState,
   type DesktopPetConfigPatch,
   type DesktopPetSnapshot,
-  type ExtensionOwnerType,
-  type ExtensionSecretInput,
-  type ExtensionSecretPublic,
-  type ExtensionSkillInput,
-  type ExtensionSkillStep,
-  type ExtensionsSnapshot,
-  type AgentInput,
-  type AgentHandoffConfig,
-  type AgentRuntimeConfig,
-  type AgentRuntimeStatus,
-  type AgentToolPolicy,
-  type McpServerInput,
-} from "../../shared/types";
-import {
-  schema,
-  conversations,
-  messages,
-  settings,
-  apiKeys,
-  modelApiKeys,
-  agents,
-  agentRuns,
-  agentRuntimeState,
-  agentRunSteps,
-  conversationAgentState,
-  memories,
-  workflows,
-  workflowRuns,
-  harnessEvents,
-  sandboxSessions,
-  sandboxSnapshots,
-  sandboxArtifacts,
-  serverNodes,
-  mcpServers,
-  mcpTools,
-  extensionSkills,
-  extensionSecrets,
-  interactionProfiles,
-  syncState,
-  type Conversation,
-  type MessageRow,
-  type AgentProfile,
-  type AgentRun,
-  type NewAgentRun,
-  type AgentRuntimeState,
-  type AgentRunStep,
-  type NewAgentRunStep,
-  type ConversationAgentState,
+  type InteractionProfile,
   type MemoryRecord,
+  type MessageRow,
+  type RunStatus,
+  type RuntimeEvent,
+  type RuntimeSnapshot,
+  type RuntimeStep,
+  type RuntimeRun,
+  type SyncState,
+  type ToolRecord,
+  type ToolSecretInput,
+  type ToolSecretOwnerType,
+  type ToolSecretPublic,
+  type ToolServer,
+  type ToolServerInput,
+  type ToolSkill,
+  type ToolSkillInput,
+  type ToolSkillStep,
+  type ToolsSnapshot,
   type WorkflowDefinition,
   type WorkflowRun,
-  type NewWorkflowRun,
-  type HarnessEvent,
-  type SandboxSession,
-  type NewSandboxSession,
-  type SandboxSnapshot,
-  type NewSandboxSnapshot,
-  type SandboxArtifact,
-  type NewSandboxArtifact,
-  type ServerNode,
-  type McpServer,
-  type McpTool,
-  type NewMcpTool,
-  type ExtensionSkill,
-  type ExtensionSecret,
-  type InteractionProfile,
-  type SyncState,
-} from "./schema";
+} from "../../shared/types";
 
 export type {
-  Conversation,
-  MessageRow,
   AgentProfile,
-  AgentRun,
   AgentRuntimeState,
-  AgentRunStep,
+  Conversation,
   ConversationAgentState,
+  InteractionProfile,
   MemoryRecord,
-  WorkflowDefinition,
-  WorkflowRun,
-  HarnessEvent,
+  MessageRow,
+  RuntimeEvent,
+  RuntimeRun,
+  RuntimeStep,
+  SandboxArtifact,
   SandboxSession,
   SandboxSnapshot,
-  SandboxArtifact,
-  ServerNode,
-  McpServer,
-  McpTool,
-  ExtensionSkill,
-  InteractionProfile,
   SyncState,
+  ToolRecord,
+  ToolServer,
+  ToolSkill,
+  WorkflowDefinition,
+  WorkflowRun,
 };
-/** 数据库文件名 */
+
 const DB_FILENAME = "void-ai.db";
-/** 数据目录名（位于 userData 下） */
 const DATA_DIRNAME = "data";
 const DEFAULT_AGENT_ID = SHARED_DEFAULT_AGENT_ID;
 const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_SYNC_PROFILE_ID = "sync-local";
 
-/** drizzle 实例类型（基于 schema 推断，保证类型安全的查询/插入/更新） */
 type DbInstance = BetterSQLite3Database<typeof schema>;
+type RuntimeStatus = RunStatus | "waiting_approval";
 
 let rawDb: Database.Database | null = null;
 let dbInstance: DbInstance | null = null;
 
-/**
- * 解析数据目录路径，并在首次调用时创建。
- * 路径：app.getPath('userData')/data
- */
+const agentRuntimeStates = new Map<string, AgentRuntimeState>();
+const conversationAgentStates = new Map<string, ConversationAgentState>();
+
 function resolveDataDir(): string {
   const userDataDir = process.env.VOID_AI_USER_DATA_DIR || app.getPath("userData");
   const dir = join(userDataDir, DATA_DIRNAME);
@@ -154,15 +146,8 @@ function resolveDataDir(): string {
   return dir;
 }
 
-/**
- * 解析迁移文件目录路径。
- * - dev：apps/desktop/drizzle（源码目录，drizzle-kit 生成产物落地处）
- * - prod：process.resourcesPath/drizzle（由 electron-builder extraResources 复制）
- */
 function resolveMigrationsFolder(): string {
   if (is.dev) {
-    // dev 下 __dirname = apps/desktop/out/main
-    // 上溯两级到 apps/desktop，再进入 drizzle 目录
     const candidates = [
       join(__dirname, "..", "..", "drizzle"),
       join(__dirname, "..", "..", "..", "drizzle"),
@@ -172,65 +157,43 @@ function resolveMigrationsFolder(): string {
   return join(process.resourcesPath, "drizzle");
 }
 
-/**
- * 初始化数据库并应用迁移。
- * 必须在 app ready 之后调用。
- */
 export function initDb(): DbInstance {
   if (dbInstance) return dbInstance;
 
-  const dataDir = resolveDataDir();
-  const dbPath = join(dataDir, DB_FILENAME);
-  console.log("[db] 数据库路径:", dbPath);
-
+  const dbPath = join(resolveDataDir(), DB_FILENAME);
   rawDb = new Database(dbPath);
-  // SQLite 优化项：WAL 提升并发；foreign_keys 保证级联；busy_timeout 避免短时锁冲突
   rawDb.pragma("journal_mode = WAL");
   rawDb.pragma("foreign_keys = ON");
   rawDb.pragma("busy_timeout = 5000");
 
   dbInstance = drizzle(rawDb, { schema });
-
-  // 应用迁移文件
-  const migrationsFolder = resolveMigrationsFolder();
-  console.log("[db] 迁移目录:", migrationsFolder);
   try {
-    migrate(dbInstance, { migrationsFolder });
+    migrate(dbInstance, { migrationsFolder: resolveMigrationsFolder() });
     purgeExpiredDeletedConversations();
-    seedWorkspaceDefaults();
-    console.log("[db] 迁移应用完成");
-  } catch (err) {
-    // 迁移失败属于不可恢复错误，关闭资源后向上抛出
+    seedDefaults();
+  } catch (error) {
     rawDb.close();
     rawDb = null;
     dbInstance = null;
-    throw err;
+    throw error;
   }
-
   return dbInstance;
 }
 
-/** 获取已初始化的 drizzle 实例 */
 export function getDb(): DbInstance {
-  if (!dbInstance) throw new Error("数据库未初始化，请先调用 initDb()");
+  if (!dbInstance) throw new Error("Database is not initialized.");
   return dbInstance;
 }
 
-/** 关闭数据库连接（应用退出时调用） */
 export function closeDb(): void {
-  if (rawDb) {
-    rawDb.close();
-    rawDb = null;
-    dbInstance = null;
-  }
+  rawDb?.close();
+  rawDb = null;
+  dbInstance = null;
+  agentRuntimeStates.clear();
+  conversationAgentStates.clear();
 }
 
-// ============================================================
-// 会话历史
-// ============================================================
-
-/** 创建新会话 */
-export function createConversation(id: string, title = "新会话"): Conversation {
+export function createConversation(id: string, title = "New conversation"): Conversation {
   const now = Date.now();
   const row: Conversation = {
     id,
@@ -244,7 +207,6 @@ export function createConversation(id: string, title = "新会话"): Conversatio
   return row;
 }
 
-/** 列出普通会话（按更新时间倒序，不包含回收站） */
 export function listConversations(): Conversation[] {
   return getDb()
     .select()
@@ -254,7 +216,6 @@ export function listConversations(): Conversation[] {
     .all();
 }
 
-/** 列出回收站会话（按删除时间倒序） */
 export function listDeletedConversations(): Conversation[] {
   return getDb()
     .select()
@@ -264,232 +225,165 @@ export function listDeletedConversations(): Conversation[] {
     .all();
 }
 
-/** 获取单个普通会话 */
 export function getConversation(id: string): Conversation | null {
-  return (
-    getDb()
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.id, id), isNull(conversations.deleted_at)))
-      .get() ?? null
-  );
+  return getDb().select().from(conversations).where(eq(conversations.id, id)).get() ?? null;
 }
 
-/** 更新会话标题/时间戳 */
 export function touchConversation(id: string, title?: string): void {
-  const now = Date.now();
-  const db = getDb();
-  const where = and(eq(conversations.id, id), isNull(conversations.deleted_at));
-  if (title) {
-    db.update(conversations).set({ title, updated_at: now }).where(where).run();
-  } else {
-    db.update(conversations).set({ updated_at: now }).where(where).run();
-  }
+  const patch: Partial<Conversation> = { updated_at: Date.now() };
+  if (typeof title === "string" && title.trim()) patch.title = title.trim().slice(0, 160);
+  getDb().update(conversations).set(patch).where(eq(conversations.id, id)).run();
 }
 
-/** 软删除会话：移入回收站，7 天后自动永久删除 */
 export function deleteConversation(id: string): void {
   const now = Date.now();
   getDb()
     .update(conversations)
     .set({ deleted_at: now, purge_after_at: now + TRASH_RETENTION_MS, updated_at: now })
-    .where(and(eq(conversations.id, id), isNull(conversations.deleted_at)))
-    .run();
-}
-
-/** 从回收站恢复会话 */
-export function restoreConversation(id: string): void {
-  const now = Date.now();
-  getDb()
-    .update(conversations)
-    .set({ deleted_at: null, purge_after_at: null, updated_at: now })
     .where(eq(conversations.id, id))
     .run();
 }
 
-/** 永久删除会话及其所有消息（外键级联） */
+export function restoreConversation(id: string): void {
+  getDb()
+    .update(conversations)
+    .set({ deleted_at: null, purge_after_at: null, updated_at: Date.now() })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
 export function permanentlyDeleteConversation(id: string): void {
   getDb().delete(conversations).where(eq(conversations.id, id)).run();
 }
 
-/**
- * 批量永久删除多个会话（事务）。
- * 入参为 id 列表，返回实际删除的行数；空数组直接返回 0。
- */
 export function permanentlyDeleteConversations(ids: string[]): number {
-  if (ids.length === 0) return 0;
-  const db = getDb();
-  return db.transaction((tx) => {
-    let changes = 0;
-    for (const id of ids) {
-      changes += tx.delete(conversations).where(eq(conversations.id, id)).run().changes;
-    }
-    return changes;
-  });
+  let deleted = 0;
+  for (const id of ids) {
+    const result = getDb().delete(conversations).where(eq(conversations.id, id)).run();
+    deleted += result.changes;
+  }
+  return deleted;
 }
 
-/** 永久删除已超过回收站保留期的会话 */
 export function purgeExpiredDeletedConversations(now = Date.now()): number {
   return getDb()
     .delete(conversations)
-    .where(and(isNotNull(conversations.deleted_at), lt(conversations.purge_after_at, now)))
+    .where(and(isNotNull(conversations.purge_after_at), lt(conversations.purge_after_at, now)))
     .run().changes;
 }
-/** 保存一条消息（已存在则更新） */
+
 export function saveMessage(msg: MessageRow): void {
+  const row = messageToDb(msg);
   getDb()
     .insert(messages)
-    .values({
-      id: msg.id,
-      conversation_id: msg.conversation_id,
-      role: msg.role,
-      content: msg.content,
-      created_at: msg.created_at,
-    })
+    .values(row)
     .onConflictDoUpdate({
       target: messages.id,
       set: {
-        content: msg.content,
-        role: msg.role,
-        created_at: msg.created_at,
+        conversation_id: row.conversation_id,
+        role: row.role,
+        content_json: row.content_json,
+        metadata_json: row.metadata_json,
+        created_at: row.created_at,
       },
     })
     .run();
+  touchConversation(msg.conversation_id);
 }
 
-/** 批量保存消息，使用事务保证原子性 */
-export function saveMessagesBatch(msgs: MessageRow[]): void {
-  if (!msgs.length) return;
+export function saveMessagesBatch(rows: MessageRow[]): void {
   const db = getDb();
   db.transaction((tx) => {
-    for (const msg of msgs) {
+    for (const msg of rows) {
+      const row = messageToDb(msg);
       tx.insert(messages)
-        .values({
-          id: msg.id,
-          conversation_id: msg.conversation_id,
-          role: msg.role,
-          content: msg.content,
-          created_at: msg.created_at,
-        })
+        .values(row)
         .onConflictDoUpdate({
           target: messages.id,
           set: {
-            content: msg.content,
-            role: msg.role,
-            created_at: msg.created_at,
+            conversation_id: row.conversation_id,
+            role: row.role,
+            content_json: row.content_json,
+            metadata_json: row.metadata_json,
+            created_at: row.created_at,
           },
         })
         .run();
     }
   });
+  if (rows[0]) touchConversation(rows[0].conversation_id);
 }
 
-/** 获取会话的所有消息（按时间升序） */
 export function listMessages(conversationId: string): MessageRow[] {
   return getDb()
     .select()
     .from(messages)
     .where(eq(messages.conversation_id, conversationId))
-    .orderBy(asc(messages.created_at))
-    .all();
+    .orderBy(messages.created_at)
+    .all()
+    .map(dbMessageToShared);
 }
 
-// ============================================================
-// 设置
-// ============================================================
-
 export function getSetting(key: string): string | null {
-  const row = getDb().select().from(settings).where(eq(settings.key, key)).get();
-  return row?.value ?? null;
+  return getDb().select().from(settings).where(eq(settings.key, key)).get()?.value ?? null;
 }
 
 export function setSetting(key: string, value: string): void {
   getDb()
     .insert(settings)
     .values({ key, value })
-    .onConflictDoUpdate({
-      target: settings.key,
-      set: { value },
-    })
+    .onConflictDoUpdate({ target: settings.key, set: { value } })
     .run();
 }
 
-// ============================================================
-// API Key 加密存储
-// ============================================================
-
-/**
- * 保存指定 provider 的 API key（加密存储）
- */
 export function setApiKey(provider: string, apiKey: string): void {
   const payload = encrypt(apiKey);
-  const now = Date.now();
   getDb()
     .insert(apiKeys)
-    .values({
-      provider,
-      ciphertext: JSON.stringify(payload),
-      updated_at: now,
-    })
+    .values({ provider, ciphertext: JSON.stringify(payload), updated_at: Date.now() })
     .onConflictDoUpdate({
       target: apiKeys.provider,
-      set: {
-        ciphertext: JSON.stringify(payload),
-        updated_at: now,
-      },
+      set: { ciphertext: JSON.stringify(payload), updated_at: Date.now() },
     })
     .run();
 }
 
-/**
- * 读取指定 provider 的 API key（解密）
- * @returns 解密后的明文 key；若未存储或解密失败则返回 null
- */
 export function getApiKey(provider: string): string | null {
   const row = getDb().select().from(apiKeys).where(eq(apiKeys.provider, provider)).get();
   if (!row) return null;
   try {
-    const payload = JSON.parse(row.ciphertext) as EncryptedPayload;
-    return decrypt(payload);
-  } catch (err) {
-    // 解密失败属于可恢复错误：记录日志并返回 null，让上层走"未配置"分支
-    console.error(`[db] 解密 ${provider} 的 API key 失败:`, err);
+    return decrypt(JSON.parse(row.ciphertext) as EncryptedPayload);
+  } catch {
     return null;
   }
 }
 
-/** 删除指定 provider 的 API key */
 export function deleteApiKey(provider: string): void {
   getDb().delete(apiKeys).where(eq(apiKeys.provider, provider)).run();
 }
 
-/** 列出已配置 API key 的 provider 列表（不返回明文） */
 export function listApiKeyProviders(): string[] {
-  const rows = getDb().select({ provider: apiKeys.provider }).from(apiKeys).all();
-  return rows.map((r) => r.provider);
+  return getDb()
+    .select()
+    .from(apiKeys)
+    .all()
+    .map((row) => row.provider);
 }
-
-// ============================================================
-// Model API Key encrypted storage
-// ============================================================
 
 export function setModelApiKey(providerId: string, modelId: string, apiKey: string): void {
   const payload = encrypt(apiKey);
-  const now = Date.now();
+  const row = {
+    provider_id: providerId,
+    model_id: modelId,
+    ciphertext: JSON.stringify(payload),
+    updated_at: Date.now(),
+  };
   getDb()
     .insert(modelApiKeys)
-    .values({
-      provider_id: providerId,
-      model_id: modelId,
-      ciphertext: JSON.stringify(payload),
-      updated_at: now,
-    })
+    .values(row)
     .onConflictDoUpdate({
       target: [modelApiKeys.provider_id, modelApiKeys.model_id],
-      set: {
-        ciphertext: JSON.stringify(payload),
-        updated_at: now,
-      },
+      set: { ciphertext: row.ciphertext, updated_at: row.updated_at },
     })
     .run();
 }
@@ -502,10 +396,8 @@ export function getModelApiKey(providerId: string, modelId: string): string | nu
     .get();
   if (!row) return null;
   try {
-    const payload = JSON.parse(row.ciphertext) as EncryptedPayload;
-    return decrypt(payload);
-  } catch (err) {
-    console.error("[db] Failed to decrypt API key for " + providerId + "/" + modelId + ":", err);
+    return decrypt(JSON.parse(row.ciphertext) as EncryptedPayload);
+  } catch {
     return null;
   }
 }
@@ -522,219 +414,226 @@ export function deleteModelApiKeysForProvider(providerId: string): void {
 }
 
 export function listModelApiKeyRefs(): string[] {
-  const rows = getDb()
-    .select({ providerId: modelApiKeys.provider_id, modelId: modelApiKeys.model_id })
+  return getDb()
+    .select()
     .from(modelApiKeys)
-    .all();
-  return rows.map((row) => row.providerId + "/" + row.modelId);
+    .all()
+    .map((row) => `${row.provider_id}/${row.model_id}`);
 }
 
-// ============================================================
-// 工作台数据：Agents / Memory / Workflows / Harness / Server / Sync
-// ============================================================
-
 export function listAgents(): AgentProfile[] {
-  return getDb().select().from(agents).orderBy(desc(agents.updated_at)).all();
+  return getDb().select().from(agents).orderBy(agents.kind, agents.name).all().map(toAgentProfile);
 }
 
 export function getAgent(id: string): AgentProfile | null {
-  return getDb().select().from(agents).where(eq(agents.id, id)).get() ?? null;
+  const row = getDb().select().from(agents).where(eq(agents.id, id)).get();
+  return row ? toAgentProfile(row) : null;
 }
 
 export function createAgent(input: AgentInput): AgentProfile {
   const now = Date.now();
-  const row = normalizeAgentInput({
-    id: randomUUID(),
-    input,
-    existing: null,
-    now,
-  });
-  getDb().insert(agents).values(row).run();
-  ensureAgentRuntimeState(row.id, "idle");
-  insertHarnessEvent({
-    kind: "agent",
-    title: "Child agent created: " + row.name,
+  const normalized = normalizeAgentInput(randomUUID(), input, null, now);
+  getDb().insert(agents).values(normalized.agent).run();
+  getDb().insert(agentPolicies).values(normalized.policy).run();
+  upsertAgentRuntimeState({ agent_id: normalized.agent.id, status: "idle" });
+  insertRuntimeEvent({
+    kind: "diagnostic",
+    title: "Agent created",
     status: "succeeded",
-    detail: { agentId: row.id, mode: parseAgentHandoffConfig(row).mode },
+    agent_id: normalized.agent.id,
+    detail: { agentId: normalized.agent.id, role: normalized.agent.role },
   });
-  return row;
+  return toAgentProfile(normalized.agent);
 }
 
 export function updateAgent(id: string, input: Partial<AgentInput>): AgentProfile {
-  const existing = getAgent(id);
-  if (!existing) throw new Error("Agent not found: " + id);
+  const existing = getRequiredAgentRow(id);
   assertAgentEditable(existing);
   const now = Date.now();
-  const next = normalizeAgentInput({
-    id,
-    input: { ...existing, ...input },
-    existing,
-    now,
-  });
+  const normalized = normalizeAgentInput(id, input, existing, now);
+  getDb().update(agents).set(normalized.agent).where(eq(agents.id, id)).run();
   getDb()
-    .update(agents)
-    .set({
-      name: next.name,
-      role: next.role,
-      description: next.description,
-      personality: next.personality,
-      soul_prompt: next.soul_prompt,
-      avatar: next.avatar,
-      status: next.status,
-      kind: next.kind,
-      parent_agent_id: next.parent_agent_id,
-      locked: next.locked,
-      enabled: next.enabled,
-      tool_policy_json: next.tool_policy_json,
-      handoff_config_json: next.handoff_config_json,
-      runtime_config_json: next.runtime_config_json,
-      model_ref: next.model_ref,
-      voice: next.voice,
-      updated_at: now,
+    .insert(agentPolicies)
+    .values(normalized.policy)
+    .onConflictDoUpdate({
+      target: agentPolicies.agent_id,
+      set: {
+        tool_policy_json: normalized.policy.tool_policy_json,
+        review_policy_json: normalized.policy.review_policy_json,
+        sandbox_policy_json: normalized.policy.sandbox_policy_json,
+        routing_policy_json: normalized.policy.routing_policy_json,
+        updated_at: normalized.policy.updated_at,
+      },
     })
-    .where(eq(agents.id, id))
     .run();
-  insertHarnessEvent({
-    kind: "agent",
-    title: "Child agent updated: " + next.name,
+  insertRuntimeEvent({
+    kind: "diagnostic",
+    title: "Agent updated",
     status: "succeeded",
-    detail: { agentId: next.id, status: next.status },
+    agent_id: id,
+    detail: { agentId: id },
   });
-  return getAgent(id) ?? next;
+  return getAgent(id)!;
 }
 
 export function saveAgent(agent: AgentProfile): void {
-  const existing = getAgent(agent.id);
-  if (existing) {
-    updateAgent(agent.id, agent);
-    return;
-  }
-  if (agent.id === DEFAULT_AGENT_ID || agent.kind === "main" || agent.locked) {
-    throw new Error("Void is managed internally and cannot be created through this API.");
-  }
+  const existing = getDb().select().from(agents).where(eq(agents.id, agent.id)).get() ?? null;
   const now = Date.now();
-  const row = normalizeAgentInput({ id: agent.id, input: agent, existing: null, now });
-  getDb().insert(agents).values(row).run();
-  ensureAgentRuntimeState(row.id, "idle");
+  const normalized = normalizeAgentInput(agent.id, agent, existing, now);
+  getDb()
+    .insert(agents)
+    .values(normalized.agent)
+    .onConflictDoUpdate({
+      target: agents.id,
+      set: {
+        name: normalized.agent.name,
+        role: normalized.agent.role,
+        instructions: normalized.agent.instructions,
+        persona: normalized.agent.persona,
+        description: normalized.agent.description,
+        avatar: normalized.agent.avatar,
+        status: normalized.agent.status,
+        kind: normalized.agent.kind,
+        parent_agent_id: normalized.agent.parent_agent_id,
+        locked: normalized.agent.locked,
+        enabled: normalized.agent.enabled,
+        model_ref: normalized.agent.model_ref,
+        voice: normalized.agent.voice,
+        updated_at: normalized.agent.updated_at,
+      },
+    })
+    .run();
+  getDb()
+    .insert(agentPolicies)
+    .values(normalized.policy)
+    .onConflictDoUpdate({
+      target: agentPolicies.agent_id,
+      set: {
+        tool_policy_json: normalized.policy.tool_policy_json,
+        review_policy_json: normalized.policy.review_policy_json,
+        sandbox_policy_json: normalized.policy.sandbox_policy_json,
+        routing_policy_json: normalized.policy.routing_policy_json,
+        updated_at: normalized.policy.updated_at,
+      },
+    })
+    .run();
+  upsertAgentRuntimeState({ agent_id: agent.id, status: "idle" });
 }
 
 export function archiveAgent(id: string): AgentProfile {
-  const existing = getAgent(id);
-  if (!existing) throw new Error("Agent not found: " + id);
+  const existing = getRequiredAgentRow(id);
   assertAgentEditable(existing);
   getDb()
     .update(agents)
-    .set({ status: "archived", updated_at: Date.now() })
+    .set({ status: "archived", enabled: 0, updated_at: Date.now() })
     .where(eq(agents.id, id))
     .run();
   upsertAgentRuntimeState({ agent_id: id, status: "idle", current_run_id: null });
-  insertHarnessEvent({
-    kind: "agent",
-    title: "Child agent archived: " + existing.name,
+  insertRuntimeEvent({
+    kind: "diagnostic",
+    title: "Agent archived",
     status: "succeeded",
-    detail: { agentId: id },
+    agent_id: id,
   });
-  return getAgent(id) ?? { ...existing, status: "archived" };
+  return getAgent(id)!;
 }
 
 export function restoreAgent(id: string): AgentProfile {
-  const existing = getAgent(id);
-  if (!existing) throw new Error("Agent not found: " + id);
-  assertAgentEditable(existing);
   getDb()
     .update(agents)
-    .set({ status: "active", updated_at: Date.now() })
+    .set({ status: "active", enabled: 1, updated_at: Date.now() })
     .where(eq(agents.id, id))
     .run();
-  ensureAgentRuntimeState(id, "idle");
-  insertHarnessEvent({
-    kind: "agent",
-    title: "Child agent restored: " + existing.name,
+  upsertAgentRuntimeState({ agent_id: id, status: "idle" });
+  insertRuntimeEvent({
+    kind: "diagnostic",
+    title: "Agent restored",
     status: "succeeded",
-    detail: { agentId: id },
+    agent_id: id,
   });
-  return getAgent(id) ?? { ...existing, status: "active" };
+  return getAgent(id)!;
 }
 
 export function duplicateAgent(id: string): AgentProfile {
   const existing = getAgent(id);
-  if (!existing) throw new Error("Agent not found: " + id);
-  if (existing.kind === "main" || existing.locked) {
-    throw new Error("Void cannot be duplicated.");
-  }
+  if (!existing) throw new Error("Agent not found.");
   const copy = createAgent({
+    ...existing,
     name: existing.name + " Copy",
-    role: existing.role,
-    description: existing.description,
-    personality: existing.personality,
-    soul_prompt: existing.soul_prompt,
-    avatar: existing.avatar,
-    status: existing.status === "archived" ? "draft" : existing.status,
-    enabled: existing.enabled,
-    model_ref: existing.model_ref,
-    voice: existing.voice,
-    tool_policy_json: existing.tool_policy_json,
-    handoff_config_json: existing.handoff_config_json,
-    runtime_config_json: existing.runtime_config_json,
+    status: "draft",
+    enabled: 0,
   });
-  insertHarnessEvent({
-    kind: "agent",
-    title: "Child agent duplicated: " + existing.name,
+  insertRuntimeEvent({
+    kind: "diagnostic",
+    title: "Agent duplicated",
     status: "succeeded",
+    agent_id: copy.id,
     detail: { sourceAgentId: id, agentId: copy.id },
   });
   return copy;
 }
 
-export function listAgentRuns(limit = 50): AgentRun[] {
-  return getDb().select().from(agentRuns).orderBy(desc(agentRuns.started_at)).limit(limit).all();
-}
-
-export function listAgentRunSteps(limit = 200): AgentRunStep[] {
+export function listRuntimeRuns(limit = 50): RuntimeRun[] {
   return getDb()
     .select()
-    .from(agentRunSteps)
-    .orderBy(desc(agentRunSteps.started_at))
+    .from(runtimeRuns)
+    .orderBy(desc(runtimeRuns.started_at))
     .limit(limit)
-    .all();
+    .all()
+    .map(toRuntimeRun);
 }
 
-export function createAgentRun(
-  input: Omit<NewAgentRun, "id" | "started_at"> & {
-    id?: string;
-    started_at?: number;
-  },
-): AgentRun {
-  const row: NewAgentRun = {
+export function createRuntimeRun(input: {
+  id?: string;
+  conversation_id?: string | null;
+  root_agent_id?: string | null;
+  final_agent_id?: string | null;
+  workflow_id?: string | null;
+  status: RuntimeStatus;
+  model_ref?: string | null;
+  trace_id?: string | null;
+  input_summary?: string | null;
+  output_summary?: string | null;
+  error?: string | null;
+  usage_json?: string | null;
+  metadata_json?: string;
+  started_at?: number;
+  finished_at?: number | null;
+}): RuntimeRun {
+  const now = Date.now();
+  const row: NewRuntimeRun = {
     id: input.id ?? randomUUID(),
     conversation_id: input.conversation_id ?? null,
-    root_agent_id: input.root_agent_id,
+    root_agent_id: input.root_agent_id ?? null,
     final_agent_id: input.final_agent_id ?? null,
+    workflow_id: input.workflow_id ?? null,
     status: input.status,
     model_ref: input.model_ref ?? null,
-    started_at: input.started_at ?? Date.now(),
-    finished_at: input.finished_at ?? null,
     trace_id: input.trace_id ?? null,
     input_summary: input.input_summary ?? null,
     output_summary: input.output_summary ?? null,
     error: input.error ?? null,
     usage_json: input.usage_json ?? null,
+    metadata_json: input.metadata_json ?? "{}",
+    started_at: input.started_at ?? now,
+    finished_at: input.finished_at ?? null,
+    updated_at: now,
   };
-  getDb().insert(agentRuns).values(row).run();
-  return row as AgentRun;
+  getDb().insert(runtimeRuns).values(row).run();
+  return toRuntimeRun(row as DbRuntimeRun);
 }
 
-export function updateAgentRun(
+export function updateRuntimeRun(
   id: string,
-  patch: Partial<Omit<AgentRun, "id" | "started_at">>,
-): AgentRun | null {
-  const existing = getDb().select().from(agentRuns).where(eq(agentRuns.id, id)).get();
+  patch: Partial<Omit<RuntimeRun, "id" | "started_at">>,
+): RuntimeRun | null {
+  const existing = getDb().select().from(runtimeRuns).where(eq(runtimeRuns.id, id)).get();
   if (!existing) return null;
   getDb()
-    .update(agentRuns)
+    .update(runtimeRuns)
     .set({
       final_agent_id: patch.final_agent_id ?? existing.final_agent_id,
-      status: patch.status ?? existing.status,
+      status: (patch.status as RuntimeStatus | undefined) ?? existing.status,
       model_ref: patch.model_ref ?? existing.model_ref,
       finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
       trace_id: patch.trace_id === undefined ? existing.trace_id : patch.trace_id,
@@ -744,185 +643,779 @@ export function updateAgentRun(
         patch.output_summary === undefined ? existing.output_summary : patch.output_summary,
       error: patch.error === undefined ? existing.error : patch.error,
       usage_json: patch.usage_json === undefined ? existing.usage_json : patch.usage_json,
+      updated_at: Date.now(),
     })
-    .where(eq(agentRuns.id, id))
+    .where(eq(runtimeRuns.id, id))
     .run();
-  return getDb().select().from(agentRuns).where(eq(agentRuns.id, id)).get() ?? null;
+  const row = getDb().select().from(runtimeRuns).where(eq(runtimeRuns.id, id)).get();
+  return row ? toRuntimeRun(row) : null;
 }
 
-export function createAgentRunStep(
-  input: Omit<NewAgentRunStep, "id" | "started_at" | "detail_json"> & {
-    id?: string;
-    started_at?: number;
-    detail?: unknown;
-    detail_json?: string;
-  },
-): AgentRunStep {
-  const row: NewAgentRunStep = {
+export function listRuntimeSteps(limit = 200): RuntimeStep[] {
+  return getDb()
+    .select()
+    .from(runtimeSteps)
+    .orderBy(desc(runtimeSteps.started_at))
+    .limit(limit)
+    .all()
+    .map(toRuntimeStep);
+}
+
+export function createRuntimeStep(input: {
+  id?: string;
+  run_id: string;
+  agent_id?: string | null;
+  tool_id?: string | null;
+  kind: string;
+  status: RuntimeStatus;
+  title: string;
+  detail?: unknown;
+  detail_json?: string;
+  started_at?: number;
+  finished_at?: number | null;
+  error?: string | null;
+}): RuntimeStep {
+  const row: NewRuntimeStep = {
     id: input.id ?? randomUUID(),
     run_id: input.run_id,
     agent_id: input.agent_id ?? null,
-    kind: input.kind,
+    tool_id: input.tool_id ?? null,
+    kind: normalizeRuntimeKind(input.kind),
     status: input.status,
     title: input.title,
-    detail_json: input.detail_json ?? JSON.stringify(sanitizeHarnessDetail(input.detail ?? {})),
+    detail_json: input.detail_json ?? JSON.stringify(redactDetail(input.detail ?? {})),
     started_at: input.started_at ?? Date.now(),
     finished_at: input.finished_at ?? null,
     error: input.error ?? null,
   };
-  getDb().insert(agentRunSteps).values(row).run();
-  return row as AgentRunStep;
+  getDb().insert(runtimeSteps).values(row).run();
+  return toRuntimeStep(row as DbRuntimeStep);
 }
 
-export function updateAgentRunStep(
+export function updateRuntimeStep(
   id: string,
-  patch: Partial<Omit<AgentRunStep, "id" | "run_id" | "started_at">> & { detail?: unknown },
-): AgentRunStep | null {
-  const existing = getDb().select().from(agentRunSteps).where(eq(agentRunSteps.id, id)).get();
+  patch: Partial<Omit<RuntimeStep, "id" | "run_id" | "started_at">> & { detail?: unknown },
+): RuntimeStep | null {
+  const existing = getDb().select().from(runtimeSteps).where(eq(runtimeSteps.id, id)).get();
   if (!existing) return null;
   getDb()
-    .update(agentRunSteps)
+    .update(runtimeSteps)
     .set({
       agent_id: patch.agent_id === undefined ? existing.agent_id : patch.agent_id,
-      kind: patch.kind ?? existing.kind,
-      status: patch.status ?? existing.status,
+      kind: patch.kind ? normalizeRuntimeKind(patch.kind) : existing.kind,
+      status: (patch.status as RuntimeStatus | undefined) ?? existing.status,
       title: patch.title ?? existing.title,
       detail_json:
         patch.detail !== undefined
-          ? JSON.stringify(sanitizeHarnessDetail(patch.detail))
+          ? JSON.stringify(redactDetail(patch.detail))
           : (patch.detail_json ?? existing.detail_json),
       finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
       error: patch.error === undefined ? existing.error : patch.error,
     })
-    .where(eq(agentRunSteps.id, id))
+    .where(eq(runtimeSteps.id, id))
     .run();
-  return getDb().select().from(agentRunSteps).where(eq(agentRunSteps.id, id)).get() ?? null;
+  const row = getDb().select().from(runtimeSteps).where(eq(runtimeSteps.id, id)).get();
+  return row ? toRuntimeStep(row) : null;
 }
 
-export function listAgentRuntimeStates(): AgentRuntimeState[] {
-  ensureAllAgentRuntimeStates();
-  return getDb().select().from(agentRuntimeState).orderBy(desc(agentRuntimeState.updated_at)).all();
+export function listRuntimeEvents(limit = 500): RuntimeEvent[] {
+  return getDb()
+    .select()
+    .from(runtimeEvents)
+    .orderBy(desc(runtimeEvents.created_at))
+    .limit(limit)
+    .all()
+    .map(toRuntimeEvent);
+}
+
+export function insertRuntimeEvent(input: {
+  id?: string;
+  run_id?: string | null;
+  runId?: string | null;
+  step_id?: string | null;
+  stepId?: string | null;
+  conversation_id?: string | null;
+  conversationId?: string | null;
+  agent_id?: string | null;
+  agentId?: string | null;
+  tool_id?: string | null;
+  toolId?: string | null;
+  owner_type?: string | null;
+  ownerType?: string | null;
+  owner_id?: string | null;
+  ownerId?: string | null;
+  kind: string;
+  status?: RuntimeStatus;
+  severity?: RuntimeEvent["severity"];
+  title: string;
+  detail?: unknown;
+  detail_json?: string;
+  duration_ms?: number | null;
+  durationMs?: number | null;
+  created_at?: number;
+}): RuntimeEvent {
+  const row: NewRuntimeEvent = {
+    id: input.id ?? randomUUID(),
+    run_id: input.run_id ?? input.runId ?? null,
+    step_id: input.step_id ?? input.stepId ?? null,
+    conversation_id: input.conversation_id ?? input.conversationId ?? null,
+    agent_id: input.agent_id ?? input.agentId ?? null,
+    tool_id: input.tool_id ?? input.toolId ?? null,
+    owner_type: input.owner_type ?? input.ownerType ?? null,
+    owner_id: input.owner_id ?? input.ownerId ?? null,
+    kind: normalizeRuntimeKind(input.kind),
+    status: input.status ?? "succeeded",
+    severity: input.severity ?? (input.kind === "error" ? "error" : "info"),
+    title: input.title,
+    detail_json: input.detail_json ?? JSON.stringify(redactDetail(input.detail ?? {})),
+    duration_ms: input.duration_ms ?? input.durationMs ?? null,
+    created_at: input.created_at ?? Date.now(),
+  };
+  getDb().insert(runtimeEvents).values(row).run();
+  return toRuntimeEvent(row as DbRuntimeEvent);
+}
+
+export function listagentRuntimeStates(): AgentRuntimeState[] {
+  ensureAllagentRuntimeStates();
+  return [...agentRuntimeStates.values()].sort((a, b) => b.updated_at - a.updated_at);
 }
 
 export function upsertAgentRuntimeState(
   patch: Partial<AgentRuntimeState> & { agent_id: string; status?: AgentRuntimeStatus },
 ): AgentRuntimeState {
-  const now = Date.now();
-  const existing = getDb()
-    .select()
-    .from(agentRuntimeState)
-    .where(eq(agentRuntimeState.agent_id, patch.agent_id))
-    .get();
+  const previous = agentRuntimeStates.get(patch.agent_id);
   const row: AgentRuntimeState = {
     agent_id: patch.agent_id,
-    status: patch.status ?? existing?.status ?? "idle",
+    status: patch.status ?? previous?.status ?? "idle",
     current_run_id:
       patch.current_run_id === undefined
-        ? (existing?.current_run_id ?? null)
+        ? (previous?.current_run_id ?? null)
         : patch.current_run_id,
     last_handoff_at:
       patch.last_handoff_at === undefined
-        ? (existing?.last_handoff_at ?? null)
+        ? (previous?.last_handoff_at ?? null)
         : patch.last_handoff_at,
     last_tool_at:
-      patch.last_tool_at === undefined ? (existing?.last_tool_at ?? null) : patch.last_tool_at,
+      patch.last_tool_at === undefined ? (previous?.last_tool_at ?? null) : patch.last_tool_at,
     last_learning_at:
       patch.last_learning_at === undefined
-        ? (existing?.last_learning_at ?? null)
+        ? (previous?.last_learning_at ?? null)
         : patch.last_learning_at,
-    last_error: patch.last_error === undefined ? (existing?.last_error ?? null) : patch.last_error,
-    updated_at: now,
+    last_error: patch.last_error === undefined ? (previous?.last_error ?? null) : patch.last_error,
+    updated_at: Date.now(),
   };
-  getDb()
-    .insert(agentRuntimeState)
-    .values(row)
-    .onConflictDoUpdate({
-      target: agentRuntimeState.agent_id,
-      set: {
-        status: row.status,
-        current_run_id: row.current_run_id,
-        last_handoff_at: row.last_handoff_at,
-        last_tool_at: row.last_tool_at,
-        last_learning_at: row.last_learning_at,
-        last_error: row.last_error,
-        updated_at: now,
-      },
-    })
-    .run();
+  agentRuntimeStates.set(row.agent_id, row);
   return row;
 }
 
-export function runtimeSnapshot(): {
-  agentRuns: AgentRun[];
-  agentRunSteps: AgentRunStep[];
-  agentRuntimeStates: AgentRuntimeState[];
-  conversationAgentStates: ConversationAgentState[];
-  sandboxSessions: SandboxSession[];
-  sandboxSnapshots: SandboxSnapshot[];
-  sandboxArtifacts: SandboxArtifact[];
-} {
-  return {
-    agentRuns: listAgentRuns(),
-    agentRunSteps: listAgentRunSteps(),
-    agentRuntimeStates: listAgentRuntimeStates(),
-    conversationAgentStates: listConversationAgentStates(),
-    sandboxSessions: listSandboxSessions(),
-    sandboxSnapshots: listSandboxSnapshots(),
-    sandboxArtifacts: listSandboxArtifacts(),
-  };
-}
-
 export function listConversationAgentStates(): ConversationAgentState[] {
-  return getDb()
-    .select()
-    .from(conversationAgentState)
-    .orderBy(desc(conversationAgentState.updated_at))
-    .all();
+  return [...conversationAgentStates.values()].sort((a, b) => b.updated_at - a.updated_at);
 }
 
 export function upsertConversationAgentState(
   patch: Partial<ConversationAgentState> & { conversation_id: string },
 ): ConversationAgentState {
-  const now = Date.now();
-  const existing = getDb()
-    .select()
-    .from(conversationAgentState)
-    .where(eq(conversationAgentState.conversation_id, patch.conversation_id))
-    .get();
+  const previous = conversationAgentStates.get(patch.conversation_id);
   const row: ConversationAgentState = {
     conversation_id: patch.conversation_id,
     active_agent_id:
       patch.active_agent_id === undefined
-        ? (existing?.active_agent_id ?? null)
+        ? (previous?.active_agent_id ?? null)
         : patch.active_agent_id,
     current_run_id:
       patch.current_run_id === undefined
-        ? (existing?.current_run_id ?? null)
+        ? (previous?.current_run_id ?? null)
         : patch.current_run_id,
     current_step_id:
       patch.current_step_id === undefined
-        ? (existing?.current_step_id ?? null)
+        ? (previous?.current_step_id ?? null)
         : patch.current_step_id,
-    status: patch.status ?? existing?.status ?? "idle",
-    summary: patch.summary === undefined ? (existing?.summary ?? null) : patch.summary,
+    status: patch.status ?? previous?.status ?? "idle",
+    summary: patch.summary === undefined ? (previous?.summary ?? null) : patch.summary,
+    updated_at: Date.now(),
+  };
+  conversationAgentStates.set(row.conversation_id, row);
+  return row;
+}
+
+export function runtimeSnapshot(): Pick<
+  RuntimeSnapshot,
+  | "runtimeRuns"
+  | "runtimeSteps"
+  | "agentRuntimeStates"
+  | "conversationAgentStates"
+  | "sandboxSessions"
+  | "sandboxSnapshots"
+  | "sandboxArtifacts"
+  | "runtimeEvents"
+> {
+  return {
+    runtimeRuns: listRuntimeRuns(),
+    runtimeSteps: listRuntimeSteps(),
+    agentRuntimeStates: listagentRuntimeStates(),
+    conversationAgentStates: listConversationAgentStates(),
+    sandboxSessions: listSandboxSessions(),
+    sandboxSnapshots: listSandboxSnapshots(),
+    sandboxArtifacts: listSandboxArtifacts(),
+    runtimeEvents: listRuntimeEvents(),
+  };
+}
+
+export function listMemories(): MemoryRecord[] {
+  return getDb()
+    .select()
+    .from(memories)
+    .orderBy(desc(memories.pinned), desc(memories.salience))
+    .all();
+}
+
+export function saveMemory(memory: MemoryRecord): void {
+  const now = Date.now();
+  const row = {
+    ...memory,
+    source_run_id: memory.source_run_id ?? null,
+    created_at: memory.created_at ?? now,
     updated_at: now,
   };
   getDb()
-    .insert(conversationAgentState)
+    .insert(memories)
     .values(row)
     .onConflictDoUpdate({
-      target: conversationAgentState.conversation_id,
+      target: memories.id,
       set: {
-        active_agent_id: row.active_agent_id,
-        current_run_id: row.current_run_id,
-        current_step_id: row.current_step_id,
-        status: row.status,
-        summary: row.summary,
-        updated_at: now,
+        scope: row.scope,
+        kind: row.kind,
+        title: row.title,
+        content: row.content,
+        agent_id: row.agent_id,
+        conversation_id: row.conversation_id,
+        source_run_id: row.source_run_id,
+        salience: row.salience,
+        pinned: row.pinned,
+        updated_at: row.updated_at,
       },
     })
     .run();
-  return row;
+}
+
+export function deleteMemory(id: string): void {
+  getDb().delete(memories).where(eq(memories.id, id)).run();
+}
+
+export function listWorkflows(): WorkflowDefinition[] {
+  return getDb().select().from(workflows).orderBy(desc(workflows.updated_at)).all();
+}
+
+export function listWorkflowRuns(): WorkflowRun[] {
+  return getDb().select().from(workflowRuns).orderBy(desc(workflowRuns.started_at)).all();
+}
+
+export function createWorkflowRun(input: {
+  id?: string;
+  workflow_id: string;
+  runtime_run_id?: string | null;
+  status: RuntimeStatus;
+  input_json?: string | null;
+  output_json?: string | null;
+  started_at?: number;
+  finished_at?: number | null;
+}): WorkflowRun {
+  const row = {
+    id: input.id ?? randomUUID(),
+    workflow_id: input.workflow_id,
+    runtime_run_id: input.runtime_run_id ?? null,
+    status: input.status,
+    input_json: input.input_json ?? null,
+    output_json: input.output_json ?? null,
+    started_at: input.started_at ?? Date.now(),
+    finished_at: input.finished_at ?? null,
+  };
+  getDb().insert(workflowRuns).values(row).run();
+  return row as WorkflowRun;
+}
+
+export function updateWorkflowRun(
+  id: string,
+  patch: Partial<Pick<WorkflowRun, "status" | "output_json" | "finished_at">>,
+): WorkflowRun | null {
+  const existing = getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id)).get();
+  if (!existing) return null;
+  getDb()
+    .update(workflowRuns)
+    .set({
+      status: (patch.status as RuntimeStatus | undefined) ?? existing.status,
+      output_json: patch.output_json === undefined ? existing.output_json : patch.output_json,
+      finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
+    })
+    .where(eq(workflowRuns.id, id))
+    .run();
+  return getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id)).get() ?? null;
+}
+
+export function listToolServers(kind?: "mcp" | "local" | "sandbox"): ToolServer[] {
+  const rows = kind
+    ? getDb().select().from(toolServers).where(eq(toolServers.kind, kind)).all()
+    : getDb().select().from(toolServers).all();
+  return rows.map(toToolServer);
+}
+
+export function listMcpServers(): ToolServer[] {
+  return listToolServers("mcp");
+}
+
+export function getToolServer(id: string): ToolServer | null {
+  const row = getDb().select().from(toolServers).where(eq(toolServers.id, id)).get();
+  return row ? toToolServer(row) : null;
+}
+
+export const getMcpServer = getToolServer;
+
+export function createToolServer(input: ToolServerInput): ToolServer {
+  const now = Date.now();
+  const row = normalizeToolServerInput(randomUUID(), input, null, now);
+  getDb().insert(toolServers).values(row).run();
+  insertRuntimeEvent({
+    kind: "tool",
+    title: "Tool server created",
+    status: "succeeded",
+    owner_type: "server",
+    owner_id: row.id,
+    detail: { serverId: row.id, transport: row.transport },
+  });
+  return toToolServer(row as DbToolServer);
+}
+
+export const createMcpServer = createToolServer;
+
+export function updateToolServer(id: string, input: Partial<ToolServerInput>): ToolServer {
+  const existing = getRequiredToolServer(id);
+  const now = Date.now();
+  const row = normalizeToolServerInput(id, input, existing, now);
+  getDb().update(toolServers).set(row).where(eq(toolServers.id, id)).run();
+  return getToolServer(id)!;
+}
+
+export const updateMcpServer = updateToolServer;
+
+export function deleteToolServer(id: string): void {
+  getDb().delete(toolServers).where(eq(toolServers.id, id)).run();
+  deleteToolSecretsForOwner("server", id);
+}
+
+export const deleteMcpServer = deleteToolServer;
+
+export function setToolServerEnabled(id: string, enabled: boolean): ToolServer {
+  getDb()
+    .update(toolServers)
+    .set({
+      enabled: enabled ? 1 : 0,
+      status: enabled ? "unknown" : "disabled",
+      updated_at: Date.now(),
+    })
+    .where(eq(toolServers.id, id))
+    .run();
+  return getToolServer(id)!;
+}
+
+export const setMcpServerEnabled = setToolServerEnabled;
+
+export function updateToolServerStatus(
+  id: string,
+  patch: Pick<Partial<ToolServer>, "status" | "last_error" | "last_connected_at">,
+): ToolServer | null {
+  const existing = getToolServer(id);
+  if (!existing) return null;
+  getDb()
+    .update(toolServers)
+    .set({
+      status: patch.status ?? existing.status,
+      last_error: patch.last_error === undefined ? existing.last_error : patch.last_error,
+      last_connected_at:
+        patch.last_connected_at === undefined
+          ? existing.last_connected_at
+          : patch.last_connected_at,
+      updated_at: Date.now(),
+    })
+    .where(eq(toolServers.id, id))
+    .run();
+  return getToolServer(id);
+}
+
+export const updateMcpServerStatus = updateToolServerStatus;
+
+export function listToolRecords(kind?: "builtin" | "mcp" | "skill" | "sandbox"): ToolRecord[] {
+  const rows = kind
+    ? getDb().select().from(tools).where(eq(tools.kind, kind)).all()
+    : getDb().select().from(tools).all();
+  return rows.map(toToolRecord);
+}
+
+export function listMcpTools(serverId?: string): ToolRecord[] {
+  const rows = serverId
+    ? getDb()
+        .select()
+        .from(tools)
+        .where(and(eq(tools.kind, "mcp"), eq(tools.server_id, serverId)))
+        .all()
+    : getDb().select().from(tools).where(eq(tools.kind, "mcp")).all();
+  return rows.map(toToolRecord);
+}
+
+export function getMcpToolByReference(serverId: string, toolName: string): ToolRecord | null {
+  const reference = `mcp:${serverId}:${toolName}`;
+  const row = getDb().select().from(tools).where(eq(tools.reference, reference)).get();
+  return row ? toToolRecord(row) : null;
+}
+
+export function upsertMcpToolDefinitions(
+  serverId: string,
+  definitions: Array<{
+    name: string;
+    title?: string | null;
+    description?: string;
+    inputSchema?: unknown;
+    outputSchema?: unknown;
+  }>,
+): ToolRecord[] {
+  const now = Date.now();
+  for (const definition of definitions) {
+    const name = normalizeRequiredText(definition.name, "tool name", 120);
+    const id = toolRowId(serverId, name);
+    const reference = `mcp:${serverId}:${name}`;
+    const existing = getDb().select().from(tools).where(eq(tools.id, id)).get();
+    const row: NewToolRecord = {
+      id,
+      server_id: serverId,
+      name,
+      title: definition.title ?? null,
+      description: definition.description ?? "",
+      kind: "mcp",
+      category: "mcp",
+      reference,
+      enabled: existing?.enabled ?? 1,
+      auto_use: existing?.auto_use ?? 0,
+      requires_approval: existing?.requires_approval ?? 1,
+      input_schema_json: JSON.stringify(definition.inputSchema ?? {}),
+      output_schema_json: JSON.stringify(definition.outputSchema ?? {}),
+      config_json: existing?.config_json ?? "{}",
+      steps_json: "[]",
+      workflow_id: null,
+      trigger_keywords_json: "[]",
+      tags_json: "[]",
+      discovered_at: existing?.discovered_at ?? now,
+      last_run_at: existing?.last_run_at ?? null,
+      updated_at: now,
+    };
+    getDb()
+      .insert(tools)
+      .values(row)
+      .onConflictDoUpdate({
+        target: tools.id,
+        set: {
+          title: row.title,
+          description: row.description,
+          input_schema_json: row.input_schema_json,
+          output_schema_json: row.output_schema_json,
+          updated_at: row.updated_at,
+        },
+      })
+      .run();
+  }
+  return listMcpTools(serverId);
+}
+
+export function updateToolRecord(
+  id: string,
+  patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
+): ToolRecord {
+  const existing = getRequiredToolRecord(id);
+  getDb()
+    .update(tools)
+    .set({
+      enabled: normalizeBooleanNumber(patch.enabled ?? existing.enabled),
+      auto_use: normalizeBooleanNumber(patch.auto_use ?? existing.auto_use),
+      requires_approval: normalizeBooleanNumber(
+        patch.requires_approval ?? existing.requires_approval,
+      ),
+      updated_at: Date.now(),
+    })
+    .where(eq(tools.id, id))
+    .run();
+  return toToolRecord(getRequiredToolRecord(id));
+}
+
+export const updateMcpTool = updateToolRecord;
+
+export function listSkillTools(): ToolSkill[] {
+  return getDb()
+    .select()
+    .from(tools)
+    .where(eq(tools.kind, "skill"))
+    .orderBy(desc(tools.updated_at))
+    .all()
+    .map(toToolSkill);
+}
+
+export function getSkillTool(id: string): ToolSkill | null {
+  const row = getDb()
+    .select()
+    .from(tools)
+    .where(and(eq(tools.id, id), eq(tools.kind, "skill")))
+    .get();
+  return row ? toToolSkill(row) : null;
+}
+
+export function createSkillTool(input: ToolSkillInput): ToolSkill {
+  const now = Date.now();
+  const row = normalizeSkillToolInput(randomUUID(), input, null, now);
+  getDb().insert(tools).values(row).run();
+  ensureSkillWorkflow(row);
+  insertRuntimeEvent({
+    kind: "tool",
+    title: "Skill tool created",
+    status: "succeeded",
+    tool_id: row.id,
+    owner_type: "tool",
+    owner_id: row.id,
+  });
+  return toToolSkill(getRequiredToolRecord(row.id));
+}
+
+export function updateSkillTool(id: string, input: Partial<ToolSkillInput>): ToolSkill {
+  const existing = getRequiredToolRecord(id);
+  const now = Date.now();
+  const row = normalizeSkillToolInput(id, input, existing, now);
+  getDb().update(tools).set(row).where(eq(tools.id, id)).run();
+  ensureSkillWorkflow(row);
+  return toToolSkill(getRequiredToolRecord(id));
+}
+
+export function deleteSkillTool(id: string): void {
+  getDb().delete(tools).where(eq(tools.id, id)).run();
+  deleteToolSecretsForOwner("tool", id);
+}
+
+export function setSkillToolEnabled(id: string, enabled: boolean): ToolSkill {
+  getDb()
+    .update(tools)
+    .set({ enabled: enabled ? 1 : 0, updated_at: Date.now() })
+    .where(eq(tools.id, id))
+    .run();
+  return toToolSkill(getRequiredToolRecord(id));
+}
+
+export function markSkillToolRun(id: string, at = Date.now()): void {
+  getDb().update(tools).set({ last_run_at: at, updated_at: at }).where(eq(tools.id, id)).run();
+}
+
+export function setToolSecret(input: ToolSecretInput): ToolSecretPublic {
+  const ownerType = normalizeSecretOwnerType(input.ownerType);
+  const key = normalizeSecretKey(input.key);
+  const ownerId = normalizeRequiredText(input.ownerId, "owner id", 160);
+  const id = toolSecretId(ownerType, ownerId, key);
+  const row: NewToolSecret = {
+    id,
+    owner_type: ownerType,
+    owner_id: ownerId,
+    key,
+    label: input.label?.trim() || key,
+    ciphertext: JSON.stringify(encrypt(input.value)),
+    updated_at: Date.now(),
+  };
+  getDb()
+    .insert(toolSecrets)
+    .values(row)
+    .onConflictDoUpdate({
+      target: toolSecrets.id,
+      set: { label: row.label, ciphertext: row.ciphertext, updated_at: row.updated_at },
+    })
+    .run();
+  return publicToolSecret(row as DbToolSecret);
+}
+
+export function listToolSecretsPublic(
+  ownerType?: ToolSecretOwnerType,
+  ownerId?: string,
+): ToolSecretPublic[] {
+  const normalizedOwnerType = ownerType ? normalizeSecretOwnerType(ownerType) : null;
+  const rows =
+    normalizedOwnerType && ownerId
+      ? getDb()
+          .select()
+          .from(toolSecrets)
+          .where(
+            and(eq(toolSecrets.owner_type, normalizedOwnerType), eq(toolSecrets.owner_id, ownerId)),
+          )
+          .all()
+      : getDb().select().from(toolSecrets).all();
+  return rows.map(publicToolSecret);
+}
+
+export function deleteToolSecret(id: string): void {
+  getDb().delete(toolSecrets).where(eq(toolSecrets.id, id)).run();
+}
+
+export function deleteToolSecretsForOwner(ownerType: ToolSecretOwnerType, ownerId: string): void {
+  const normalizedOwnerType = normalizeSecretOwnerType(ownerType);
+  getDb()
+    .delete(toolSecrets)
+    .where(and(eq(toolSecrets.owner_type, normalizedOwnerType), eq(toolSecrets.owner_id, ownerId)))
+    .run();
+}
+
+export function getToolSecretValue(
+  ownerType: ToolSecretOwnerType,
+  ownerId: string,
+  key: string,
+): string | null {
+  const normalizedOwnerType = normalizeSecretOwnerType(ownerType);
+  const row = getDb()
+    .select()
+    .from(toolSecrets)
+    .where(
+      and(
+        eq(toolSecrets.owner_type, normalizedOwnerType),
+        eq(toolSecrets.owner_id, ownerId),
+        eq(toolSecrets.key, normalizeSecretKey(key)),
+      ),
+    )
+    .get();
+  if (!row) return null;
+  try {
+    return decrypt(JSON.parse(row.ciphertext) as EncryptedPayload);
+  } catch {
+    return null;
+  }
+}
+
+export function resolveToolSecretReferences(
+  ownerType: ToolSecretOwnerType,
+  ownerId: string,
+  values: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => {
+      const secretKey = parseSecretReference(value);
+      return [key, secretKey ? (getToolSecretValue(ownerType, ownerId, secretKey) ?? "") : value];
+    }),
+  );
+}
+
+export function getToolsSnapshot(): ToolsSnapshot {
+  return {
+    toolServers: listToolServers(),
+    toolRecords: listToolRecords(),
+    skills: listSkillTools(),
+    secrets: listToolSecretsPublic(),
+    workflowRuns: listWorkflowRuns(),
+    runtimeEvents: listRuntimeEvents(),
+  };
+}
+
+export function listInteractionProfiles(): InteractionProfile[] {
+  ensureDesktopPetProfile();
+  return getDb().select().from(interactionProfiles).orderBy(interactionProfiles.kind).all();
+}
+
+export function isDesktopPetEnabled(): boolean {
+  return ensureDesktopPetProfile().enabled !== 0;
+}
+
+export function getDesktopPetSnapshot(): DesktopPetSnapshot {
+  const profile = ensureDesktopPetProfile();
+  const config = normalizeDesktopPetConfig(profile.config_json);
+  const agent = getAgent(DEFAULT_AGENT_ID);
+  const runtimeState = agentRuntimeStates.get(DEFAULT_AGENT_ID) ?? null;
+  return {
+    profile,
+    config,
+    agent,
+    runtimeState,
+    selectedModel: getSetting(SettingKey.SelectedModel),
+    mood: moodFromAgentRuntimeStatus(runtimeState?.status),
+  };
+}
+
+export function setDesktopPetEnabled(enabled: boolean): DesktopPetSnapshot {
+  updateDesktopPetProfile({ enabled: enabled ? 1 : 0 });
+  return getDesktopPetSnapshot();
+}
+
+export function updateDesktopPetConfig(patch: DesktopPetConfigPatch): DesktopPetSnapshot {
+  const profile = ensureDesktopPetProfile();
+  const current = normalizeDesktopPetConfig(profile.config_json);
+  updateDesktopPetProfile({ config_json: JSON.stringify(mergeDesktopPetConfig(current, patch)) });
+  return getDesktopPetSnapshot();
+}
+
+export function getSyncState(): SyncState {
+  return ensureSyncProfile();
+}
+
+export function getRuntimeSnapshot(): RuntimeSnapshot {
+  return {
+    agents: listAgents(),
+    runtimeRuns: listRuntimeRuns(),
+    runtimeSteps: listRuntimeSteps(),
+    agentRuntimeStates: listagentRuntimeStates(),
+    conversationAgentStates: listConversationAgentStates(),
+    sandboxSessions: listSandboxSessions(),
+    sandboxSnapshots: listSandboxSnapshots(),
+    sandboxArtifacts: listSandboxArtifacts(),
+    memories: listMemories(),
+    workflows: listWorkflows(),
+    workflowRuns: listWorkflowRuns(),
+    runtimeEvents: listRuntimeEvents(),
+    interactionProfiles: listInteractionProfiles(),
+    syncState: getSyncState(),
+  };
+}
+
+export function updateVoidLearningState(input: {
+  status: AgentRuntimeStatus;
+  lastLearningAt?: number;
+  lastError?: string | null;
+  soulPromptAppend?: string;
+}): void {
+  upsertAgentRuntimeState({
+    agent_id: DEFAULT_AGENT_ID,
+    status: input.status,
+    last_learning_at: input.lastLearningAt,
+    last_error: input.lastError,
+  });
+  if (input.soulPromptAppend?.trim()) {
+    const agent = getAgent(DEFAULT_AGENT_ID);
+    if (agent) {
+      updateAgent(DEFAULT_AGENT_ID, {
+        ...agent,
+        soul_prompt: [agent.soul_prompt, input.soulPromptAppend].filter(Boolean).join("\n"),
+      });
+    }
+  }
+}
+
+export function buildAgentSystemPrompt(agentId?: string | null, conversationId?: string): string {
+  const agent = getAgent(agentId || DEFAULT_AGENT_ID) ?? getAgent(DEFAULT_AGENT_ID);
+  if (!agent) return "You are Void, a local AI assistant.";
+  const memoriesForPrompt = listMemories()
+    .filter(
+      (memory) =>
+        memory.scope === "global" ||
+        memory.agent_id === agent.id ||
+        (conversationId && memory.conversation_id === conversationId),
+    )
+    .slice(0, 8)
+    .map((memory) => `- ${memory.title}: ${memory.content}`)
+    .join("\n");
+  return [
+    `You are ${agent.name}.`,
+    `Role: ${agent.role}`,
+    agent.personality ? `Persona: ${agent.personality}` : "",
+    agent.soul_prompt,
+    memoriesForPrompt ? `Relevant memory:\n${memoriesForPrompt}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function listSandboxSessions(limit = 50): SandboxSession[] {
@@ -935,30 +1428,24 @@ export function listSandboxSessions(limit = 50): SandboxSession[] {
 }
 
 export function upsertSandboxSession(input: NewSandboxSession): SandboxSession {
-  const row: NewSandboxSession = {
-    ...input,
-    docker_available: input.docker_available ?? 0,
-    created_at: input.created_at ?? Date.now(),
-    updated_at: input.updated_at ?? Date.now(),
-  };
   getDb()
     .insert(sandboxSessions)
-    .values(row)
+    .values(input)
     .onConflictDoUpdate({
       target: sandboxSessions.id,
       set: {
-        conversation_id: row.conversation_id ?? null,
-        run_id: row.run_id ?? null,
-        agent_id: row.agent_id ?? null,
-        root_path: row.root_path,
-        isolation_mode: row.isolation_mode,
-        status: row.status,
-        docker_available: row.docker_available,
-        updated_at: row.updated_at,
+        conversation_id: input.conversation_id,
+        run_id: input.run_id,
+        agent_id: input.agent_id,
+        root_path: input.root_path,
+        isolation_mode: input.isolation_mode,
+        status: input.status,
+        docker_available: input.docker_available,
+        updated_at: input.updated_at,
       },
     })
     .run();
-  return getDb().select().from(sandboxSessions).where(eq(sandboxSessions.id, row.id)).get()!;
+  return getDb().select().from(sandboxSessions).where(eq(sandboxSessions.id, input.id)).get()!;
 }
 
 export function listSandboxSnapshots(limit = 100): SandboxSnapshot[] {
@@ -971,10 +1458,7 @@ export function listSandboxSnapshots(limit = 100): SandboxSnapshot[] {
 }
 
 export function insertSandboxSnapshot(
-  input: Omit<NewSandboxSnapshot, "id" | "created_at"> & {
-    id?: string;
-    created_at?: number;
-  },
+  input: Omit<NewSandboxSnapshot, "id" | "created_at"> & { id?: string; created_at?: number },
 ): SandboxSnapshot {
   const row: NewSandboxSnapshot = {
     id: input.id ?? randomUUID(),
@@ -1001,10 +1485,7 @@ export function listSandboxArtifacts(limit = 100): SandboxArtifact[] {
 }
 
 export function insertSandboxArtifact(
-  input: Omit<NewSandboxArtifact, "id" | "created_at"> & {
-    id?: string;
-    created_at?: number;
-  },
+  input: Omit<NewSandboxArtifact, "id" | "created_at"> & { id?: string; created_at?: number },
 ): SandboxArtifact {
   const row: NewSandboxArtifact = {
     id: input.id ?? randomUUID(),
@@ -1019,274 +1500,324 @@ export function insertSandboxArtifact(
   return row as SandboxArtifact;
 }
 
-export function updateVoidLearningState(input: {
-  status: AgentRuntimeStatus;
-  lastLearningAt?: number | null;
-  lastError?: string | null;
-  soulPromptAppend?: string;
-}): void {
-  upsertAgentRuntimeState({
-    agent_id: DEFAULT_AGENT_ID,
-    status: input.status,
-    last_learning_at: input.lastLearningAt ?? (input.status === "learning" ? null : Date.now()),
-    last_error: input.lastError ?? null,
-  });
-  if (!input.soulPromptAppend?.trim()) return;
-  const voidAgent = getAgent(DEFAULT_AGENT_ID);
-  if (!voidAgent) return;
-  const addition = input.soulPromptAppend.trim();
-  const current = voidAgent.soul_prompt.trim();
-  const marker = "\n\nLearning notes:\n";
-  const nextPrompt = truncateText(
-    current.includes(addition) ? current : current + marker + "- " + addition,
-    4_000,
-  );
-  getDb()
-    .update(agents)
-    .set({ soul_prompt: nextPrompt, updated_at: Date.now() })
-    .where(eq(agents.id, DEFAULT_AGENT_ID))
-    .run();
+function seedDefaults(): void {
+  const now = Date.now();
+  if (!getAgent(DEFAULT_AGENT_ID)) {
+    const agent: DbAgentProfile = {
+      id: DEFAULT_AGENT_ID,
+      name: "Void",
+      role: "Primary local agent",
+      instructions:
+        "Coordinate the conversation, route specialist work, use tools deliberately, and record meaningful runtime events.",
+      persona: "Direct, careful, and warm. Prefer concrete progress over vague ceremony.",
+      description: "Default agent for local chat and runtime orchestration.",
+      avatar: "VA",
+      status: "active",
+      kind: "main",
+      parent_agent_id: null,
+      locked: 1,
+      enabled: 1,
+      model_ref: null,
+      voice: null,
+      created_at: now,
+      updated_at: now,
+    };
+    getDb().insert(agents).values(agent).run();
+    getDb().insert(agentPolicies).values(defaultAgentPolicy(DEFAULT_AGENT_ID, now)).run();
+  }
+
+  for (const seed of DEFAULT_CHILD_AGENT_SEEDS) {
+    const id = "agent-" + slugPart(seed.name);
+    if (!getAgent(id)) {
+      const normalized = normalizeAgentInput(id, seed, null, now);
+      getDb().insert(agents).values(normalized.agent).run();
+      getDb().insert(agentPolicies).values(normalized.policy).run();
+    }
+  }
+
+  if (listWorkflows().length === 0) {
+    getDb()
+      .insert(workflows)
+      .values(
+        DEFAULT_WORKFLOW_SEEDS.map((seed) => ({
+          id: seed.id,
+          name: seed.name,
+          description: seed.description,
+          status: seed.status,
+          steps_json: JSON.stringify(seed.steps),
+          trigger: seed.trigger,
+          created_at: now,
+          updated_at: now,
+        })),
+      )
+      .run();
+  }
+
+  seedBuiltinTools(now);
+  ensureDesktopPetProfile();
+  ensureSyncProfile();
+  ensureAllagentRuntimeStates();
 }
 
-function normalizeAgentInput({
-  id,
-  input,
-  existing,
-  now,
-}: {
+function seedBuiltinTools(now: number): void {
+  for (const seed of DEFAULT_BUILTIN_TOOL_SEEDS) {
+    const existing = getDb().select().from(tools).where(eq(tools.id, seed.id)).get();
+    if (existing) continue;
+    getDb()
+      .insert(tools)
+      .values({
+        id: seed.id,
+        server_id: null,
+        name: seed.id,
+        title: seed.title,
+        description: seed.description,
+        kind: seed.category === "sandbox" ? "sandbox" : "builtin",
+        category: seed.category,
+        reference: seed.id,
+        enabled: 1,
+        auto_use: seed.requiresApproval ? 0 : 1,
+        requires_approval: seed.requiresApproval,
+        input_schema_json: "{}",
+        output_schema_json: "{}",
+        config_json: "{}",
+        steps_json: "[]",
+        workflow_id: null,
+        trigger_keywords_json: "[]",
+        tags_json: "[]",
+        discovered_at: now,
+        last_run_at: null,
+        updated_at: now,
+      })
+      .run();
+  }
+}
+
+function messageToDb(msg: MessageRow): {
   id: string;
-  input: Partial<AgentInput> & {
-    name?: string;
-    role?: string;
-    description?: string;
-    personality?: string;
-    soul_prompt?: string;
-    avatar?: string;
-  };
-  existing: AgentProfile | null;
-  now: number;
-}): AgentProfile {
-  const name = normalizeRequiredText(input.name ?? existing?.name, "Agent name", 80);
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  content_json: string;
+  metadata_json: string;
+  created_at: number;
+} {
   return {
-    id,
-    name,
-    role: normalizeRequiredText(input.role ?? existing?.role, "Agent role", 160),
-    description: normalizeRequiredText(
-      input.description ?? existing?.description,
-      "Agent description",
-      1_000,
-    ),
-    personality: normalizeRequiredText(
-      input.personality ?? existing?.personality,
-      "Agent personality",
-      1_000,
-    ),
-    soul_prompt: normalizeRequiredText(
-      input.soul_prompt ?? existing?.soul_prompt,
-      "Agent soul prompt",
-      4_000,
-    ),
-    avatar: normalizeAvatar(input.avatar ?? existing?.avatar ?? name),
-    status: input.status ?? existing?.status ?? "draft",
-    kind: "child",
-    parent_agent_id: DEFAULT_AGENT_ID,
-    locked: 0,
-    enabled: normalizeEnabled(input.enabled ?? existing?.enabled ?? 1),
-    tool_policy_json: normalizeAgentToolPolicyJsonString(
-      input.tool_policy_json ?? existing?.tool_policy_json,
-      DEFAULT_AGENT_TOOL_POLICY,
-    ),
-    handoff_config_json: normalizeAgentHandoffConfigJsonString(
-      input.handoff_config_json ?? existing?.handoff_config_json,
-      DEFAULT_AGENT_HANDOFF_CONFIG,
-    ),
-    runtime_config_json: normalizeAgentRuntimeConfigJsonString(
-      input.runtime_config_json ?? existing?.runtime_config_json,
-      DEFAULT_AGENT_RUNTIME_CONFIG,
-    ),
-    model_ref: normalizeNullableText(input.model_ref ?? existing?.model_ref, 160),
-    voice: normalizeNullableText(input.voice ?? existing?.voice, 80),
-    created_at: existing?.created_at ?? now,
+    id: msg.id,
+    conversation_id: msg.conversation_id,
+    role: msg.role,
+    content_json: msg.content_json ?? msg.content,
+    metadata_json: msg.metadata_json ?? "{}",
+    created_at: msg.created_at,
+  };
+}
+
+function dbMessageToShared(row: {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  content_json: string;
+  metadata_json: string;
+  created_at: number;
+}): MessageRow {
+  return {
+    id: row.id,
+    conversation_id: row.conversation_id,
+    role: row.role,
+    content: row.content_json,
+    content_json: row.content_json,
+    metadata_json: row.metadata_json,
+    created_at: row.created_at,
+  };
+}
+
+function toAgentProfile(row: DbAgentProfile): AgentProfile {
+  const policy = ensureAgentPolicy(row.id);
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    description: row.description,
+    personality: row.persona,
+    soul_prompt: row.instructions,
+    instructions: row.instructions,
+    persona: row.persona,
+    avatar: row.avatar,
+    status: row.status,
+    kind: row.kind,
+    parent_agent_id: row.parent_agent_id,
+    locked: row.locked,
+    enabled: row.enabled,
+    tool_policy_json: policy.tool_policy_json,
+    handoff_config_json: policy.routing_policy_json,
+    runtime_config_json: policy.review_policy_json,
+    model_ref: row.model_ref,
+    voice: row.voice,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function ensureAgentPolicy(agentId: string): DbAgentPolicy {
+  const existing = getDb()
+    .select()
+    .from(agentPolicies)
+    .where(eq(agentPolicies.agent_id, agentId))
+    .get();
+  if (existing) return existing;
+  const row = defaultAgentPolicy(agentId, Date.now());
+  getDb().insert(agentPolicies).values(row).run();
+  return row as DbAgentPolicy;
+}
+
+function defaultAgentPolicy(agentId: string, now: number): DbAgentPolicy {
+  return {
+    agent_id: agentId,
+    tool_policy_json: JSON.stringify(DEFAULT_AGENT_TOOL_POLICY),
+    review_policy_json: JSON.stringify(DEFAULT_AGENT_RUNTIME_CONFIG),
+    sandbox_policy_json: JSON.stringify({ mode: DEFAULT_AGENT_RUNTIME_CONFIG.sandboxPolicy }),
+    routing_policy_json: JSON.stringify(DEFAULT_AGENT_HANDOFF_CONFIG),
     updated_at: now,
   };
 }
 
-function assertAgentEditable(agent: AgentProfile): void {
-  if (agent.id === DEFAULT_AGENT_ID || agent.kind === "main" || agent.locked) {
-    throw new Error("Void is locked and cannot be edited, archived, or deleted.");
-  }
-}
-
-function ensureAgentRuntimeState(agentId: string, status: AgentRuntimeStatus): void {
-  upsertAgentRuntimeState({
-    agent_id: agentId,
-    status,
-    current_run_id: null,
-    last_error: null,
-  });
-}
-
-function ensureAllAgentRuntimeStates(): void {
-  for (const agent of listAgents()) {
-    const existing = getDb()
-      .select({ agent_id: agentRuntimeState.agent_id })
-      .from(agentRuntimeState)
-      .where(eq(agentRuntimeState.agent_id, agent.id))
-      .get();
-    if (!existing) ensureAgentRuntimeState(agent.id, "idle");
-  }
-}
-
-function parseAgentHandoffConfig(agent: AgentProfile): { mode: string } {
-  try {
-    const parsed = JSON.parse(agent.handoff_config_json) as { mode?: unknown };
-    return { mode: typeof parsed.mode === "string" ? parsed.mode : "consult" };
-  } catch {
-    return { mode: "consult" };
-  }
-}
-
-function normalizeRequiredText(raw: unknown, label: string, maxLength: number): string {
-  const text = coercePlainText(raw).trim();
-  if (!text) throw new Error(label + " is required.");
-  return truncateText(text, maxLength);
-}
-
-function normalizeNullableText(raw: unknown, maxLength: number): string | null {
-  if (raw == null) return null;
-  const text = coercePlainText(raw).trim();
-  return text ? truncateText(text, maxLength) : null;
-}
-
-function normalizeAvatar(raw: unknown): string {
-  const text = coercePlainText(raw, "A").trim();
-  return ((text.match(/[A-Za-z0-9]/)?.[0] ?? text.slice(0, 1)) || "A").toUpperCase();
-}
-
-function normalizeEnabled(raw: unknown): number {
-  if (typeof raw === "boolean") return raw ? 1 : 0;
-  if (typeof raw === "number") return raw === 0 ? 0 : 1;
-  if (typeof raw === "string") return raw === "0" || raw.toLowerCase() === "false" ? 0 : 1;
-  return 1;
-}
-
-function coercePlainText(raw: unknown, fallback = ""): string {
-  if (typeof raw === "string") return raw;
-  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
-  return fallback;
-}
-
-function normalizeAgentToolPolicyJsonString(raw: unknown, fallback: AgentToolPolicy): string {
-  return JSON.stringify(normalizeAgentToolPolicy(raw, fallback));
-}
-
-function normalizeAgentHandoffConfigJsonString(raw: unknown, fallback: AgentHandoffConfig): string {
-  return JSON.stringify(normalizeAgentHandoffConfig(raw, fallback));
-}
-
-function normalizeAgentRuntimeConfigJsonString(raw: unknown, fallback: AgentRuntimeConfig): string {
-  return JSON.stringify(normalizeAgentRuntimeConfig(raw, fallback));
-}
-
-function normalizeJsonObjectString(raw: unknown, fallback: unknown): string {
-  if (typeof raw === "string" && raw.trim()) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return JSON.stringify(parsed);
-      }
-    } catch {
-      // Fall back below.
-    }
-  }
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) return JSON.stringify(raw);
-  return JSON.stringify(fallback);
-}
-
-function normalizeJsonArrayString(raw: unknown, fallback: unknown[] = []): string {
-  if (typeof raw === "string" && raw.trim()) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) return JSON.stringify(parsed);
-    } catch {
-      const split = raw
-        .split(/\r?\n|,/)
-        .map((item) => item.trim())
-        .filter(Boolean);
-      if (split.length) return JSON.stringify(split);
-    }
-  }
-  if (Array.isArray(raw)) return JSON.stringify(raw);
-  return JSON.stringify(fallback);
-}
-
-function normalizeStringRecord(raw: unknown): Record<string, string> {
-  let value: unknown = raw;
-  if (typeof raw === "string" && raw.trim()) {
-    try {
-      value = JSON.parse(raw) as unknown;
-    } catch {
-      return {};
-    }
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => [key.trim(), coercePlainText(item).trim()] as const)
-      .filter(([key, item]) => key && item),
-  );
-}
-
-function normalizeMcpServerInput(
+function normalizeAgentInput(
   id: string,
-  input: Partial<McpServerInput>,
-  existing: McpServer | null,
+  input: Partial<AgentInput | AgentProfile>,
+  existing: DbAgentProfile | null,
   now: number,
-): McpServer {
+): { agent: DbAgentProfile; policy: DbAgentPolicy } {
+  const existingProfile = existing ? toAgentProfile(existing) : null;
+  const name = normalizeRequiredText(input.name ?? existingProfile?.name ?? "", "name", 80);
+  const role = normalizeRequiredText(input.role ?? existingProfile?.role ?? "", "role", 160);
+  const description = normalizeText(input.description ?? existingProfile?.description ?? "", 500);
+  const personaInput = "persona" in input ? input.persona : undefined;
+  const instructionsInput = "instructions" in input ? input.instructions : undefined;
+  const persona = normalizeText(
+    input.personality ?? personaInput ?? existingProfile?.personality ?? "",
+    2_000,
+  );
+  const instructions = normalizeText(
+    input.soul_prompt ?? instructionsInput ?? existingProfile?.soul_prompt ?? "",
+    8_000,
+  );
+  const toolPolicy = normalizeAgentToolPolicy(
+    input.tool_policy_json ?? existingProfile?.tool_policy_json,
+    DEFAULT_AGENT_TOOL_POLICY,
+  );
+  const handoffConfig = normalizeAgentHandoffConfig(
+    input.handoff_config_json ?? existingProfile?.handoff_config_json,
+    DEFAULT_AGENT_HANDOFF_CONFIG,
+  );
+  const runtimeConfig = normalizeAgentRuntimeConfig(
+    input.runtime_config_json ?? existingProfile?.runtime_config_json,
+    DEFAULT_AGENT_RUNTIME_CONFIG,
+  );
+  return {
+    agent: {
+      id,
+      name,
+      role,
+      instructions,
+      persona,
+      description,
+      avatar: normalizeAvatar(input.avatar ?? existingProfile?.avatar ?? name),
+      status: input.status ?? existingProfile?.status ?? "draft",
+      kind: existing?.kind ?? (id === DEFAULT_AGENT_ID ? "main" : "child"),
+      parent_agent_id:
+        existing?.parent_agent_id ?? (id === DEFAULT_AGENT_ID ? null : DEFAULT_AGENT_ID),
+      locked: existing?.locked ?? (id === DEFAULT_AGENT_ID ? 1 : 0),
+      enabled: normalizeBooleanNumber(input.enabled ?? existingProfile?.enabled ?? 1),
+      model_ref: normalizeNullableText(input.model_ref ?? existingProfile?.model_ref ?? null, 200),
+      voice: normalizeNullableText(input.voice ?? existingProfile?.voice ?? null, 80),
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    },
+    policy: {
+      agent_id: id,
+      tool_policy_json: JSON.stringify(toolPolicy),
+      review_policy_json: JSON.stringify(runtimeConfig),
+      sandbox_policy_json: JSON.stringify({ mode: runtimeConfig.sandboxPolicy ?? "local" }),
+      routing_policy_json: JSON.stringify(handoffConfig),
+      updated_at: now,
+    },
+  };
+}
+
+function getRequiredAgentRow(id: string): DbAgentProfile {
+  const row = getDb().select().from(agents).where(eq(agents.id, id)).get();
+  if (!row) throw new Error("Agent not found.");
+  return row;
+}
+
+function assertAgentEditable(agent: DbAgentProfile): void {
+  if (agent.locked !== 0) throw new Error("This agent is locked.");
+}
+
+function toRuntimeRun(row: DbRuntimeRun): RuntimeRun {
+  return row as RuntimeRun;
+}
+
+function toRuntimeStep(row: DbRuntimeStep): RuntimeStep {
+  return row as RuntimeStep;
+}
+
+function toRuntimeEvent(row: DbRuntimeEvent): RuntimeEvent {
+  return row as RuntimeEvent;
+}
+
+function toToolServer(row: DbToolServer): ToolServer {
+  return row as ToolServer;
+}
+
+function toToolRecord(row: DbToolRecord): ToolRecord {
+  return row as ToolRecord;
+}
+
+function toToolSkill(row: DbToolRecord): ToolSkill {
+  return {
+    id: row.id,
+    name: row.title ?? row.name,
+    description: row.description,
+    category: row.category,
+    enabled: row.enabled,
+    auto_use: row.auto_use,
+    requires_approval: row.requires_approval,
+    trigger_keywords_json: row.trigger_keywords_json,
+    tags_json: row.tags_json,
+    config_schema_json: row.input_schema_json,
+    config_json: row.config_json,
+    steps_json: row.steps_json,
+    workflow_id: row.workflow_id,
+    last_run_at: row.last_run_at,
+    created_at: row.discovered_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function normalizeToolServerInput(
+  id: string,
+  input: Partial<ToolServerInput>,
+  existing: ToolServer | null,
+  now: number,
+): NewToolServer {
   const transport = normalizeMcpTransport(input.transport ?? existing?.transport ?? "stdio");
-  const enabled = normalizeEnabled(input.enabled ?? existing?.enabled ?? 1);
-  const name = truncateText(
-    coercePlainText(input.name, existing?.name ?? "MCP Server").trim(),
-    120,
-  );
-  const description = truncateText(
-    coercePlainText(input.description, existing?.description ?? "").trim(),
-    1_000,
-  );
-  const headers =
-    input.headers === undefined
-      ? safeParseRecord(existing?.headers_json, {})
-      : normalizeStringRecord(input.headers);
-  const env =
-    input.env === undefined
-      ? safeParseRecord(existing?.env_json, {})
-      : normalizeStringRecord(input.env);
-  const args =
-    input.args === undefined
-      ? safeParseArray(existing?.args_json, [])
-      : safeParseArray(normalizeJsonArrayString(input.args), []);
   return {
     id,
-    name: name || "MCP Server",
-    description,
+    name: normalizeRequiredText(input.name ?? existing?.name ?? "", "name", 120),
+    description: normalizeText(input.description ?? existing?.description ?? "", 500),
+    kind: "mcp",
     transport,
-    enabled,
-    auto_use: normalizeEnabled(input.auto_use ?? existing?.auto_use ?? 0),
-    requires_approval: normalizeEnabled(
+    enabled: normalizeBooleanNumber(input.enabled ?? existing?.enabled ?? 1),
+    auto_use: normalizeBooleanNumber(input.auto_use ?? existing?.auto_use ?? 0),
+    requires_approval: normalizeBooleanNumber(
       input.requires_approval ?? existing?.requires_approval ?? 1,
     ),
-    status: enabled ? (existing?.status ?? "unknown") : "disabled",
-    command:
-      transport === "stdio" ? normalizeNullableText(input.command ?? existing?.command, 500) : null,
-    args_json:
-      transport === "stdio" ? JSON.stringify(args.map((item) => coercePlainText(item))) : "[]",
-    url:
-      transport === "http" || transport === "sse"
-        ? normalizeNullableText(input.url ?? existing?.url, 1_000)
-        : null,
-    headers_json: JSON.stringify(headers),
-    env_json: JSON.stringify(env),
-    cwd: transport === "stdio" ? normalizeNullableText(input.cwd ?? existing?.cwd, 1_000) : null,
+    status: input.enabled === false ? "disabled" : (existing?.status ?? "unknown"),
+    command: normalizeNullableText(input.command ?? existing?.command ?? null, 500),
+    args_json: normalizeJsonArrayString(input.args ?? existing?.args_json ?? []),
+    url: normalizeNullableText(input.url ?? existing?.url ?? null, 1_000),
+    headers_json: normalizeStringRecordJson(input.headers ?? existing?.headers_json ?? {}),
+    env_json: normalizeStringRecordJson(input.env ?? existing?.env_json ?? {}),
+    cwd: normalizeNullableText(input.cwd ?? existing?.cwd ?? null, 1_000),
     last_error: existing?.last_error ?? null,
     last_connected_at: existing?.last_connected_at ?? null,
     created_at: existing?.created_at ?? now,
@@ -1294,145 +1825,291 @@ function normalizeMcpServerInput(
   };
 }
 
-function normalizeExtensionSkillInput(
+function normalizeSkillToolInput(
   id: string,
-  input: Partial<ExtensionSkillInput>,
-  existing: ExtensionSkill | null,
+  input: Partial<ToolSkillInput>,
+  existing: DbToolRecord | null,
   now: number,
-): ExtensionSkill {
-  const stepsRaw =
-    input.steps === undefined
-      ? safeParseArray(existing?.steps_json, [])
-      : normalizeSkillSteps(input.steps);
-  const steps = normalizeSkillStepList(stepsRaw);
+): NewToolRecord {
+  const name = normalizeRequiredText(
+    input.name ?? existing?.title ?? existing?.name ?? "",
+    "name",
+    120,
+  );
+  const category = normalizeRequiredText(
+    input.category ?? existing?.category ?? "workflow",
+    "category",
+    80,
+  );
+  const workflowId = input.workflow_id ?? existing?.workflow_id ?? skillWorkflowId(id);
   return {
     id,
-    name: truncateText(coercePlainText(input.name, existing?.name ?? "Workflow Skill").trim(), 120),
-    description: truncateText(
-      coercePlainText(input.description, existing?.description ?? "").trim(),
-      1_000,
-    ),
-    category: truncateText(
-      coercePlainText(input.category, existing?.category ?? "general").trim(),
-      80,
-    ),
-    enabled: normalizeEnabled(input.enabled ?? existing?.enabled ?? 1),
-    auto_use: normalizeEnabled(input.auto_use ?? existing?.auto_use ?? 0),
-    requires_approval: normalizeEnabled(
+    server_id: null,
+    name: slugPart(name),
+    title: name,
+    description: normalizeText(input.description ?? existing?.description ?? "", 800),
+    kind: "skill",
+    category,
+    reference: `skill:${id}`,
+    enabled: normalizeBooleanNumber(input.enabled ?? existing?.enabled ?? 1),
+    auto_use: normalizeBooleanNumber(input.auto_use ?? existing?.auto_use ?? 0),
+    requires_approval: normalizeBooleanNumber(
       input.requires_approval ?? existing?.requires_approval ?? 1,
     ),
-    trigger_keywords_json:
-      input.triggerKeywords === undefined
-        ? (existing?.trigger_keywords_json ?? "[]")
-        : normalizeJsonArrayString(input.triggerKeywords),
-    tags_json:
-      input.tags === undefined
-        ? (existing?.tags_json ?? "[]")
-        : normalizeJsonArrayString(input.tags),
-    config_schema_json:
-      input.configSchema === undefined
-        ? (existing?.config_schema_json ?? "{}")
-        : normalizeJsonObjectString(input.configSchema, {}),
-    config_json:
-      input.config === undefined
-        ? (existing?.config_json ?? "{}")
-        : normalizeJsonObjectString(input.config, {}),
-    steps_json: JSON.stringify(steps),
-    workflow_id:
-      input.workflow_id === undefined
-        ? (existing?.workflow_id ?? skillWorkflowId(id))
-        : input.workflow_id,
+    input_schema_json: normalizeJsonObjectString(
+      input.configSchema ?? existing?.input_schema_json ?? {},
+    ),
+    output_schema_json: "{}",
+    config_json: normalizeJsonObjectString(input.config ?? existing?.config_json ?? {}),
+    steps_json: normalizeSkillStepsJson(input.steps ?? existing?.steps_json ?? []),
+    workflow_id: workflowId,
+    trigger_keywords_json: normalizeJsonArrayString(
+      input.triggerKeywords ?? existing?.trigger_keywords_json ?? [],
+    ),
+    tags_json: normalizeJsonArrayString(input.tags ?? existing?.tags_json ?? []),
+    discovered_at: existing?.discovered_at ?? now,
     last_run_at: existing?.last_run_at ?? null,
-    created_at: existing?.created_at ?? now,
     updated_at: now,
   };
 }
 
-function ensureSkillWorkflow(skill: ExtensionSkill): WorkflowDefinition {
+function ensureSkillWorkflow(skill: NewToolRecord): WorkflowDefinition {
+  const existing = getDb()
+    .select()
+    .from(workflows)
+    .where(eq(workflows.id, skill.workflow_id ?? skillWorkflowId(skill.id)))
+    .get();
+  if (existing) return existing;
   const now = Date.now();
-  const id = skill.workflow_id ?? skillWorkflowId(skill.id);
   const row: WorkflowDefinition = {
-    id,
-    name: skill.name,
-    description: skill.description || "Workflow skill",
-    status: skill.enabled ? "enabled" : "paused",
-    steps_json: skill.steps_json,
-    trigger: "skill:" + skill.id,
+    id: skill.workflow_id ?? skillWorkflowId(skill.id),
+    name: skill.title ?? skill.name,
+    description: skill.description ?? "",
+    status: "enabled",
+    steps_json: skill.steps_json ?? "[]",
+    trigger: `skill:${skill.id}`,
     created_at: now,
     updated_at: now,
   };
-  const existing = getDb().select().from(workflows).where(eq(workflows.id, id)).get();
-  if (existing) {
-    getDb()
-      .update(workflows)
-      .set({
-        name: row.name,
-        description: row.description,
-        status: row.status,
-        steps_json: row.steps_json,
-        trigger: row.trigger,
-        updated_at: now,
-      })
-      .where(eq(workflows.id, id))
-      .run();
-    return getDb().select().from(workflows).where(eq(workflows.id, id)).get() ?? row;
-  }
   getDb().insert(workflows).values(row).run();
   return row;
 }
 
-function normalizeSkillSteps(raw: ExtensionSkillInput["steps"]): unknown[] {
-  if (typeof raw === "string") return safeParseArray(raw, []);
-  return Array.isArray(raw) ? raw : [];
+function getRequiredToolServer(id: string): ToolServer {
+  const server = getToolServer(id);
+  if (!server) throw new Error("Tool server not found.");
+  return server;
 }
 
-function normalizeSkillStepList(raw: unknown[]): ExtensionSkillStep[] {
-  return raw
+function getRequiredToolRecord(id: string): DbToolRecord {
+  const row = getDb().select().from(tools).where(eq(tools.id, id)).get();
+  if (!row) throw new Error("Tool not found.");
+  return row;
+}
+
+function ensureDesktopPetProfile(): InteractionProfile {
+  const existing = getDb()
+    .select()
+    .from(interactionProfiles)
+    .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
+    .get();
+  if (existing) return existing;
+  const row: InteractionProfile = {
+    id: DESKTOP_PET_PROFILE_ID,
+    kind: "desktop_pet",
+    label: "Desktop companion",
+    enabled: 0,
+    status: "prototype",
+    config_json: JSON.stringify(DEFAULT_DESKTOP_PET_CONFIG),
+    updated_at: Date.now(),
+  };
+  getDb().insert(interactionProfiles).values(row).run();
+  return row;
+}
+
+function updateDesktopPetProfile(
+  patch: Partial<Pick<InteractionProfile, "enabled" | "status" | "config_json">>,
+): InteractionProfile {
+  ensureDesktopPetProfile();
+  getDb()
+    .update(interactionProfiles)
+    .set({ ...patch, updated_at: Date.now() })
+    .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
+    .run();
+  return ensureDesktopPetProfile();
+}
+
+function ensureSyncProfile(): SyncState {
+  const existing = getDb()
+    .select()
+    .from(syncProfiles)
+    .where(eq(syncProfiles.id, DEFAULT_SYNC_PROFILE_ID))
+    .get();
+  if (existing) return existing as SyncState;
+  const row: SyncState = {
+    id: DEFAULT_SYNC_PROFILE_ID,
+    mode: "local_only",
+    endpoint: null,
+    device_id: randomUUID(),
+    encryption_enabled: 1,
+    conflict_strategy: "last_write_wins",
+    status: "idle",
+    last_synced_at: null,
+    updated_at: Date.now(),
+  };
+  getDb().insert(syncProfiles).values(row).run();
+  return row;
+}
+
+function ensureAllagentRuntimeStates(): void {
+  for (const agent of listAgents()) {
+    if (!agentRuntimeStates.has(agent.id)) {
+      upsertAgentRuntimeState({ agent_id: agent.id, status: "idle" });
+    }
+  }
+}
+
+function normalizeRuntimeKind(kind: string): NewRuntimeEvent["kind"] {
+  if (kind === "model") return "model";
+  if (kind === "tool" || kind === "test" || kind === "automation" || kind === "agent")
+    return "tool";
+  if (kind === "approval") return "approval";
+  if (kind === "handoff" || kind === "consult") return "handoff";
+  if (kind === "memory" || kind === "learning") return "memory";
+  if (kind === "workflow") return "workflow";
+  if (kind === "sandbox") return "sandbox";
+  if (kind === "guardrail" || kind === "input_guardrail" || kind === "output_guardrail")
+    return "guardrail";
+  if (kind === "error") return "error";
+  return "diagnostic";
+}
+
+function redactDetail(detail: unknown): unknown {
+  const redactKeys = new Set(["apiKey", "api_key", "authorization", "password", "secret", "token"]);
+  if (Array.isArray(detail)) return detail.map(redactDetail);
+  if (detail && typeof detail === "object") {
+    return Object.fromEntries(
+      Object.entries(detail as Record<string, unknown>).map(([key, value]) => [
+        key,
+        redactKeys.has(key.toLowerCase()) ? "[redacted]" : redactDetail(value),
+      ]),
+    );
+  }
+  return detail;
+}
+
+function normalizeRequiredText(raw: unknown, label: string, maxLength: number): string {
+  const value = stringifyInput(raw).trim().slice(0, maxLength);
+  if (!value) throw new Error(`${label} is required.`);
+  return value;
+}
+
+function normalizeText(raw: unknown, maxLength: number): string {
+  return stringifyInput(raw).trim().slice(0, maxLength);
+}
+
+function normalizeNullableText(raw: unknown, maxLength: number): string | null {
+  if (raw === null || raw === undefined) return null;
+  const value = stringifyInput(raw).trim().slice(0, maxLength);
+  return value || null;
+}
+
+function normalizeAvatar(raw: unknown): string {
+  const value = stringifyInput(raw ?? "A").trim();
+  return (value || "A").slice(0, 8);
+}
+
+function stringifyInput(raw: unknown): string {
+  if (raw === null || raw === undefined) return "";
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number" || typeof raw === "boolean" || typeof raw === "bigint") {
+    return String(raw);
+  }
+  return "";
+}
+
+function normalizeBooleanNumber(raw: unknown): number {
+  return raw === true || raw === 1 || raw === "1" ? 1 : 0;
+}
+
+function normalizeJsonObjectString(raw: unknown): string {
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return JSON.stringify(
+        parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {},
+      );
+    } catch {
+      return "{}";
+    }
+  }
+  return JSON.stringify(raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {});
+}
+
+function normalizeJsonArrayString(raw: unknown): string {
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return JSON.stringify(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      return "[]";
+    }
+  }
+  return JSON.stringify(Array.isArray(raw) ? raw : []);
+}
+
+function normalizeStringRecordJson(raw: unknown): string {
+  if (typeof raw === "string") {
+    try {
+      return normalizeStringRecordJson(JSON.parse(raw));
+    } catch {
+      return "{}";
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "{}";
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(raw as Record<string, unknown>).map(([key, value]) => [key, String(value)]),
+    ),
+  );
+}
+
+function normalizeSkillStepsJson(raw: unknown): string {
+  const items = typeof raw === "string" ? safeParseArray(raw) : Array.isArray(raw) ? raw : [];
+  const steps: ToolSkillStep[] = items
     .map((item, index) => {
       if (!item || typeof item !== "object") return null;
-      const record = item as Partial<ExtensionSkillStep>;
-      const type = normalizeSkillStepType(record.type);
+      const value = item as Partial<ToolSkillStep>;
       return {
-        id: coercePlainText(record.id, "step-" + (index + 1)).trim() || "step-" + (index + 1),
-        type,
-        title: truncateText(coercePlainText(record.title, type).trim() || type, 120),
-        detail: truncateText(coercePlainText(record.detail).trim(), 2_000),
-      } satisfies ExtensionSkillStep;
+        id: String(value.id ?? `step-${index + 1}`).slice(0, 80),
+        type: normalizeSkillStepType(value.type),
+        title: String(value.title ?? "Step").slice(0, 120),
+        detail: String(value.detail ?? "").slice(0, 2_000),
+      };
     })
-    .filter((item): item is ExtensionSkillStep => item !== null)
-    .slice(0, 20);
+    .filter((item): item is ToolSkillStep => item !== null);
+  return JSON.stringify(steps);
 }
 
-function normalizeSkillStepType(raw: unknown): ExtensionSkillStep["type"] {
+function normalizeSkillStepType(raw: unknown): ToolSkillStep["type"] {
   return raw === "tool" || raw === "approval" || raw === "memory" || raw === "handoff"
     ? raw
     : "prompt";
 }
 
-function normalizeMcpTransport(raw: unknown): McpServer["transport"] {
+function normalizeMcpTransport(raw: unknown): ToolServer["transport"] {
   return raw === "http" || raw === "sse" ? raw : "stdio";
 }
 
-function normalizeOwnerType(raw: unknown): ExtensionOwnerType {
-  if (raw === "skill") return "skill";
-  return "mcp";
+function normalizeSecretOwnerType(raw: unknown): ToolSecretOwnerType {
+  return raw === "tool" || raw === "skill" ? "tool" : "server";
 }
 
 function normalizeSecretKey(raw: unknown): string {
-  const key = coercePlainText(raw)
-    .trim()
-    .replace(/[^A-Za-z0-9_.-]/g, "_")
-    .slice(0, 120);
-  if (!key) throw new Error("Secret key is required.");
-  return key;
+  return normalizeRequiredText(raw, "secret key", 80).replace(/[^A-Za-z0-9_.-]/g, "_");
 }
 
-function parseSecretReference(value: string): string | null {
-  const match = value.match(/^\$secret:([A-Za-z0-9_.-]+)$/);
-  return match?.[1] ?? null;
-}
-
-function publicSecret(secret: ExtensionSecret): ExtensionSecretPublic {
+function publicToolSecret(secret: DbToolSecret): ToolSecretPublic {
   return {
     id: secret.id,
     owner_type: secret.owner_type,
@@ -1443,1238 +2120,36 @@ function publicSecret(secret: ExtensionSecret): ExtensionSecretPublic {
   };
 }
 
-function extensionSecretId(ownerType: ExtensionOwnerType, ownerId: string, key: string): string {
-  return [ownerType, ownerId, key].map((part) => part.replace(/[^A-Za-z0-9_.-]/g, "_")).join(":");
+function parseSecretReference(value: string): string | null {
+  const match = /^\$secret:([A-Za-z0-9_.-]+)$/.exec(value.trim());
+  return match?.[1] ?? null;
 }
 
-function mcpToolRowId(serverId: string, name: string): string {
-  return "mcp-tool-" + slugPart(serverId) + "-" + slugPart(name);
+function safeParseArray(raw: string): unknown[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function toolSecretId(ownerType: ToolSecretOwnerType, ownerId: string, key: string): string {
+  return `${ownerType}-${slugPart(ownerId)}-${slugPart(key)}`;
+}
+
+function toolRowId(serverId: string, name: string): string {
+  return `tool-${slugPart(serverId)}-${slugPart(name)}`;
 }
 
 function skillWorkflowId(skillId: string): string {
-  return "workflow-skill-" + slugPart(skillId);
+  return `workflow-${slugPart(skillId)}`;
 }
 
 function slugPart(value: string): string {
   return value
-    .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
-}
-
-function safeParseRecord(
-  raw: string | null | undefined,
-  fallback: Record<string, string>,
-): Record<string, string> {
-  if (!raw) return fallback;
-  return normalizeStringRecord(raw);
-}
-
-function safeParseArray(raw: string | null | undefined, fallback: unknown[]): unknown[] {
-  if (!raw) return fallback;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function truncateText(text: string, maxLength: number): string {
-  return text.length > maxLength ? text.slice(0, maxLength - 3) + "..." : text;
-}
-
-export function listMemories(): MemoryRecord[] {
-  return getDb()
-    .select()
-    .from(memories)
-    .orderBy(desc(memories.pinned), desc(memories.salience), desc(memories.updated_at))
-    .all();
-}
-
-export function saveMemory(memory: MemoryRecord): void {
-  getDb()
-    .insert(memories)
-    .values(memory)
-    .onConflictDoUpdate({
-      target: memories.id,
-      set: {
-        scope: memory.scope,
-        kind: memory.kind,
-        title: memory.title,
-        content: memory.content,
-        agent_id: memory.agent_id,
-        conversation_id: memory.conversation_id,
-        salience: memory.salience,
-        pinned: memory.pinned,
-        updated_at: Date.now(),
-      },
-    })
-    .run();
-}
-
-export function deleteMemory(id: string): void {
-  getDb().delete(memories).where(eq(memories.id, id)).run();
-}
-
-export function listWorkflows(): WorkflowDefinition[] {
-  return getDb().select().from(workflows).orderBy(desc(workflows.updated_at)).all();
-}
-
-export function listWorkflowRuns(): WorkflowRun[] {
-  return getDb().select().from(workflowRuns).orderBy(desc(workflowRuns.started_at)).all();
-}
-
-export function listHarnessEvents(): HarnessEvent[] {
-  return getDb().select().from(harnessEvents).orderBy(desc(harnessEvents.created_at)).all();
-}
-
-export function insertHarnessEvent(input: {
-  id?: string;
-  kind: HarnessEvent["kind"];
-  title: string;
-  status: HarnessEvent["status"];
-  detail?: unknown;
-  created_at?: number;
-}): HarnessEvent {
-  const row: HarnessEvent = {
-    id: input.id ?? randomUUID(),
-    kind: input.kind,
-    title: input.title,
-    status: input.status,
-    detail_json: JSON.stringify(sanitizeHarnessDetail(input.detail ?? {})),
-    created_at: input.created_at ?? Date.now(),
-  };
-  getDb().insert(harnessEvents).values(row).run();
-  return row;
-}
-
-function sanitizeHarnessDetail(detail: unknown): unknown {
-  if (!detail || typeof detail !== "object") return detail;
-  const redactKeys = new Set(["apiKey", "api_key", "authorization", "Authorization", "token"]);
-  if (Array.isArray(detail)) return detail.map(sanitizeHarnessDetail);
-  return Object.fromEntries(
-    Object.entries(detail as Record<string, unknown>).map(([key, value]) => [
-      key,
-      redactKeys.has(key) ? "[redacted]" : sanitizeHarnessDetail(value),
-    ]),
-  );
-}
-
-export function listServerNodes(): ServerNode[] {
-  return getDb().select().from(serverNodes).orderBy(desc(serverNodes.updated_at)).all();
-}
-
-export function upsertServerNode(node: ServerNode): void {
-  getDb()
-    .insert(serverNodes)
-    .values(node)
-    .onConflictDoUpdate({
-      target: serverNodes.id,
-      set: {
-        name: node.name,
-        kind: node.kind,
-        url: node.url,
-        status: node.status,
-        capabilities_json: node.capabilities_json,
-        last_seen_at: node.last_seen_at,
-        updated_at: Date.now(),
-      },
-    })
-    .run();
-}
-
-export function listMcpServers(): McpServer[] {
-  return getDb().select().from(mcpServers).orderBy(desc(mcpServers.updated_at)).all();
-}
-
-export function getMcpServer(id: string): McpServer | null {
-  return getDb().select().from(mcpServers).where(eq(mcpServers.id, id)).get() ?? null;
-}
-
-export function createMcpServer(input: McpServerInput): McpServer {
-  const now = Date.now();
-  const row = normalizeMcpServerInput(randomUUID(), input, null, now);
-  getDb().insert(mcpServers).values(row).run();
-  insertHarnessEvent({
-    kind: "automation",
-    title: "MCP server created: " + row.name,
-    status: "succeeded",
-    detail: { serverId: row.id, transport: row.transport },
-  });
-  return row;
-}
-
-export function updateMcpServer(id: string, input: Partial<McpServerInput>): McpServer {
-  const existing = getMcpServer(id);
-  if (!existing) throw new Error("MCP server not found: " + id);
-  const now = Date.now();
-  const row = normalizeMcpServerInput(id, input, existing, now);
-  getDb()
-    .update(mcpServers)
-    .set({
-      name: row.name,
-      description: row.description,
-      transport: row.transport,
-      enabled: row.enabled,
-      auto_use: row.auto_use,
-      requires_approval: row.requires_approval,
-      status: row.enabled ? row.status : "disabled",
-      command: row.command,
-      args_json: row.args_json,
-      url: row.url,
-      headers_json: row.headers_json,
-      env_json: row.env_json,
-      cwd: row.cwd,
-      last_error: row.last_error,
-      last_connected_at: row.last_connected_at,
-      updated_at: now,
-    })
-    .where(eq(mcpServers.id, id))
-    .run();
-  return getMcpServer(id) ?? row;
-}
-
-export function deleteMcpServer(id: string): void {
-  const existing = getMcpServer(id);
-  getDb().delete(mcpServers).where(eq(mcpServers.id, id)).run();
-  deleteExtensionSecretsForOwner("mcp", id);
-  if (existing) {
-    insertHarnessEvent({
-      kind: "automation",
-      title: "MCP server deleted: " + existing.name,
-      status: "succeeded",
-      detail: { serverId: id },
-    });
-  }
-}
-
-export function setMcpServerEnabled(id: string, enabled: boolean): McpServer {
-  const existing = getMcpServer(id);
-  if (!existing) throw new Error("MCP server not found: " + id);
-  getDb()
-    .update(mcpServers)
-    .set({
-      enabled: enabled ? 1 : 0,
-      status: enabled ? "unknown" : "disabled",
-      updated_at: Date.now(),
-    })
-    .where(eq(mcpServers.id, id))
-    .run();
-  return getMcpServer(id) ?? { ...existing, enabled: enabled ? 1 : 0 };
-}
-
-export function updateMcpServerStatus(
-  id: string,
-  patch: Pick<Partial<McpServer>, "status" | "last_error" | "last_connected_at">,
-): McpServer | null {
-  const existing = getMcpServer(id);
-  if (!existing) return null;
-  getDb()
-    .update(mcpServers)
-    .set({
-      status: patch.status ?? existing.status,
-      last_error: patch.last_error === undefined ? existing.last_error : patch.last_error,
-      last_connected_at:
-        patch.last_connected_at === undefined
-          ? existing.last_connected_at
-          : patch.last_connected_at,
-      updated_at: Date.now(),
-    })
-    .where(eq(mcpServers.id, id))
-    .run();
-  return getMcpServer(id);
-}
-
-export function listMcpTools(serverId?: string): McpTool[] {
-  const query = getDb().select().from(mcpTools);
-  if (serverId) {
-    return query.where(eq(mcpTools.server_id, serverId)).orderBy(asc(mcpTools.name)).all();
-  }
-  return query.orderBy(asc(mcpTools.server_id), asc(mcpTools.name)).all();
-}
-
-export function getMcpToolByReference(serverId: string, toolName: string): McpTool | null {
-  return (
-    getDb()
-      .select()
-      .from(mcpTools)
-      .where(and(eq(mcpTools.server_id, serverId), eq(mcpTools.name, toolName)))
-      .get() ?? null
-  );
-}
-
-export function upsertMcpToolDefinitions(
-  serverId: string,
-  definitions: Array<{
-    name: string;
-    title?: string;
-    description?: string;
-    inputSchema?: unknown;
-    outputSchema?: unknown;
-  }>,
-): McpTool[] {
-  const db = getDb();
-  const now = Date.now();
-  db.transaction((tx) => {
-    for (const definition of definitions) {
-      const name = coercePlainText(definition.name).trim();
-      if (!name) continue;
-      const existing = getMcpToolByReference(serverId, name);
-      const row: NewMcpTool = {
-        id: mcpToolRowId(serverId, name),
-        server_id: serverId,
-        name,
-        title: normalizeNullableText(definition.title, 160),
-        description: truncateText(
-          coercePlainText(definition.description, "MCP tool " + name).trim(),
-          1_000,
-        ),
-        input_schema_json: normalizeJsonObjectString(definition.inputSchema, {}),
-        output_schema_json: normalizeJsonObjectString(definition.outputSchema, {}),
-        enabled: existing?.enabled ?? 1,
-        auto_use: existing?.auto_use ?? 0,
-        requires_approval: existing?.requires_approval ?? 1,
-        discovered_at: existing?.discovered_at ?? now,
-        updated_at: now,
-      };
-      tx.insert(mcpTools)
-        .values(row)
-        .onConflictDoUpdate({
-          target: mcpTools.id,
-          set: {
-            title: row.title,
-            description: row.description,
-            input_schema_json: row.input_schema_json,
-            output_schema_json: row.output_schema_json,
-            updated_at: now,
-          },
-        })
-        .run();
-    }
-  });
-  return listMcpTools(serverId);
-}
-
-export function updateMcpTool(
-  id: string,
-  patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
-): McpTool {
-  const existing = getDb().select().from(mcpTools).where(eq(mcpTools.id, id)).get();
-  if (!existing) throw new Error("MCP tool not found: " + id);
-  getDb()
-    .update(mcpTools)
-    .set({
-      enabled: patch.enabled === undefined ? existing.enabled : normalizeEnabled(patch.enabled),
-      auto_use: patch.auto_use === undefined ? existing.auto_use : normalizeEnabled(patch.auto_use),
-      requires_approval:
-        patch.requires_approval === undefined
-          ? existing.requires_approval
-          : normalizeEnabled(patch.requires_approval),
-      updated_at: Date.now(),
-    })
-    .where(eq(mcpTools.id, id))
-    .run();
-  return getDb().select().from(mcpTools).where(eq(mcpTools.id, id)).get() ?? existing;
-}
-
-export function listExtensionSkills(): ExtensionSkill[] {
-  return getDb().select().from(extensionSkills).orderBy(desc(extensionSkills.updated_at)).all();
-}
-
-export function getExtensionSkill(id: string): ExtensionSkill | null {
-  return getDb().select().from(extensionSkills).where(eq(extensionSkills.id, id)).get() ?? null;
-}
-
-export function createExtensionSkill(input: ExtensionSkillInput): ExtensionSkill {
-  const now = Date.now();
-  const id = randomUUID();
-  const row = normalizeExtensionSkillInput(id, input, null, now);
-  const workflow = ensureSkillWorkflow({
-    ...row,
-    workflow_id: row.workflow_id ?? skillWorkflowId(id),
-  });
-  const saved = { ...row, workflow_id: workflow.id };
-  getDb().insert(extensionSkills).values(saved).run();
-  insertHarnessEvent({
-    kind: "automation",
-    title: "Skill created: " + saved.name,
-    status: "succeeded",
-    detail: { skillId: saved.id, workflowId: saved.workflow_id },
-  });
-  return saved;
-}
-
-export function updateExtensionSkill(
-  id: string,
-  input: Partial<ExtensionSkillInput>,
-): ExtensionSkill {
-  const existing = getExtensionSkill(id);
-  if (!existing) throw new Error("Skill not found: " + id);
-  const now = Date.now();
-  const row = normalizeExtensionSkillInput(id, input, existing, now);
-  const workflow = ensureSkillWorkflow({
-    ...row,
-    workflow_id: row.workflow_id ?? skillWorkflowId(id),
-  });
-  getDb()
-    .update(extensionSkills)
-    .set({
-      name: row.name,
-      description: row.description,
-      category: row.category,
-      enabled: row.enabled,
-      auto_use: row.auto_use,
-      requires_approval: row.requires_approval,
-      trigger_keywords_json: row.trigger_keywords_json,
-      tags_json: row.tags_json,
-      config_schema_json: row.config_schema_json,
-      config_json: row.config_json,
-      steps_json: row.steps_json,
-      workflow_id: workflow.id,
-      updated_at: now,
-    })
-    .where(eq(extensionSkills.id, id))
-    .run();
-  return getExtensionSkill(id) ?? { ...row, workflow_id: workflow.id };
-}
-
-export function deleteExtensionSkill(id: string): void {
-  const existing = getExtensionSkill(id);
-  getDb().delete(extensionSkills).where(eq(extensionSkills.id, id)).run();
-  deleteExtensionSecretsForOwner("skill", id);
-  if (existing) {
-    insertHarnessEvent({
-      kind: "automation",
-      title: "Skill deleted: " + existing.name,
-      status: "succeeded",
-      detail: { skillId: id, workflowId: existing.workflow_id },
-    });
-  }
-}
-
-export function setExtensionSkillEnabled(id: string, enabled: boolean): ExtensionSkill {
-  const existing = getExtensionSkill(id);
-  if (!existing) throw new Error("Skill not found: " + id);
-  getDb()
-    .update(extensionSkills)
-    .set({ enabled: enabled ? 1 : 0, updated_at: Date.now() })
-    .where(eq(extensionSkills.id, id))
-    .run();
-  return getExtensionSkill(id) ?? { ...existing, enabled: enabled ? 1 : 0 };
-}
-
-export function markExtensionSkillRun(id: string, at = Date.now()): void {
-  getDb()
-    .update(extensionSkills)
-    .set({ last_run_at: at, updated_at: at })
-    .where(eq(extensionSkills.id, id))
-    .run();
-}
-
-export function createWorkflowRun(
-  input: Omit<NewWorkflowRun, "id" | "started_at"> & { id?: string; started_at?: number },
-): WorkflowRun {
-  const row: NewWorkflowRun = {
-    id: input.id ?? randomUUID(),
-    workflow_id: input.workflow_id,
-    status: input.status,
-    input_json: input.input_json ?? null,
-    output_json: input.output_json ?? null,
-    started_at: input.started_at ?? Date.now(),
-    finished_at: input.finished_at ?? null,
-  };
-  getDb().insert(workflowRuns).values(row).run();
-  return row as WorkflowRun;
-}
-
-export function updateWorkflowRun(
-  id: string,
-  patch: Partial<Omit<WorkflowRun, "id" | "workflow_id" | "started_at">>,
-): WorkflowRun | null {
-  const existing = getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id)).get();
-  if (!existing) return null;
-  getDb()
-    .update(workflowRuns)
-    .set({
-      status: patch.status ?? existing.status,
-      input_json: patch.input_json === undefined ? existing.input_json : patch.input_json,
-      output_json: patch.output_json === undefined ? existing.output_json : patch.output_json,
-      finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
-    })
-    .where(eq(workflowRuns.id, id))
-    .run();
-  return getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id)).get() ?? null;
-}
-
-export function setExtensionSecret(input: ExtensionSecretInput): ExtensionSecretPublic {
-  const key = normalizeSecretKey(input.key);
-  const ownerType = normalizeOwnerType(input.ownerType);
-  const ownerId = coercePlainText(input.ownerId).trim();
-  if (!ownerId) throw new Error("Secret owner id is required.");
-  const now = Date.now();
-  const payload = encrypt(input.value);
-  const row: ExtensionSecret = {
-    id: extensionSecretId(ownerType, ownerId, key),
-    owner_type: ownerType,
-    owner_id: ownerId,
-    key,
-    label: truncateText(coercePlainText(input.label, key).trim() || key, 120),
-    ciphertext: JSON.stringify(payload),
-    updated_at: now,
-  };
-  getDb()
-    .insert(extensionSecrets)
-    .values(row)
-    .onConflictDoUpdate({
-      target: extensionSecrets.id,
-      set: {
-        label: row.label,
-        ciphertext: row.ciphertext,
-        updated_at: now,
-      },
-    })
-    .run();
-  return publicSecret(row);
-}
-
-export function listExtensionSecretsPublic(
-  ownerType?: ExtensionOwnerType,
-  ownerId?: string,
-): ExtensionSecretPublic[] {
-  let rows: ExtensionSecret[];
-  if (ownerType && ownerId) {
-    rows = getDb()
-      .select()
-      .from(extensionSecrets)
-      .where(
-        and(eq(extensionSecrets.owner_type, ownerType), eq(extensionSecrets.owner_id, ownerId)),
-      )
-      .orderBy(asc(extensionSecrets.key))
-      .all();
-  } else {
-    rows = getDb().select().from(extensionSecrets).orderBy(asc(extensionSecrets.key)).all();
-  }
-  return rows.map(publicSecret);
-}
-
-export function deleteExtensionSecret(id: string): void {
-  getDb().delete(extensionSecrets).where(eq(extensionSecrets.id, id)).run();
-}
-
-export function deleteExtensionSecretsForOwner(
-  ownerType: ExtensionOwnerType,
-  ownerId: string,
-): void {
-  getDb()
-    .delete(extensionSecrets)
-    .where(and(eq(extensionSecrets.owner_type, ownerType), eq(extensionSecrets.owner_id, ownerId)))
-    .run();
-}
-
-export function getExtensionSecretValue(
-  ownerType: ExtensionOwnerType,
-  ownerId: string,
-  key: string,
-): string | null {
-  const row = getDb()
-    .select()
-    .from(extensionSecrets)
-    .where(
-      and(
-        eq(extensionSecrets.owner_type, ownerType),
-        eq(extensionSecrets.owner_id, ownerId),
-        eq(extensionSecrets.key, normalizeSecretKey(key)),
-      ),
-    )
-    .get();
-  if (!row) return null;
-  try {
-    return decrypt(JSON.parse(row.ciphertext) as EncryptedPayload);
-  } catch (error) {
-    console.error("[db] Failed to decrypt extension secret:", error);
-    return null;
-  }
-}
-
-export function resolveExtensionSecretReferences(
-  ownerType: ExtensionOwnerType,
-  ownerId: string,
-  values: Record<string, string>,
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(values).map(([key, value]) => {
-      const secretKey = parseSecretReference(value);
-      if (!secretKey) return [key, value];
-      return [key, getExtensionSecretValue(ownerType, ownerId, secretKey) ?? ""];
-    }),
-  );
-}
-
-export function getExtensionsSnapshot(): ExtensionsSnapshot {
-  return {
-    mcpServers: listMcpServers(),
-    mcpTools: listMcpTools(),
-    skills: listExtensionSkills(),
-    secrets: listExtensionSecretsPublic(),
-    workflowRuns: listWorkflowRuns(),
-    harnessEvents: listHarnessEvents(),
-  };
-}
-
-export function listInteractionProfiles(): InteractionProfile[] {
-  ensureDesktopPetProfile();
-  return getDb().select().from(interactionProfiles).orderBy(asc(interactionProfiles.id)).all();
-}
-
-export function isDesktopPetEnabled(): boolean {
-  return ensureDesktopPetProfile().enabled !== 0;
-}
-
-export function getDesktopPetSnapshot(): DesktopPetSnapshot {
-  let profile = ensureDesktopPetProfile();
-  const normalized = normalizeDesktopPetConfig(profile.config_json);
-  const config = ensureDesktopPetConversation(normalized);
-  const serialized = JSON.stringify(config);
-
-  if (profile.config_json !== serialized) {
-    profile = updateDesktopPetProfile({ config_json: serialized });
-  }
-
-  const runtimeState =
-    getDb()
-      .select()
-      .from(agentRuntimeState)
-      .where(eq(agentRuntimeState.agent_id, DEFAULT_AGENT_ID))
-      .get() ?? null;
-
-  return {
-    profile,
-    config,
-    agent: getAgent(DEFAULT_AGENT_ID),
-    runtimeState,
-    selectedModel: getSetting(SettingKey.SelectedModel),
-    mood: moodFromAgentRuntimeStatus(runtimeState?.status),
-  };
-}
-
-export function setDesktopPetEnabled(enabled: boolean): DesktopPetSnapshot {
-  updateDesktopPetProfile({ enabled: enabled ? 1 : 0 });
-  return getDesktopPetSnapshot();
-}
-
-export function updateDesktopPetConfig(patch: DesktopPetConfigPatch): DesktopPetSnapshot {
-  const profile = ensureDesktopPetProfile();
-  const current = ensureDesktopPetConversation(normalizeDesktopPetConfig(profile.config_json));
-  const next = mergeDesktopPetConfig(current, patch);
-  updateDesktopPetProfile({ config_json: JSON.stringify(next) });
-  return getDesktopPetSnapshot();
-}
-
-function ensureDesktopPetProfile(): InteractionProfile {
-  const existing = getDb()
-    .select()
-    .from(interactionProfiles)
-    .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
-    .get();
-  if (existing) return existing;
-
-  const now = Date.now();
-  const row: InteractionProfile = {
-    id: DESKTOP_PET_PROFILE_ID,
-    kind: "desktop_pet",
-    label: "Desktop Pet",
-    enabled: 0,
-    status: "prototype",
-    config_json: JSON.stringify(DEFAULT_DESKTOP_PET_CONFIG),
-    updated_at: now,
-  };
-  getDb().insert(interactionProfiles).values(row).run();
-  return row;
-}
-
-function updateDesktopPetProfile(
-  patch: Partial<Pick<InteractionProfile, "enabled" | "status" | "config_json">>,
-): InteractionProfile {
-  const now = Date.now();
-  getDb()
-    .update(interactionProfiles)
-    .set({ ...patch, updated_at: now })
-    .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
-    .run();
-  return ensureDesktopPetProfile();
-}
-
-function ensureDesktopPetConversation(config: DesktopPetConfig): DesktopPetConfig {
-  if (config.conversationId && getConversation(config.conversationId)) return config;
-
-  const conversationId = randomUUID();
-  createConversation(conversationId, "Void desktop pet");
-  return mergeDesktopPetConfig(config, { conversationId });
-}
-
-export function getSyncState(): SyncState {
-  const existing = getDb().select().from(syncState).where(eq(syncState.id, "primary")).get();
-  if (existing) return existing;
-  const now = Date.now();
-  const row: SyncState = {
-    id: "primary",
-    mode: "local_only",
-    endpoint: null,
-    device_id: randomUUID(),
-    encryption_enabled: 1,
-    conflict_strategy: "merge_with_review",
-    status: "idle",
-    last_synced_at: null,
-    updated_at: now,
-  };
-  getDb().insert(syncState).values(row).run();
-  return row;
-}
-
-export function getWorkspaceSnapshot(): {
-  agents: AgentProfile[];
-  agentRuns: AgentRun[];
-  agentRunSteps: AgentRunStep[];
-  agentRuntimeStates: AgentRuntimeState[];
-  conversationAgentStates: ConversationAgentState[];
-  sandboxSessions: SandboxSession[];
-  sandboxSnapshots: SandboxSnapshot[];
-  sandboxArtifacts: SandboxArtifact[];
-  memories: MemoryRecord[];
-  workflows: WorkflowDefinition[];
-  workflowRuns: WorkflowRun[];
-  harnessEvents: HarnessEvent[];
-  serverNodes: ServerNode[];
-  interactionProfiles: InteractionProfile[];
-  syncState: SyncState;
-} {
-  return {
-    agents: listAgents(),
-    agentRuns: listAgentRuns(),
-    agentRunSteps: listAgentRunSteps(),
-    agentRuntimeStates: listAgentRuntimeStates(),
-    conversationAgentStates: listConversationAgentStates(),
-    sandboxSessions: listSandboxSessions(),
-    sandboxSnapshots: listSandboxSnapshots(),
-    sandboxArtifacts: listSandboxArtifacts(),
-    memories: listMemories(),
-    workflows: listWorkflows(),
-    workflowRuns: listWorkflowRuns(),
-    harnessEvents: listHarnessEvents(),
-    serverNodes: listServerNodes(),
-    interactionProfiles: listInteractionProfiles(),
-    syncState: getSyncState(),
-  };
-}
-
-export function buildAgentSystemPrompt(agentId?: string | null, conversationId?: string): string {
-  const agent = (agentId ? getAgent(agentId) : null) ?? getAgent(DEFAULT_AGENT_ID);
-  const relevantMemories = listMemories()
-    .filter((memory) => {
-      if (memory.scope === "global") return true;
-      if (agent && memory.scope === "agent" && memory.agent_id === agent.id) return true;
-      return memory.scope === "conversation" && memory.conversation_id === conversationId;
-    })
-    .slice(0, 8);
-
-  const identity = agent
-    ? [
-        `你是 ${agent.name}，角色是：${agent.role}。`,
-        agent.description,
-        `人格特质：${agent.personality}`,
-        `灵魂设定：${agent.soul_prompt}`,
-      ].join("\n")
-    : "你是 Void AI，一个本地优先、尊重隐私、有帮助的 AI 助手。";
-
-  const memoryBlock = relevantMemories.length
-    ? `\n\n长期记忆（只在相关时自然使用，不要逐条复述）：\n${relevantMemories
-        .map((memory) => `- ${memory.title}: ${memory.content}`)
-        .join("\n")}`
-    : "";
-
-  return `${identity}${memoryBlock}\n\n请用清晰、坦诚、温暖的中文回应。需要做出假设时请说明。`;
-}
-
-function seedWorkspaceDefaults(): void {
-  const db = getDb();
-  const now = Date.now();
-
-  if (db.select({ id: agents.id }).from(agents).limit(1).get()) {
-    backfillAgentOrchestrationDefaults(now);
-    ensureAllAgentRuntimeStates();
-    backfillExtensionDefaults(now);
-    return;
-  }
-
-  db.transaction((tx) => {
-    tx.insert(agents)
-      .values([
-        {
-          id: DEFAULT_AGENT_ID,
-          name: "Void",
-          role: "本地优先的个人 AI 伙伴",
-          description: "负责日常对话、任务分解、信息整理和跨工作流协调。",
-          personality: "温暖、敏锐、主动，有清晰边界感；像一个可靠的长期协作者。",
-          soul_prompt:
-            "保留连续的自我表达和关系记忆；优先理解用户真正想完成的事情，而不是只回答表层问题。",
-          avatar: "V",
-          status: "active",
-          kind: "main",
-          parent_agent_id: null,
-          locked: 1,
-          enabled: 1,
-          tool_policy_json: JSON.stringify(DEFAULT_AGENT_TOOL_POLICY),
-          handoff_config_json: JSON.stringify({
-            ...DEFAULT_AGENT_HANDOFF_CONFIG,
-            mode: "both",
-            expectedOutput: "Coordinate child agents and return the final user-facing response.",
-          }),
-          runtime_config_json: JSON.stringify({ ...DEFAULT_AGENT_RUNTIME_CONFIG, maxTurns: 10 }),
-          model_ref: null,
-          voice: "calm-cn",
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: "agent-analyst",
-          name: "Analyst",
-          role: "研究与决策智能体",
-          description: "用于资料研判、产品方案、风险评估和多方案比较。",
-          personality: "严谨、克制、证据优先，善于把不确定性摊开。",
-          soul_prompt: "保持怀疑精神；区分事实、推断和偏好；在高风险领域主动提醒验证。",
-          avatar: "A",
-          status: "active",
-          kind: "child",
-          parent_agent_id: DEFAULT_AGENT_ID,
-          locked: 0,
-          enabled: 1,
-          tool_policy_json: JSON.stringify(DEFAULT_AGENT_TOOL_POLICY),
-          handoff_config_json: JSON.stringify({
-            ...DEFAULT_AGENT_HANDOFF_CONFIG,
-            mode: "both",
-            accepts: ["research", "analysis", "decision support"],
-            expectedOutput: "A concise evidence-led analysis with assumptions and risks separated.",
-          }),
-          runtime_config_json: JSON.stringify(DEFAULT_AGENT_RUNTIME_CONFIG),
-          model_ref: null,
-          voice: "focused-cn",
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: "agent-operator",
-          name: "Operator",
-          role: "执行与自动化智能体",
-          description: "用于把目标拆成步骤、执行工具、记录结果和触发工作流。",
-          personality: "简洁、果断、注重可验证结果。",
-          soul_prompt: "行动前确认权限边界；每次自动化都留下可审计记录。",
-          avatar: "O",
-          status: "draft",
-          kind: "child",
-          parent_agent_id: DEFAULT_AGENT_ID,
-          locked: 0,
-          enabled: 0,
-          tool_policy_json: JSON.stringify({
-            ...DEFAULT_AGENT_TOOL_POLICY,
-            mode: "custom",
-            allowedToolIds: ["current_time", "workspace_snapshot", "memory_search"],
-          }),
-          handoff_config_json: JSON.stringify({
-            ...DEFAULT_AGENT_HANDOFF_CONFIG,
-            mode: "consult",
-            accepts: ["execution planning", "automation boundaries", "audit trail"],
-            expectedOutput: "A short execution plan with tool boundaries and verifiable results.",
-          }),
-          runtime_config_json: JSON.stringify(DEFAULT_AGENT_RUNTIME_CONFIG),
-          model_ref: null,
-          voice: "direct-cn",
-          created_at: now,
-          updated_at: now,
-        },
-      ])
-      .run();
-
-    tx.insert(memories)
-      .values([
-        {
-          id: "memory-local-first",
-          scope: "global",
-          kind: "preference",
-          title: "本地优先",
-          content: "桌面端必须可以不依赖自部署云服务独立运行；云端只作为可选同步和远程访问层。",
-          agent_id: null,
-          conversation_id: null,
-          salience: 95,
-          pinned: 1,
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: "memory-personality",
-          scope: "agent",
-          kind: "profile",
-          title: "人格连续性",
-          content: "AI 需要保留对话记忆、关系上下文和稳定的表达风格，不能每次像全新实例。",
-          agent_id: DEFAULT_AGENT_ID,
-          conversation_id: null,
-          salience: 90,
-          pinned: 1,
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: "memory-modalities",
-          scope: "global",
-          kind: "fact",
-          title: "多模态交互目标",
-          content:
-            "交互通道包括 chat、语音、视频、鼠标意图和桌宠形态；桌面布局优先，Web 需要响应移动端。",
-          agent_id: null,
-          conversation_id: null,
-          salience: 86,
-          pinned: 0,
-          created_at: now,
-          updated_at: now,
-        },
-      ])
-      .run();
-
-    tx.insert(workflows)
-      .values([
-        {
-          id: "workflow-daily-brief",
-          name: "每日上下文恢复",
-          description: "启动时汇总最近会话、重要记忆和待办状态，恢复 AI 的连续感。",
-          status: "enabled",
-          trigger: "app.startup",
-          steps_json: JSON.stringify([
-            {
-              id: "load",
-              type: "memory",
-              title: "读取高权重记忆",
-              detail: "加载 pinned 和高 salience 记忆",
-            },
-            {
-              id: "summarize",
-              type: "prompt",
-              title: "生成上下文摘要",
-              detail: "压缩成会话可注入系统提示",
-            },
-            {
-              id: "approve",
-              type: "approval",
-              title: "用户可见审阅",
-              detail: "同步前允许用户编辑",
-            },
-          ]),
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: "workflow-agent-handoff",
-          name: "多智能体交接",
-          description: "当任务从研究进入执行阶段时，把上下文交给 Operator 并记录 Harness 事件。",
-          status: "draft",
-          trigger: "manual.intent.handoff",
-          steps_json: JSON.stringify([
-            {
-              id: "scope",
-              type: "prompt",
-              title: "确认执行边界",
-              detail: "识别需要工具和权限的步骤",
-            },
-            {
-              id: "handoff",
-              type: "handoff",
-              title: "转交 Operator",
-              detail: "把摘要和约束传给执行智能体",
-            },
-            { id: "audit", type: "tool", title: "写入审计记录", detail: "保存工具调用和结果" },
-          ]),
-          created_at: now,
-          updated_at: now,
-        },
-      ])
-      .run();
-
-    tx.insert(workflowRuns)
-      .values({
-        id: "run-seed-brief",
-        workflow_id: "workflow-daily-brief",
-        status: "succeeded",
-        input_json: JSON.stringify({ source: "seed" }),
-        output_json: JSON.stringify({ summary: "初始化默认工作台上下文" }),
-        started_at: now - 60_000,
-        finished_at: now - 58_000,
-      })
-      .run();
-
-    tx.insert(harnessEvents)
-      .values([
-        {
-          id: "event-local-server",
-          kind: "automation",
-          title: "本地 AI 服务通过 loopback 暴露",
-          status: "succeeded",
-          detail_json: JSON.stringify({ surface: "127.0.0.1", protocol: "Hono + AI SDK stream" }),
-          created_at: now,
-        },
-        {
-          id: "event-memory-seed",
-          kind: "test",
-          title: "长期记忆种子已写入 SQLite",
-          status: "succeeded",
-          detail_json: JSON.stringify({ count: 3 }),
-          created_at: now + 1,
-        },
-      ])
-      .run();
-
-    tx.insert(serverNodes)
-      .values([
-        {
-          id: "server-local-ai",
-          name: "Local AI Loopback",
-          kind: "local",
-          url: "http://127.0.0.1:0",
-          status: "online",
-          capabilities_json: JSON.stringify(["chat-stream", "agent-context", "memory-injection"]),
-          last_seen_at: now,
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: "server-sync-cloud",
-          name: "Optional Sync Server",
-          kind: "sync",
-          url: "未配置",
-          status: "disabled",
-          capabilities_json: JSON.stringify(["encrypted-sync", "device-merge", "backup"]),
-          last_seen_at: null,
-          created_at: now,
-          updated_at: now,
-        },
-      ])
-      .run();
-
-    tx.insert(interactionProfiles)
-      .values([
-        {
-          id: "interaction-chat",
-          kind: "chat",
-          label: "Chat",
-          enabled: 1,
-          status: "ready",
-          config_json: JSON.stringify({ input: "keyboard", output: "stream" }),
-          updated_at: now,
-        },
-        {
-          id: "interaction-voice",
-          kind: "voice",
-          label: "Voice",
-          enabled: 0,
-          status: "prototype",
-          config_json: JSON.stringify({ stt: "browser", tts: "provider-or-local" }),
-          updated_at: now,
-        },
-        {
-          id: "interaction-video",
-          kind: "video",
-          label: "Video",
-          enabled: 0,
-          status: "prototype",
-          config_json: JSON.stringify({ camera: "permission-gated", vision: "model-dependent" }),
-          updated_at: now,
-        },
-        {
-          id: "interaction-mouse",
-          kind: "mouse",
-          label: "Mouse Intent",
-          enabled: 0,
-          status: "prototype",
-          config_json: JSON.stringify({ capture: "desktop-only", privacy: "explicit-opt-in" }),
-          updated_at: now,
-        },
-        {
-          id: "interaction-pet",
-          kind: "desktop_pet",
-          label: "Desktop Pet",
-          enabled: 0,
-          status: "prototype",
-          config_json: JSON.stringify({ renderer: "transparent-window", mood: "memory-aware" }),
-          updated_at: now,
-        },
-      ])
-      .run();
-
-    tx.insert(syncState)
-      .values({
-        id: "primary",
-        mode: "local_only",
-        endpoint: null,
-        device_id: randomUUID(),
-        encryption_enabled: 1,
-        conflict_strategy: "merge_with_review",
-        status: "idle",
-        last_synced_at: null,
-        updated_at: now,
-      })
-      .run();
-  });
-  ensureAllAgentRuntimeStates();
-  backfillExtensionDefaults(now);
-}
-
-function backfillAgentOrchestrationDefaults(now: number): void {
-  const db = getDb();
-  const existingAgents = db.select().from(agents).all();
-  for (const agent of existingAgents) {
-    const isVoid = agent.id === DEFAULT_AGENT_ID;
-    db.update(agents)
-      .set({
-        kind: isVoid ? "main" : (agent.kind ?? "child"),
-        parent_agent_id: isVoid ? null : (agent.parent_agent_id ?? DEFAULT_AGENT_ID),
-        locked: isVoid ? 1 : (agent.locked ?? 0),
-        enabled: isVoid ? 1 : normalizeEnabled(agent.enabled ?? 1),
-        tool_policy_json: normalizeAgentToolPolicyJsonString(
-          agent.tool_policy_json,
-          DEFAULT_AGENT_TOOL_POLICY,
-        ),
-        handoff_config_json: normalizeAgentHandoffConfigJsonString(
-          agent.handoff_config_json,
-          isVoid ? { ...DEFAULT_AGENT_HANDOFF_CONFIG, mode: "both" } : DEFAULT_AGENT_HANDOFF_CONFIG,
-        ),
-        runtime_config_json: normalizeAgentRuntimeConfigJsonString(
-          agent.runtime_config_json,
-          DEFAULT_AGENT_RUNTIME_CONFIG,
-        ),
-        updated_at: agent.updated_at || now,
-      })
-      .where(eq(agents.id, agent.id))
-      .run();
-  }
-}
-
-function backfillExtensionDefaults(now: number): void {
-  const db = getDb();
-  const existingMcpIds = new Set(
-    db
-      .select({ id: mcpServers.id })
-      .from(mcpServers)
-      .all()
-      .map((row) => row.id),
-  );
-  const legacyMcpNodes = db.select().from(serverNodes).where(eq(serverNodes.kind, "mcp")).all();
-  for (const node of legacyMcpNodes) {
-    const id = "legacy-" + slugPart(node.id);
-    if (existingMcpIds.has(id)) continue;
-    db.insert(mcpServers)
-      .values({
-        id,
-        name: node.name,
-        description: "Imported from legacy server node.",
-        transport: "http",
-        enabled: 0,
-        auto_use: 0,
-        requires_approval: 1,
-        status: "disabled",
-        command: null,
-        args_json: "[]",
-        url: node.url,
-        headers_json: "{}",
-        env_json: "{}",
-        cwd: null,
-        last_error: null,
-        last_connected_at: node.last_seen_at,
-        created_at: node.created_at || now,
-        updated_at: node.updated_at || now,
-      })
-      .run();
-  }
-
-  const existingSkillIds = new Set(
-    db
-      .select({ id: extensionSkills.id })
-      .from(extensionSkills)
-      .all()
-      .map((row) => row.id),
-  );
-  const legacySkillMemories = db.select().from(memories).where(eq(memories.kind, "skill")).all();
-  for (const memory of legacySkillMemories) {
-    const id = "memory-" + slugPart(memory.id);
-    if (existingSkillIds.has(id)) continue;
-    const skill = normalizeExtensionSkillInput(
-      id,
-      {
-        name: memory.title,
-        description: memory.content,
-        category: "memory",
-        enabled: false,
-        auto_use: false,
-        requires_approval: true,
-        tags: ["legacy", "memory"],
-        triggerKeywords: [memory.title],
-        steps: [
-          {
-            id: "legacy-context",
-            type: "memory",
-            title: memory.title,
-            detail: memory.content,
-          },
-        ],
-      },
-      null,
-      now,
-    );
-    const workflow = ensureSkillWorkflow(skill);
-    db.insert(extensionSkills)
-      .values({ ...skill, workflow_id: workflow.id })
-      .run();
-  }
-
-  if (!db.select({ id: extensionSkills.id }).from(extensionSkills).limit(1).get()) {
-    const skill = normalizeExtensionSkillInput(
-      "skill-research-brief",
-      {
-        name: "Research Brief",
-        description:
-          "Turn a request into a concise workflow with context, checkpoints, and output.",
-        category: "productivity",
-        enabled: true,
-        auto_use: false,
-        requires_approval: true,
-        tags: ["research", "brief"],
-        triggerKeywords: ["research", "brief", "plan"],
-        steps: [
-          {
-            id: "scope",
-            type: "prompt",
-            title: "Clarify scope",
-            detail: "Restate the user goal, constraints, and expected output.",
-          },
-          {
-            id: "memory",
-            type: "memory",
-            title: "Check local context",
-            detail: "Look for relevant local memory and workspace context before proposing output.",
-          },
-          {
-            id: "approval",
-            type: "approval",
-            title: "Approval checkpoint",
-            detail: "Ask before using external or sensitive tools.",
-          },
-        ],
-      },
-      null,
-      now,
-    );
-    const workflow = ensureSkillWorkflow(skill);
-    db.insert(extensionSkills)
-      .values({ ...skill, workflow_id: workflow.id })
-      .run();
-  }
 }

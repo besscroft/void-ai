@@ -34,17 +34,16 @@ import {
   type ChatToolModelContext,
   type ChatToolRuntimeConfig,
 } from "./chat-tools";
+import { commandLooksDangerous, inputHasPathEscape } from "./approval-policy";
+import { loadAgentGraph } from "./agent-graph";
+import { upsertAgentRuntimeState, upsertConversationAgentState } from "./db";
 import {
-  createAgentRun,
-  createAgentRunStep,
-  getAgent,
-  insertHarnessEvent,
-  listAgents,
-  updateAgentRun,
-  updateAgentRunStep,
-  upsertAgentRuntimeState,
-  upsertConversationAgentState,
-} from "./db";
+  recordRuntimeEvent as insertRuntimeEvent,
+  recordRuntimeRun as createRuntimeRun,
+  recordRuntimeStep as createRuntimeStep,
+  updateRecordedRuntimeRun as updateRuntimeRun,
+  updateRecordedRuntimeStep as updateRuntimeStep,
+} from "./runtime-recorder";
 import {
   createSandboxSnapshot,
   getOrCreateSandboxSession,
@@ -57,6 +56,7 @@ import {
   writeSandboxFile,
   type SandboxContext,
 } from "./sandbox-agents";
+import { getSandboxSessionOrThrow } from "./sandbox-runtime";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
 type MessageMetadataCallback = NonNullable<
@@ -135,8 +135,7 @@ const consultInputSchema = jsonSchema<{ task: string; expectedOutput?: string }>
 
 export async function runAgentChat(options: RunAgentChatOptions): Promise<Response> {
   const resolveModel = options.resolveModel ?? (await import("./providers")).resolveModel;
-  const rootAgent = getAgent(DEFAULT_AGENT_ID);
-  if (!rootAgent) throw new Error("Void agent profile is missing.");
+  const { rootAgent, enabledChildren } = loadAgentGraph(DEFAULT_AGENT_ID);
 
   const rootModelRef = rootAgent.model_ref || options.modelRef;
   const rootResolved =
@@ -145,15 +144,7 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
   const resolved = applyRuntimeConfig(rootResolved, rootRuntimeConfig);
   const modelContext = toChatToolModelContext(rootModelRef, resolved);
   const runId = randomUUID();
-  const enabledChildren = listAgents().filter(
-    (agent) =>
-      agent.kind === "child" &&
-      agent.status === "active" &&
-      agent.locked === 0 &&
-      agent.enabled !== 0,
-  );
-
-  createAgentRun({
+  createRuntimeRun({
     id: runId,
     conversation_id: options.conversationId ?? null,
     root_agent_id: DEFAULT_AGENT_ID,
@@ -174,7 +165,7 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
     conversationId: options.conversationId,
     summary: "Void is planning",
   });
-  createAgentRunStep({
+  createRuntimeStep({
     run_id: runId,
     agent_id: DEFAULT_AGENT_ID,
     kind: "input_guardrail",
@@ -183,7 +174,7 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
     detail: { conversationId: options.conversationId, messageCount: options.messages.length },
     finished_at: Date.now(),
   });
-  insertHarnessEvent({
+  insertRuntimeEvent({
     kind: "agent",
     title: "Void orchestration started",
     status: "running",
@@ -395,7 +386,7 @@ async function runChildAgent(
   input: { task?: string; taskSummary?: string; expectedOutput?: string; reason?: string },
 ): Promise<Record<string, unknown>> {
   const started = Date.now();
-  const step = createAgentRunStep({
+  const step = createRuntimeStep({
     run_id: context.runId,
     agent_id: child.id,
     kind: mode,
@@ -447,7 +438,7 @@ async function runChildAgent(
       timeout: { totalMs: 120_000 },
     });
     const output = summarizeText(result.text, 6_000);
-    updateAgentRunStep(step.id, {
+    updateRuntimeStep(step.id, {
       status: "succeeded",
       detail: { input, output, durationMs: Date.now() - started },
       finished_at: Date.now(),
@@ -460,7 +451,7 @@ async function runChildAgent(
       summary: child.name + " completed " + mode,
       stepId: step.id,
     });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "handoff",
       title: (mode === "handoff" ? "Handoff" : "Consult") + " completed: " + child.name,
       status: "succeeded",
@@ -475,7 +466,7 @@ async function runChildAgent(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    updateAgentRunStep(step.id, {
+    updateRuntimeStep(step.id, {
       status: "failed",
       error: message,
       detail: { input, error: message },
@@ -690,16 +681,16 @@ async function runSandboxStep<T>(
   title: string,
   action: (sandbox: SandboxContext) => Promise<T> | T,
 ): Promise<T> {
-  if (!context.sandbox) throw new Error("Sandbox session is not available.");
-  const step = createAgentRunStep({
+  const sandbox = getSandboxSessionOrThrow(context.sandbox);
+  const step = createRuntimeStep({
     run_id: context.runId,
     agent_id: DEFAULT_AGENT_ID,
     kind: "sandbox",
     status: "running",
     title,
     detail: {
-      sessionId: context.sandbox.session.id,
-      isolationMode: context.sandbox.session.isolation_mode,
+      sessionId: sandbox.session.id,
+      isolationMode: sandbox.session.isolation_mode,
     },
   });
   recordState({
@@ -711,24 +702,24 @@ async function runSandboxStep<T>(
     stepId: step.id,
   });
   try {
-    const result = await action(context.sandbox);
-    updateAgentRunStep(step.id, {
+    const result = await action(sandbox);
+    updateRuntimeStep(step.id, {
       status: "succeeded",
       detail: {
-        sessionId: context.sandbox.session.id,
-        isolationMode: context.sandbox.session.isolation_mode,
+        sessionId: sandbox.session.id,
+        isolationMode: sandbox.session.isolation_mode,
         result: summarizeUnknown(result),
       },
       finished_at: Date.now(),
     });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "sandbox",
       title,
       status: "succeeded",
       detail: {
         runId: context.runId,
-        sessionId: context.sandbox.session.id,
-        isolationMode: context.sandbox.session.isolation_mode,
+        sessionId: sandbox.session.id,
+        isolationMode: sandbox.session.isolation_mode,
       },
     });
     recordState({
@@ -742,13 +733,13 @@ async function runSandboxStep<T>(
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    updateAgentRunStep(step.id, {
+    updateRuntimeStep(step.id, {
       status: "failed",
       error: message,
       detail: { error: message },
       finished_at: Date.now(),
     });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: "sandbox",
       title,
       status: "failed",
@@ -760,13 +751,13 @@ async function runSandboxStep<T>(
 
 function createGuardrailApproval(
   context: RuntimeContext,
-  extensionApprovalToolNames = new Set<string>(),
+  toolApprovalToolNames = new Set<string>(),
 ): ToolApprovalConfiguration<ToolSet, unknown> {
   return ({ toolCall }) => {
     const toolName = String(toolCall.toolName);
     const input = (toolCall as { input?: unknown }).input;
-    const decision = evaluateToolGuardrail(context, toolName, input, extensionApprovalToolNames);
-    const step = createAgentRunStep({
+    const decision = evaluateToolGuardrail(context, toolName, input, toolApprovalToolNames);
+    const step = createRuntimeStep({
       run_id: context.runId,
       agent_id: DEFAULT_AGENT_ID,
       kind: decision.decision === "require_review" ? "approval" : "tool",
@@ -783,7 +774,7 @@ function createGuardrailApproval(
       detail: { toolName, input, decision },
       finished_at: decision.decision === "require_review" ? null : Date.now(),
     });
-    insertHarnessEvent({
+    insertRuntimeEvent({
       kind: decision.decision === "require_review" ? "approval" : "guardrail",
       title:
         decision.decision === "require_review"
@@ -820,7 +811,7 @@ function evaluateToolGuardrail(
   context: RuntimeContext,
   toolName: string,
   input: unknown,
-  extensionApprovalToolNames = new Set<string>(),
+  toolApprovalToolNames = new Set<string>(),
 ): {
   decision: "allow" | "deny" | "require_review";
   risk: "low" | "medium" | "high";
@@ -845,7 +836,7 @@ function evaluateToolGuardrail(
     readRuntimeConfig(context.rootAgent.runtime_config_json).reviewPolicy === "review_all";
   if (
     reviewAll ||
-    extensionApprovalToolNames.has(toolName) ||
+    toolApprovalToolNames.has(toolName) ||
     (mappedTool && policy.requireApprovalToolIds.includes(mappedTool)) ||
     toolName === "memory_save" ||
     toolName === "conversation_search"
@@ -866,14 +857,14 @@ function finishRun(
 ): void {
   const finishedAt = Date.now();
   const finalStatus = context.approvalRequested && status === "succeeded" ? "running" : status;
-  updateAgentRun(context.runId, {
+  updateRuntimeRun(context.runId, {
     status: finalStatus,
     final_agent_id: context.finalAgentId,
     finished_at: finalStatus === "running" ? null : finishedAt,
     error: extra.error ?? null,
     usage_json: extra.execution ? JSON.stringify(extra.execution) : null,
   });
-  createAgentRunStep({
+  createRuntimeStep({
     run_id: context.runId,
     agent_id: context.finalAgentId,
     kind: extra.error ? "error" : "output_guardrail",
@@ -907,7 +898,7 @@ function finishRun(
           : "Agent run finished",
     });
   }
-  insertHarnessEvent({
+  insertRuntimeEvent({
     kind: "agent",
     title: extra.error ? "Void orchestration failed" : "Void orchestration finished",
     status: extra.error ? "failed" : finalStatus === "running" ? "running" : "succeeded",
@@ -966,7 +957,7 @@ function createExecutionTracker({
     messageMetadata,
     recordModelStep: () => {
       stepCount += 1;
-      createAgentRunStep({
+      createRuntimeStep({
         run_id: runId,
         agent_id: agentId,
         kind: "model",
@@ -1124,13 +1115,7 @@ function selectedBaseToolIds(
   const selection = normalizeChatToolSelection(applyAgentToolPolicy(rawSelection, policy));
   if (selection.mode === "off") return [];
   if (selection.mode === "manual") return selection.selectedToolIds.filter(isBaseChatTool);
-  return [
-    "web_search",
-    "current_time",
-    "memory_search",
-    "workspace_snapshot",
-    "model_capabilities",
-  ];
+  return ["web_search", "current_time", "memory_search", "runtime_snapshot", "model_capabilities"];
 }
 
 function selectedSandboxToolIds(context: RuntimeContext, policy: AgentToolPolicy): ChatToolId[] {
@@ -1273,29 +1258,6 @@ function isChatReasoningLevel(value: unknown): value is ChatReasoningLevel {
 
 function toolNameToChatToolId(toolName: string): ChatToolId | null {
   return isChatToolId(toolName) ? toolName : null;
-}
-
-function inputHasPathEscape(input: unknown): boolean {
-  if (!input || typeof input !== "object") return false;
-  const record = input as Record<string, unknown>;
-  return ["path", "cwd"].some((key) => {
-    const value = record[key];
-    return (
-      typeof value === "string" &&
-      (value.includes("..") || /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("/"))
-    );
-  });
-}
-
-function commandLooksDangerous(input: unknown): boolean {
-  if (!input || typeof input !== "object") return false;
-  const record = input as Record<string, unknown>;
-  const command = typeof record.command === "string" ? record.command.toLowerCase() : "";
-  const args = Array.isArray(record.args) ? record.args.map(String).join(" ").toLowerCase() : "";
-  const text = command + " " + args;
-  return /\b(rm|del|erase|rmdir|format|mkfs|shutdown|reboot|npm|pnpm|yarn|pip|uv|brew|apt|choco|winget)\b/.test(
-    text,
-  );
 }
 
 function assignTool(toolSet: ToolSet, name: string, value: unknown): void {

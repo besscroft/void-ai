@@ -1,8 +1,8 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+﻿import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { AppShell, type AppView } from "./components/AppShell";
 import { ChatView } from "./components/ChatView";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { WorkspaceView } from "./components/WorkspaceView";
+import { MainPanelView } from "./components/MainPanelView";
 import { api } from "./lib/api";
 import { SettingsProvider, useSettings } from "./lib/settings";
 import { AppI18nProvider, useT } from "./lib/i18n";
@@ -43,10 +43,10 @@ function AppRoot({ children }: { children: ReactNode }): React.JSX.Element {
 function AppContent(): React.JSX.Element {
   const { t } = useT();
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<AppView>("dashboard");
+  const [activeView, setActiveView] = useState<AppView>("chat");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // 服务端口：useChat 必须在首次渲染就拿到正确 transport，
-  // 因此端口就绪前不挂载 ChatView。
+  // 鏈嶅姟绔彛锛歶seChat 蹇呴』鍦ㄩ娆℃覆鏌撳氨鎷垮埌姝ｇ‘ transport锛?
+  // 鍥犳绔彛灏辩华鍓嶄笉鎸傝浇 ChatView銆?
   const [serverInfo, setServerInfo] = useState<LocalServerInfo | null>(null);
 
   const createNewConversation = useCallback(async (): Promise<void> => {
@@ -58,7 +58,7 @@ function AppContent(): React.JSX.Element {
   }, [t]);
 
   useEffect(() => {
-    // 提早拉取本地服务端口，避免 ChatView 内部 useEffect 抢跑
+    // 鎻愭棭鎷夊彇鏈湴鏈嶅姟绔彛锛岄伩鍏?ChatView 鍐呴儴 useEffect 鎶㈣窇
     void api.server.info().then(setServerInfo);
   }, []);
 
@@ -137,7 +137,7 @@ function AppContent(): React.JSX.Element {
             </div>
           )
         ) : (
-          <WorkspaceView section={activeView} onSelectView={handleSelectView} />
+          <MainPanelView section={activeView} />
         )}
       </AppShell>
 

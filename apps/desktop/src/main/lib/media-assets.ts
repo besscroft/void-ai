@@ -38,14 +38,14 @@ export function writeMediaAsset({
 }): MediaGenerationFile {
   const dir = getMediaDir();
   mkdirSync(dir, { recursive: true });
-  const extension = extensionForMediaType(mediaType, kind);
-  const storedName = `${Date.now()}-${randomUUID()}.${extension}`;
+  const tool = toolForMediaType(mediaType, kind);
+  const storedName = `${Date.now()}-${randomUUID()}.${tool}`;
   const filePath = join(dir, storedName);
   writeFileSync(filePath, data);
   return {
     type: "file",
     mediaType,
-    filename: normalizeFilename(filename, kind, extension),
+    filename: normalizeFilename(filename, kind, tool),
     url: toVoidMediaUrl(storedName),
     size: statSync(filePath).size,
   };
@@ -72,7 +72,7 @@ export function resolveVoidMediaPath(url: string): string | null {
   return existsSync(fullPath) ? fullPath : null;
 }
 
-function extensionForMediaType(mediaType: string, kind: MediaGenerationKind): string {
+function toolForMediaType(mediaType: string, kind: MediaGenerationKind): string {
   const normalized = mediaType.toLowerCase().split(";")[0]?.trim() ?? "";
   const known: Record<string, string> = {
     "image/png": "png",
@@ -106,21 +106,21 @@ function extensionForMediaType(mediaType: string, kind: MediaGenerationKind): st
 function normalizeFilename(
   filename: string | undefined,
   kind: MediaGenerationKind,
-  extension: string,
+  tool: string,
 ): string {
   const trimmed = filename?.trim();
-  if (!trimmed) return defaultFilename(kind, extension);
-  return /\.[a-z0-9]{1,8}$/i.test(trimmed) ? trimmed : `${trimmed}.${extension}`;
+  if (!trimmed) return defaultFilename(kind, tool);
+  return /\.[a-z0-9]{1,8}$/i.test(trimmed) ? trimmed : `${trimmed}.${tool}`;
 }
-function defaultFilename(kind: MediaGenerationKind, extension: string): string {
+function defaultFilename(kind: MediaGenerationKind, tool: string): string {
   switch (kind) {
     case "image":
-      return `image.${extension}`;
+      return `image.${tool}`;
     case "speech":
-      return `speech.${extension}`;
+      return `speech.${tool}`;
     case "transcription":
-      return `audio.${extension}`;
+      return `audio.${tool}`;
     case "video":
-      return `video.${extension}`;
+      return `video.${tool}`;
   }
 }

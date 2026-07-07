@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+﻿import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Chip } from "@heroui/react";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
@@ -7,23 +7,19 @@ import {
   IconMessage,
   IconPlus,
   IconSettings,
-  IconSun,
-  IconMonitor,
   IconTrash,
   IconCpu,
   IconSliders,
   IconDatabase,
-  IconLayout,
-  IconGlobe,
-  IconKey,
+  IconWrench,
   IconSearch,
   IconClose,
 } from "./icons";
 import type { Conversation } from "@shared/types";
-import type { WorkspaceSection } from "./WorkspaceView";
+import type { MainSection } from "./MainPanelView";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-export type AppView = "chat" | WorkspaceSection;
+export type AppView = "chat" | MainSection;
 
 interface AppShellProps {
   activeView: AppView;
@@ -37,16 +33,11 @@ interface AppShellProps {
 }
 
 const primaryNav: { id: AppView; labelKey: TranslationKey; Icon: typeof IconMessage }[] = [
-  { id: "dashboard", labelKey: "workspace.title.dashboard", Icon: IconLayout },
   { id: "chat", labelKey: "shell.nav.conversations", Icon: IconMessage },
-  { id: "agents", labelKey: "workspace.title.agents", Icon: IconCpu },
-  { id: "workflows", labelKey: "workspace.title.workflows", Icon: IconSliders },
-  { id: "memory", labelKey: "workspace.title.memory", Icon: IconDatabase },
-  { id: "sandbox", labelKey: "workspace.title.sandbox", Icon: IconLayout },
-  { id: "harness", labelKey: "workspace.title.harness", Icon: IconKey },
-  { id: "server", labelKey: "workspace.title.server", Icon: IconGlobe },
-  { id: "interactions", labelKey: "workspace.title.interactions", Icon: IconMonitor },
-  { id: "sync", labelKey: "workspace.title.sync", Icon: IconSun },
+  { id: "agents", labelKey: "main.title.agents", Icon: IconCpu },
+  { id: "workflows", labelKey: "main.title.workflows", Icon: IconSliders },
+  { id: "tools", labelKey: "main.title.tools", Icon: IconWrench },
+  { id: "memory", labelKey: "main.title.memory", Icon: IconDatabase },
 ];
 
 export function AppShell({
@@ -76,8 +67,8 @@ export function AppShell({
     refresh();
   }, [activeConversationId]);
 
-  // 监听自动/手动重命名：优先用事件携带的 title 直接更新本地 state；
-  // 若没有 title（例如来自其他渠道），则降级为全量 refresh。
+  // 鐩戝惉鑷姩/鎵嬪姩閲嶅懡鍚嶏細浼樺厛鐢ㄤ簨浠舵惡甯︾殑 title 鐩存帴鏇存柊鏈湴 state锛?
+  // 鑻ユ病鏈?title锛堜緥濡傛潵鑷叾浠栨笭閬擄級锛屽垯闄嶇骇涓哄叏閲?refresh銆?
   useEffect(() => {
     const handler = (e: Event): void => {
       const detail = (e as CustomEvent<{ id: string; title?: string }>).detail;
@@ -115,13 +106,13 @@ export function AppShell({
   };
 
   /**
-   * 过滤 + 分组（按 updated_at 倒序）
+   * 杩囨护 + 鍒嗙粍锛堟寜 updated_at 鍊掑簭锛?
    *
-   * 分组策略：
-   *  - 今天：updated_at 与今天在同一天
-   *  - 昨天：相差 1 天且跨日
-   *  - 本周：7 天内
-   *  - 更早：其他
+   * 鍒嗙粍绛栫暐锛?
+   *  - 浠婂ぉ锛歶pdated_at 涓庝粖澶╁湪鍚屼竴澶?
+   *  - 鏄ㄥぉ锛氱浉宸?1 澶╀笖璺ㄦ棩
+   *  - 鏈懆锛? 澶╁唴
+   *  - 鏇存棭锛氬叾浠?
    */
   const groupedConversations = useMemo<Array<{ label: string; items: Conversation[] }>>(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -149,7 +140,7 @@ export function AppShell({
       (groups[label] ??= []).push(c);
     }
 
-    // 固定分组顺序：今天 → 昨天 → 本周 → 更早
+    // 鍥哄畾鍒嗙粍椤哄簭锛氫粖澶?鈫?鏄ㄥぉ 鈫?鏈懆 鈫?鏇存棭
     const order = [
       t("shell.group.today"),
       t("shell.group.yesterday"),
@@ -176,7 +167,7 @@ export function AppShell({
           </div>
         </div>
 
-        <nav className="space-y-1 px-2 py-3" aria-label={t("shell.nav.workspace")}>
+        <nav className="space-y-1 px-2 py-3" aria-label={t("shell.nav.primary")}>
           {primaryNav.map(({ id, labelKey, Icon }) => {
             const active = activeView === id;
             const label = t(labelKey);
@@ -216,7 +207,7 @@ export function AppShell({
             </Button>
           </div>
 
-          {/* 创意：搜索框（仅在有会话时显示） */}
+          {/* 鍒涙剰锛氭悳绱㈡锛堜粎鍦ㄦ湁浼氳瘽鏃舵樉绀猴級 */}
           {conversations.length > 0 && (
             <div className="relative px-3 pb-2">
               <IconSearch className="pointer-events-none absolute left-6 top-1/2 size-3.5 -translate-y-1/2 text-foreground/40" />

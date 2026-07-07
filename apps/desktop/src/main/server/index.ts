@@ -497,28 +497,26 @@ export function startServer(): Promise<number> {
         const addr = instance.address();
         if (addr && typeof addr === "object" && "port" in addr) {
           assignedPort = addr.port;
-          const now = Date.now();
           void import("../lib/db")
-            .then(({ upsertServerNode }) => {
-              upsertServerNode({
-                id: "server-local-ai",
-                name: "Local AI Loopback",
-                kind: "local",
-                url: "http://127.0.0.1:" + assignedPort,
-                status: "online",
-                capabilities_json: JSON.stringify([
-                  "chat-stream",
-                  "agent-context",
-                  "memory-injection",
-                  "media-generation",
-                ]),
-                last_seen_at: now,
-                created_at: now,
-                updated_at: now,
+            .then(({ insertRuntimeEvent }) => {
+              insertRuntimeEvent({
+                kind: "diagnostic",
+                status: "succeeded",
+                severity: "info",
+                title: "Local AI server started",
+                detail_json: JSON.stringify({
+                  url: "http://127.0.0.1:" + assignedPort,
+                  capabilities: [
+                    "chat-stream",
+                    "agent-context",
+                    "memory-injection",
+                    "media-generation",
+                  ],
+                }),
               });
             })
             .catch((err) => {
-              console.error("[server] failed to persist local server node:", err);
+              console.error("[server] failed to record local server diagnostic:", err);
             });
           console.log(`[server] Local AI server started: http://127.0.0.1:${assignedPort}`);
           resolve(assignedPort);
