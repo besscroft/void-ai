@@ -195,6 +195,15 @@ code {
   font-size: var(--code-font-size, 0.875em);
 }
 
+.rich-content :where(code):not(pre code) {
+  background-color: color-mix(in oklch, currentColor 10%, transparent);
+}
+
+.rich-content :where(pre code) {
+  background-color: transparent;
+  padding: 0;
+}
+
 /* ============================================================
    外观设置（运行时数据属性驱动）
    ============================================================ */

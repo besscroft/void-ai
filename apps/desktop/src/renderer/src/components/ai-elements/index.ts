@@ -16,6 +16,12 @@ export {
 } from "./conversation";
 
 export { Message, MessageContent, MessageResponse } from "./message";
+export {
+  getMediaKindFromUrl,
+  parseRichContentBlocks,
+  sanitizeRichContentUrl,
+} from "./rich-content-utils";
+export { RichContent } from "./rich-content";
 
 export {
   PromptInput,

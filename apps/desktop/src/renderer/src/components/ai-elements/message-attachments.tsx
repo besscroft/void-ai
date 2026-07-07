@@ -3,6 +3,7 @@ import { cn } from "../../lib/utils";
 import { useT } from "../../lib/i18n";
 import { AttachmentChip } from "./attachment-chip";
 import type { AttachmentItem } from "./attachment-chip";
+import { sanitizeRichContentUrl } from "./rich-content-utils";
 
 export interface FilePartLike {
   type: string;
@@ -93,7 +94,8 @@ export function MessageAttachments({
 }
 
 function ImageTile({ item }: { item: AttachmentItem }): ReactNode {
-  if (!item.url) {
+  const src = item.url ? sanitizeRichContentUrl(item.url, "image") : null;
+  if (!src) {
     return (
       <div className="flex aspect-square items-center justify-center rounded-lg bg-foreground/10 text-xs text-foreground/40">
         {item.name}
@@ -102,14 +104,14 @@ function ImageTile({ item }: { item: AttachmentItem }): ReactNode {
   }
   return (
     <a
-      href={item.url}
+      href={src}
       target="_blank"
       rel="noreferrer noopener"
       className="group/tile relative block aspect-square overflow-hidden rounded-lg bg-foreground/5"
       title={item.name}
     >
       <img
-        src={item.url}
+        src={src}
         alt={item.name}
         className="size-full object-cover transition group-hover/tile:scale-105"
         loading="lazy"
@@ -119,34 +121,33 @@ function ImageTile({ item }: { item: AttachmentItem }): ReactNode {
 }
 
 function AudioAttachment({ item }: { item: AttachmentItem }): React.JSX.Element {
-  if (!item.url) return <AttachmentChip item={item} compact />;
+  const src = item.url ? sanitizeRichContentUrl(item.url, "media") : null;
+  if (!src) return <AttachmentChip item={item} compact />;
   return (
     <div className="rounded-lg border border-foreground/10 bg-foreground/[0.035] p-2">
       <div className="mb-1 truncate text-xs font-medium text-foreground/65" title={item.name}>
         {item.name}
       </div>
-      <audio controls src={item.url} className="w-full" preload="metadata" />
+      <audio controls src={src} className="w-full" preload="metadata" />
     </div>
   );
 }
 
 function VideoAttachment({ item }: { item: AttachmentItem }): React.JSX.Element {
-  if (!item.url) return <AttachmentChip item={item} compact />;
+  const src = item.url ? sanitizeRichContentUrl(item.url, "media") : null;
+  if (!src) return <AttachmentChip item={item} compact />;
   return (
-    <a
-      href={item.url}
-      target="_blank"
-      rel="noreferrer noopener"
-      className="block overflow-hidden rounded-lg border border-foreground/10 bg-foreground/[0.035]"
+    <div
+      className="overflow-hidden rounded-lg border border-foreground/10 bg-foreground/[0.035]"
       title={item.name}
     >
       <video
         controls
-        src={item.url}
+        src={src}
         className="aspect-video w-full bg-black object-contain"
         preload="metadata"
       />
       <div className="truncate px-2 py-1.5 text-xs font-medium text-foreground/65">{item.name}</div>
-    </a>
+    </div>
   );
 }
