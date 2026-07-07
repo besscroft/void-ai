@@ -25,12 +25,12 @@ import { hasMeaningfulConversationTitle } from "../lib/conversation-title";
 import { getChatErrorMessage } from "../lib/errors";
 import {
   appendOrReplaceMessage,
-  buildMessageSnapshotRows,
   buildUserMessage,
   hydrateStoredMessage,
   toFileUIParts,
   updateMessageReaction,
 } from "../lib/chat-messages";
+import { persistMessagesSnapshot } from "../lib/chat-persistence";
 import {
   buildMediaErrorMessage,
   buildMediaGenerationRequest,
@@ -840,18 +840,6 @@ function formatRuntimeSummary(
     .sort((a, b) => b.started_at - a.started_at)[0];
   if (latestStep) return latestStep.title;
   return "Agent runtime is preparing";
-}
-
-async function persistMessagesSnapshot(
-  conversationId: string,
-  messages: UIMessage[],
-  createdAtById: Map<string, number>,
-): Promise<void> {
-  if (messages.length === 0) return;
-
-  const rows = buildMessageSnapshotRows({ conversationId, messages, createdAtById });
-  await api.messages.saveBatch(rows);
-  for (const row of rows) createdAtById.set(row.id, row.created_at);
 }
 
 /* ---------- 自动标题生成 ---------- */

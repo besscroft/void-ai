@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { AppShell, type AppView } from "./components/AppShell";
 import { ChatView } from "./components/ChatView";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -13,22 +13,28 @@ import { MotionConfig } from "motion/react";
 
 function App(): React.JSX.Element {
   return (
+    <AppProviders>
+      <AppContent />
+    </AppProviders>
+  );
+}
+
+export function AppProviders({ children }: { children: ReactNode }): React.JSX.Element {
+  return (
     <SettingsProvider>
-      <AppRoot />
+      <AppRoot>{children}</AppRoot>
     </SettingsProvider>
   );
 }
 
-function AppRoot(): React.JSX.Element {
+function AppRoot({ children }: { children: ReactNode }): React.JSX.Element {
   const { resolvedLanguage, settings } = useSettings();
   const reducedMotion =
     settings.reduceMotion === "on" ? "always" : settings.reduceMotion === "off" ? "never" : "user";
   return (
     <AppI18nProvider locale={resolvedLanguage}>
       <I18nProvider locale={resolvedLanguage}>
-        <MotionConfig reducedMotion={reducedMotion}>
-          <AppContent />
-        </MotionConfig>
+        <MotionConfig reducedMotion={reducedMotion}>{children}</MotionConfig>
       </I18nProvider>
     </AppI18nProvider>
   );
@@ -100,6 +106,16 @@ function AppContent(): React.JSX.Element {
     },
     [createNewConversation],
   );
+
+  useEffect(() => {
+    return api.desktopPet.onOpenConversation((conversationId) => {
+      if (conversationId) {
+        setActiveId(conversationId);
+        void api.settings.set(SettingKey.ActiveConversationId, conversationId);
+      }
+      setActiveView("chat");
+    });
+  }, []);
 
   return (
     <>

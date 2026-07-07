@@ -286,7 +286,8 @@ function WorkspaceContent({
   if (section === "sandbox") return <SandboxPanel snapshot={snapshot} />;
   if (section === "harness") return <HarnessPanel snapshot={snapshot} />;
   if (section === "server") return <ServerPanel snapshot={snapshot} />;
-  if (section === "interactions") return <InteractionsPanel snapshot={snapshot} />;
+  if (section === "interactions")
+    return <InteractionsPanel snapshot={snapshot} refresh={refresh} />;
   if (section === "sync") return <SyncPanel snapshot={snapshot} />;
   return <DashboardPanel snapshot={snapshot} onSelectView={onSelectView} />;
 }
@@ -2159,14 +2160,30 @@ function ServerPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.E
   );
 }
 
-function InteractionsPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.Element {
+function InteractionsPanel({
+  snapshot,
+  refresh,
+}: {
+  snapshot: WorkspaceSnapshot;
+  refresh: () => void;
+}): React.JSX.Element {
   const { t } = useT();
   if (snapshot.interactionProfiles.length === 0) return <EmptyPanel />;
 
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {snapshot.interactionProfiles.map((profile) => {
-        const config = parseJson<Record<string, string>>(profile.config_json, {});
+        const config = parseJson<Record<string, unknown>>(profile.config_json, {});
+        if (profile.kind === "desktop_pet") {
+          return (
+            <DesktopPetInteractionCard
+              key={profile.id}
+              profile={profile}
+              config={config}
+              refresh={refresh}
+            />
+          );
+        }
         return (
           <Card key={profile.id}>
             <Card.Header>
@@ -2182,7 +2199,7 @@ function InteractionsPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React
             <Card.Content>
               <div className="grid gap-2 text-xs text-foreground/55">
                 {Object.entries(config).map(([key, value]) => (
-                  <InfoRow key={key} label={key} value={String(value)} />
+                  <InfoRow key={key} label={key} value={formatConfigValue(value)} />
                 ))}
               </div>
             </Card.Content>
@@ -2190,6 +2207,102 @@ function InteractionsPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React
         );
       })}
     </div>
+  );
+}
+
+function DesktopPetInteractionCard({
+  profile,
+  config,
+  refresh,
+}: {
+  profile: WorkspaceSnapshot["interactionProfiles"][number];
+  config: Record<string, unknown>;
+  refresh: () => void;
+}): React.JSX.Element {
+  const { t } = useT();
+  const [busy, setBusy] = useState(false);
+
+  const run = async (action: () => Promise<unknown>): Promise<void> => {
+    setBusy(true);
+    try {
+      await action();
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openPetConversation = async (): Promise<void> => {
+    const snapshot = await api.desktopPet.getSnapshot();
+    await api.desktopPet.openMain(snapshot.config.conversationId);
+  };
+
+  return (
+    <Card>
+      <Card.Header>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <Chip size="sm" color={profile.enabled ? "success" : "default"} variant="soft">
+            {profile.enabled ? t("workspace.value.enabled") : t("workspace.value.off")}
+          </Chip>
+          <StatusChip status={profile.status} />
+        </div>
+        <Card.Title>{profile.label}</Card.Title>
+        <Card.Description>{labelFor(t, interactionKindKeys, profile.kind)}</Card.Description>
+      </Card.Header>
+      <Card.Content>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3 rounded-md border border-foreground/10 px-3 py-2.5">
+            <div>
+              <p className="text-sm font-medium">{t("workspace.desktopPet.enable")}</p>
+              <p className="text-xs text-foreground/50">{t("workspace.desktopPet.enableDesc")}</p>
+            </div>
+            <Switch
+              size="sm"
+              isSelected={profile.enabled !== 0}
+              isDisabled={busy}
+              onChange={(enabled) => void run(() => api.desktopPet.setEnabled(enabled))}
+              aria-label={t("workspace.desktopPet.enable")}
+            />
+          </div>
+
+          <div className="grid gap-2 text-xs text-foreground/55">
+            {Object.entries(config).map(([key, value]) => (
+              <InfoRow key={key} label={key} value={formatConfigValue(value)} />
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="primary"
+              isPending={busy}
+              onPress={() => void run(() => api.desktopPet.show())}
+            >
+              <IconSettings className="size-3.5" />
+              {t("workspace.desktopPet.show")}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              isDisabled={busy}
+              onPress={() => void run(openPetConversation)}
+            >
+              <IconCpu className="size-3.5" />
+              {t("desktopPet.openChat")}
+            </Button>
+            <Button
+              size="sm"
+              variant="tertiary"
+              isDisabled={busy}
+              onPress={() => void run(() => api.desktopPet.resetPosition())}
+            >
+              <IconRotateCcw className="size-3.5" />
+              {t("workspace.desktopPet.resetPosition")}
+            </Button>
+          </div>
+        </div>
+      </Card.Content>
+    </Card>
   );
 }
 
@@ -2384,6 +2497,21 @@ type TFunction = ReturnType<typeof useT>["t"];
 function labelFor(t: TFunction, keys: Record<string, TranslationKey>, value: string): string {
   const key = keys[value];
   return key ? t(key) : value;
+}
+
+function formatConfigValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "symbol")
+    return value.description ? `Symbol(${value.description})` : "Symbol()";
+  if (typeof value === "function") return "[function]";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "[unserializable]";
+  }
 }
 
 function parseJson<T>(value: string, fallback: T): T {

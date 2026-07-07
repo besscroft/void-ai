@@ -423,6 +423,7 @@ export interface ExtensionsSnapshot {
   workflowRuns: WorkflowRun[];
   harnessEvents: HarnessEvent[];
 }
+
 export const CHAT_SESSION_HEADER = "x-void-ai-session";
 
 export interface LocalServerInfo {
@@ -751,6 +752,8 @@ function clampFiniteNumber(value: unknown, fallback: number, min: number, max: n
     : fallback;
 }
 
+export const DEFAULT_AGENT_ID = "agent-void";
+
 export interface InteractionProfile {
   id: string;
   kind: "chat" | "voice" | "video" | "mouse" | "desktop_pet";
@@ -759,6 +762,151 @@ export interface InteractionProfile {
   status: "ready" | "prototype" | "blocked";
   config_json: string;
   updated_at: number;
+}
+
+export type DesktopPetMood = "idle" | "thinking" | "working" | "learning" | "error";
+
+export interface DesktopPetWindowConfig {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+  alwaysOnTop: boolean;
+}
+
+export interface DesktopPetConfig {
+  version: 1;
+  agentId: string;
+  conversationId?: string;
+  window: DesktopPetWindowConfig;
+  visual: {
+    variant: "void-orb";
+  };
+}
+
+export type DesktopPetConfigPatch = Omit<Partial<DesktopPetConfig>, "window" | "visual"> & {
+  window?: Partial<DesktopPetWindowConfig>;
+  visual?: Partial<DesktopPetConfig["visual"]>;
+};
+
+export interface DesktopPetSnapshot {
+  profile: InteractionProfile;
+  config: DesktopPetConfig;
+  agent: AgentProfile | null;
+  runtimeState: AgentRuntimeState | null;
+  selectedModel: string | null;
+  mood: DesktopPetMood;
+}
+
+export const DESKTOP_PET_PROFILE_ID = "interaction-pet";
+
+export const DEFAULT_DESKTOP_PET_WINDOW: DesktopPetWindowConfig = {
+  width: 320,
+  height: 420,
+  alwaysOnTop: true,
+};
+
+export const DEFAULT_DESKTOP_PET_CONFIG: DesktopPetConfig = {
+  version: 1,
+  agentId: DEFAULT_AGENT_ID,
+  window: DEFAULT_DESKTOP_PET_WINDOW,
+  visual: { variant: "void-orb" },
+};
+
+export function normalizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
+  const value = readDesktopPetObject(raw);
+  const windowValue = readDesktopPetObject(value?.window);
+  const visualValue = readDesktopPetObject(value?.visual);
+  const width = clampDesktopPetNumber(
+    windowValue?.width,
+    DEFAULT_DESKTOP_PET_WINDOW.width,
+    240,
+    520,
+  );
+  const height = clampDesktopPetNumber(
+    windowValue?.height,
+    DEFAULT_DESKTOP_PET_WINDOW.height,
+    260,
+    680,
+  );
+  const x = readOptionalDesktopPetNumber(windowValue?.x);
+  const y = readOptionalDesktopPetNumber(windowValue?.y);
+
+  return {
+    version: 1,
+    agentId: DEFAULT_AGENT_ID,
+    conversationId:
+      typeof value?.conversationId === "string" && value.conversationId.trim()
+        ? value.conversationId.trim()
+        : undefined,
+    window: {
+      ...(x === undefined ? {} : { x }),
+      ...(y === undefined ? {} : { y }),
+      width,
+      height,
+      alwaysOnTop:
+        typeof windowValue?.alwaysOnTop === "boolean"
+          ? windowValue.alwaysOnTop
+          : DEFAULT_DESKTOP_PET_WINDOW.alwaysOnTop,
+    },
+    visual: {
+      variant: visualValue?.variant === "void-orb" ? "void-orb" : "void-orb",
+    },
+  };
+}
+
+export function mergeDesktopPetConfig(
+  current: DesktopPetConfig,
+  patch: DesktopPetConfigPatch,
+): DesktopPetConfig {
+  return normalizeDesktopPetConfig({
+    ...current,
+    ...patch,
+    agentId: DEFAULT_AGENT_ID,
+    window: {
+      ...current.window,
+      ...patch.window,
+    },
+    visual: {
+      ...current.visual,
+      ...patch.visual,
+    },
+  });
+}
+
+export function moodFromAgentRuntimeStatus(
+  status: AgentRuntimeStatus | null | undefined,
+): DesktopPetMood {
+  if (status === "failed") return "error";
+  if (status === "learning") return "learning";
+  if (status === "queued" || status === "running" || status === "reviewing") return "thinking";
+  if (status === "handoff" || status === "tool_calling" || status === "sandbox") return "working";
+  return "idle";
+}
+
+function readDesktopPetObject(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw === "string") {
+    if (!raw.trim()) return null;
+    try {
+      return readDesktopPetObject(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return null;
+}
+
+function clampDesktopPetNumber(raw: unknown, fallback: number, min: number, max: number): number {
+  return typeof raw === "number" && Number.isFinite(raw)
+    ? Math.round(Math.min(max, Math.max(min, raw)))
+    : fallback;
+}
+
+function readOptionalDesktopPetNumber(raw: unknown): number | undefined {
+  return typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : undefined;
 }
 
 export interface SyncState {
@@ -1283,7 +1431,6 @@ export interface WorkspaceSnapshot {
   syncState: SyncState;
 }
 
-export const DEFAULT_AGENT_ID = "agent-void";
 /**
  * 应用设置聚合（渲染层使用）
  *

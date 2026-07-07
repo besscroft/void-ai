@@ -47,6 +47,24 @@ export const zhCN = {
   "chat.copy": "复制消息",
   "chat.copied": "已复制",
 
+  // DesktopPet
+  "desktopPet.toggle": "展开或收起桌宠",
+  "desktopPet.emptyReply": "我在这里。需要我陪你想一想，或者把事情接回主窗口都可以。",
+  "desktopPet.input.placeholder": "和 Void 轻聊...",
+  "desktopPet.input.noModel": "先在主窗口选择模型",
+  "desktopPet.send": "发送",
+  "desktopPet.openChat": "完整对话",
+  "desktopPet.settings": "主窗口",
+  "desktopPet.status.idle": "待命",
+  "desktopPet.status.thinking": "思考中",
+  "desktopPet.status.working": "工作中",
+  "desktopPet.status.learning": "学习中",
+  "desktopPet.status.error": "需要查看",
+  "workspace.desktopPet.enable": "启用桌宠",
+  "workspace.desktopPet.enableDesc": "显示主智能体的透明置顶桌面伴随窗口",
+  "workspace.desktopPet.show": "显示桌宠",
+  "workspace.desktopPet.resetPosition": "重置位置",
+
   // —— MessageInput ——
   "input.placeholder": "问 Void 任何事...",
   "input.placeholder.withAttachments": "添加一些文字，或直接发送附件",
@@ -909,6 +927,25 @@ export const en: Record<TranslationKey, string> = {
   "chat.empty.subtitle": "Ask Void anything, or try one of the prompts below to get going.",
   "chat.copy": "Copy message",
   "chat.copied": "Copied",
+
+  "desktopPet.toggle": "Expand or collapse desktop companion",
+  "desktopPet.emptyReply":
+    "I am here. We can think for a moment, or move this back into the main window.",
+  "desktopPet.input.placeholder": "Chat with Void...",
+  "desktopPet.input.noModel": "Pick a model in the main window first",
+  "desktopPet.send": "Send",
+  "desktopPet.openChat": "Full chat",
+  "desktopPet.settings": "Main window",
+  "desktopPet.status.idle": "Idle",
+  "desktopPet.status.thinking": "Thinking",
+  "desktopPet.status.working": "Working",
+  "desktopPet.status.learning": "Learning",
+  "desktopPet.status.error": "Needs review",
+  "workspace.desktopPet.enable": "Enable companion",
+  "workspace.desktopPet.enableDesc":
+    "Show the main agent in a transparent always-on-top desktop window",
+  "workspace.desktopPet.show": "Show companion",
+  "workspace.desktopPet.resetPosition": "Reset position",
 
   "input.placeholder": "Ask Void anything...",
   "input.placeholder.withAttachments": "Add some text, or send the attachments as-is",

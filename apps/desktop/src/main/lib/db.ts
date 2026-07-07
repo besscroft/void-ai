@@ -26,10 +26,19 @@ import {
   DEFAULT_AGENT_HANDOFF_CONFIG,
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
+  DESKTOP_PET_PROFILE_ID,
   DEFAULT_AGENT_ID as SHARED_DEFAULT_AGENT_ID,
+  DEFAULT_DESKTOP_PET_CONFIG,
+  SettingKey,
+  mergeDesktopPetConfig,
+  moodFromAgentRuntimeStatus,
   normalizeAgentHandoffConfig,
   normalizeAgentRuntimeConfig,
   normalizeAgentToolPolicy,
+  normalizeDesktopPetConfig,
+  type DesktopPetConfig,
+  type DesktopPetConfigPatch,
+  type DesktopPetSnapshot,
   type ExtensionOwnerType,
   type ExtensionSecretInput,
   type ExtensionSecretPublic,
@@ -2016,7 +2025,94 @@ export function getExtensionsSnapshot(): ExtensionsSnapshot {
 }
 
 export function listInteractionProfiles(): InteractionProfile[] {
+  ensureDesktopPetProfile();
   return getDb().select().from(interactionProfiles).orderBy(asc(interactionProfiles.id)).all();
+}
+
+export function isDesktopPetEnabled(): boolean {
+  return ensureDesktopPetProfile().enabled !== 0;
+}
+
+export function getDesktopPetSnapshot(): DesktopPetSnapshot {
+  let profile = ensureDesktopPetProfile();
+  const normalized = normalizeDesktopPetConfig(profile.config_json);
+  const config = ensureDesktopPetConversation(normalized);
+  const serialized = JSON.stringify(config);
+
+  if (profile.config_json !== serialized) {
+    profile = updateDesktopPetProfile({ config_json: serialized });
+  }
+
+  const runtimeState =
+    getDb()
+      .select()
+      .from(agentRuntimeState)
+      .where(eq(agentRuntimeState.agent_id, DEFAULT_AGENT_ID))
+      .get() ?? null;
+
+  return {
+    profile,
+    config,
+    agent: getAgent(DEFAULT_AGENT_ID),
+    runtimeState,
+    selectedModel: getSetting(SettingKey.SelectedModel),
+    mood: moodFromAgentRuntimeStatus(runtimeState?.status),
+  };
+}
+
+export function setDesktopPetEnabled(enabled: boolean): DesktopPetSnapshot {
+  updateDesktopPetProfile({ enabled: enabled ? 1 : 0 });
+  return getDesktopPetSnapshot();
+}
+
+export function updateDesktopPetConfig(patch: DesktopPetConfigPatch): DesktopPetSnapshot {
+  const profile = ensureDesktopPetProfile();
+  const current = ensureDesktopPetConversation(normalizeDesktopPetConfig(profile.config_json));
+  const next = mergeDesktopPetConfig(current, patch);
+  updateDesktopPetProfile({ config_json: JSON.stringify(next) });
+  return getDesktopPetSnapshot();
+}
+
+function ensureDesktopPetProfile(): InteractionProfile {
+  const existing = getDb()
+    .select()
+    .from(interactionProfiles)
+    .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
+    .get();
+  if (existing) return existing;
+
+  const now = Date.now();
+  const row: InteractionProfile = {
+    id: DESKTOP_PET_PROFILE_ID,
+    kind: "desktop_pet",
+    label: "Desktop Pet",
+    enabled: 0,
+    status: "prototype",
+    config_json: JSON.stringify(DEFAULT_DESKTOP_PET_CONFIG),
+    updated_at: now,
+  };
+  getDb().insert(interactionProfiles).values(row).run();
+  return row;
+}
+
+function updateDesktopPetProfile(
+  patch: Partial<Pick<InteractionProfile, "enabled" | "status" | "config_json">>,
+): InteractionProfile {
+  const now = Date.now();
+  getDb()
+    .update(interactionProfiles)
+    .set({ ...patch, updated_at: now })
+    .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
+    .run();
+  return ensureDesktopPetProfile();
+}
+
+function ensureDesktopPetConversation(config: DesktopPetConfig): DesktopPetConfig {
+  if (config.conversationId && getConversation(config.conversationId)) return config;
+
+  const conversationId = randomUUID();
+  createConversation(conversationId, "Void desktop pet");
+  return mergeDesktopPetConfig(config, { conversationId });
 }
 
 export function getSyncState(): SyncState {

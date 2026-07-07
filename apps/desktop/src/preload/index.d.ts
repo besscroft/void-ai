@@ -6,6 +6,8 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  DesktopPetConfigPatch,
+  DesktopPetSnapshot,
   ExtensionSecretInput,
   ExtensionSecretPublic,
   ExtensionSkill,
@@ -114,6 +116,16 @@ export interface VoidAIApi {
   };
   interactions: {
     list: () => Promise<InteractionProfile[]>;
+  };
+  desktopPet: {
+    getSnapshot: () => Promise<DesktopPetSnapshot>;
+    setEnabled: (enabled: boolean) => Promise<DesktopPetSnapshot>;
+    updateConfig: (patch: DesktopPetConfigPatch) => Promise<DesktopPetSnapshot>;
+    show: () => Promise<DesktopPetSnapshot>;
+    hide: () => Promise<DesktopPetSnapshot>;
+    resetPosition: () => Promise<DesktopPetSnapshot>;
+    openMain: (conversationId?: string) => Promise<boolean>;
+    onOpenConversation: (handler: (conversationId?: string) => void) => () => void;
   };
   sync: {
     get: () => Promise<SyncState>;

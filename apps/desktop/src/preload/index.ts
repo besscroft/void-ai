@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
 /**
@@ -72,6 +72,23 @@ const api = {
   },
   interactions: {
     list: () => ipcRenderer.invoke("interactions:list"),
+  },
+  desktopPet: {
+    getSnapshot: () => ipcRenderer.invoke("desktopPet:getSnapshot"),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke("desktopPet:setEnabled", enabled),
+    updateConfig: (patch: unknown) => ipcRenderer.invoke("desktopPet:updateConfig", patch),
+    show: () => ipcRenderer.invoke("desktopPet:show"),
+    hide: () => ipcRenderer.invoke("desktopPet:hide"),
+    resetPosition: () => ipcRenderer.invoke("desktopPet:resetPosition"),
+    openMain: (conversationId?: string) =>
+      ipcRenderer.invoke("desktopPet:openMain", conversationId),
+    onOpenConversation: (handler: (conversationId?: string) => void) => {
+      const listener = (_event: IpcRendererEvent, conversationId?: string): void => {
+        handler(conversationId);
+      };
+      ipcRenderer.on("desktopPet:openConversation", listener);
+      return () => ipcRenderer.removeListener("desktopPet:openConversation", listener);
+    },
   },
   sync: {
     get: () => ipcRenderer.invoke("sync:get"),

@@ -166,6 +166,101 @@ body {
   flex-direction: column;
 }
 
+html[data-surface="pet"],
+html[data-surface="pet"] body,
+html[data-surface="pet"] #root {
+  background: transparent;
+}
+
+html[data-surface="pet"] body {
+  user-select: none;
+}
+
+.desktop-pet-drag {
+  -webkit-app-region: drag;
+}
+
+.desktop-pet-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.desktop-pet-orb {
+  position: relative;
+  display: flex;
+  width: 112px;
+  height: 112px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 38%, transparent);
+  border-radius: 999px;
+  color: var(--color-accent);
+  background:
+    radial-gradient(
+      circle at 42% 30%,
+      color-mix(in oklch, var(--color-accent) 34%, white) 0 18%,
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 64% 78%,
+      color-mix(in oklch, var(--color-accent) 18%, transparent) 0 24%,
+      transparent 48%
+    ),
+    color-mix(in oklch, var(--color-background) 86%, transparent);
+  box-shadow:
+    0 18px 60px -30px color-mix(in oklch, var(--color-accent) 62%, transparent),
+    inset 0 0 28px color-mix(in oklch, var(--color-accent) 16%, transparent);
+  animation: desktop-pet-float 4.8s ease-in-out infinite;
+}
+
+.desktop-pet-orb-glow {
+  position: absolute;
+  inset: 12px;
+  border-radius: inherit;
+  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+  filter: blur(14px);
+}
+
+.desktop-pet-mood-thinking,
+.desktop-pet-mood-working {
+  animation:
+    desktop-pet-float 4.8s ease-in-out infinite,
+    desktop-pet-pulse 1.35s ease-in-out infinite;
+}
+
+.desktop-pet-mood-learning {
+  border-color: color-mix(in oklch, var(--color-success, var(--color-accent)) 42%, transparent);
+}
+
+.desktop-pet-mood-error {
+  border-color: color-mix(in oklch, var(--color-danger, red) 48%, transparent);
+  color: var(--color-danger, red);
+}
+
+@keyframes desktop-pet-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes desktop-pet-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 18px 60px -30px color-mix(in oklch, var(--color-accent) 62%, transparent),
+      inset 0 0 28px color-mix(in oklch, var(--color-accent) 16%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 18px 70px -22px color-mix(in oklch, var(--color-accent) 78%, transparent),
+      inset 0 0 36px color-mix(in oklch, var(--color-accent) 24%, transparent);
+  }
+}
+
 /* 自定义滚动条：更现代的视觉 */
 ::-webkit-scrollbar {
   width: 8px;

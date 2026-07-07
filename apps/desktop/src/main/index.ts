@@ -7,6 +7,7 @@ import { startServer, stopServer } from "./server";
 import { migrateProviderApiKeysToModelKeys } from "./lib/providers";
 import { registerVoidMediaProtocol } from "./lib/media-assets";
 import { registerIpcHandlers } from "./ipc";
+import { DesktopPetWindowController } from "./lib/desktop-pet-window";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "void-media",
@@ -18,6 +19,18 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
+
+let mainWindowRef: BrowserWindow | null = null;
+let desktopPetControllerRef: DesktopPetWindowController | null = null;
+
+function getPreloadPath(): string {
+  return join(__dirname, "../preload/index.js");
+}
+
+function getRendererFilePath(): string {
+  return join(__dirname, "../renderer/index.html");
+}
+
 function createWindow(): BrowserWindow {
   // 创建浏览器窗口
   const mainWindow = new BrowserWindow({
@@ -30,13 +43,17 @@ function createWindow(): BrowserWindow {
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: getPreloadPath(),
       sandbox: false,
     },
   });
+  mainWindowRef = mainWindow;
 
   mainWindow.on("ready-to-show", () => {
     mainWindow.show();
+  });
+  mainWindow.on("closed", () => {
+    if (mainWindowRef === mainWindow) mainWindowRef = null;
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -48,10 +65,15 @@ function createWindow(): BrowserWindow {
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
-    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    void mainWindow.loadFile(getRendererFilePath());
   }
 
   return mainWindow;
+}
+
+function getOrCreateMainWindow(): BrowserWindow {
+  if (!mainWindowRef || mainWindowRef.isDestroyed()) return createWindow();
+  return mainWindowRef;
 }
 
 // 应用就绪后初始化所有子系统
@@ -88,12 +110,28 @@ void app.whenReady().then(async () => {
   const mainWindow = createWindow();
   registerIpcHandlers(mainWindow);
 
+  const desktopPetController = new DesktopPetWindowController({
+    getMainWindow: getOrCreateMainWindow,
+    preloadPath: getPreloadPath(),
+    rendererFilePath: getRendererFilePath(),
+    rendererDevUrl:
+      is.dev && process.env["ELECTRON_RENDERER_URL"]
+        ? process.env["ELECTRON_RENDERER_URL"]
+        : undefined,
+  });
+  desktopPetControllerRef = desktopPetController;
+  desktopPetController.registerIpcHandlers();
+  void desktopPetController
+    .restoreIfEnabled()
+    .catch((err) => console.error("[desktop-pet] restore failed:", err));
+
   // IPC test（保留模板自带的 ping）
   ipcMain.on("ping", () => console.log("pong"));
 
   app.on("activate", function () {
     // macOS 上点击 dock 图标时若无窗口则重建
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindowRef || mainWindowRef.isDestroyed()) createWindow();
+    else mainWindowRef.show();
   });
 });
 
@@ -106,6 +144,7 @@ app.on("window-all-closed", () => {
 
 // 应用退出前清理资源
 app.on("before-quit", () => {
+  desktopPetControllerRef?.prepareForAppQuit();
   stopServer();
   closeDb();
 });

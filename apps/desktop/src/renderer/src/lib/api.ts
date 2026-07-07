@@ -5,6 +5,8 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  DesktopPetConfigPatch,
+  DesktopPetSnapshot,
   ExtensionSecretInput,
   ExtensionSecretPublic,
   ExtensionSkill,
@@ -127,6 +129,20 @@ export const api = {
   interactions: {
     list: (): Promise<InteractionProfile[]> => assertApi().interactions.list(),
   },
+  desktopPet: {
+    getSnapshot: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.getSnapshot(),
+    setEnabled: (enabled: boolean): Promise<DesktopPetSnapshot> =>
+      assertApi().desktopPet.setEnabled(enabled),
+    updateConfig: (patch: DesktopPetConfigPatch): Promise<DesktopPetSnapshot> =>
+      assertApi().desktopPet.updateConfig(patch),
+    show: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.show(),
+    hide: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.hide(),
+    resetPosition: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.resetPosition(),
+    openMain: (conversationId?: string): Promise<boolean> =>
+      assertApi().desktopPet.openMain(conversationId),
+    onOpenConversation: (handler: (conversationId?: string) => void): (() => void) =>
+      assertApi().desktopPet.onOpenConversation(handler),
+  },
   sync: {
     get: (): Promise<SyncState> => assertApi().sync.get(),
   },
@@ -212,6 +228,8 @@ export type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  DesktopPetConfigPatch,
+  DesktopPetSnapshot,
   ExtensionSecretInput,
   ExtensionSecretPublic,
   ExtensionSkill,
