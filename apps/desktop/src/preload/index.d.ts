@@ -1,6 +1,9 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
 import type {
+  AgentInput,
   AgentProfile,
+  AgentRun,
+  AgentRuntimeState,
   CacheStats,
   Conversation,
   CustomModelInput,
@@ -66,6 +69,17 @@ export interface VoidAIApi {
   };
   agents: {
     list: () => Promise<AgentProfile[]>;
+    get: (id: string) => Promise<AgentProfile | null>;
+    create: (input: AgentInput) => Promise<AgentProfile>;
+    update: (id: string, input: Partial<AgentInput>) => Promise<AgentProfile>;
+    archive: (id: string) => Promise<AgentProfile>;
+    restore: (id: string) => Promise<AgentProfile>;
+    duplicate: (id: string) => Promise<AgentProfile>;
+    queueLearning: (conversationId: string) => Promise<boolean>;
+    runtimeSnapshot: () => Promise<{
+      agentRuns: AgentRun[];
+      agentRuntimeStates: AgentRuntimeState[];
+    }>;
     save: (agent: AgentProfile) => Promise<boolean>;
   };
   memories: {

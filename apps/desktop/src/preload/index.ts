@@ -44,6 +44,15 @@ const api = {
   },
   agents: {
     list: () => ipcRenderer.invoke("agents:list"),
+    get: (id: string) => ipcRenderer.invoke("agents:get", id),
+    create: (input: unknown) => ipcRenderer.invoke("agents:create", input),
+    update: (id: string, input: unknown) => ipcRenderer.invoke("agents:update", id, input),
+    archive: (id: string) => ipcRenderer.invoke("agents:archive", id),
+    restore: (id: string) => ipcRenderer.invoke("agents:restore", id),
+    duplicate: (id: string) => ipcRenderer.invoke("agents:duplicate", id),
+    queueLearning: (conversationId: string) =>
+      ipcRenderer.invoke("agents:queueLearning", conversationId),
+    runtimeSnapshot: () => ipcRenderer.invoke("agents:runtimeSnapshot"),
     save: (agent: unknown) => ipcRenderer.invoke("agents:save", agent),
   },
   memories: {

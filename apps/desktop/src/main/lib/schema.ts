@@ -71,12 +71,78 @@ export const agents = sqliteTable(
     status: text("status", { enum: ["active", "draft", "archived"] })
       .notNull()
       .default("active"),
+    kind: text("kind", { enum: ["main", "child"] })
+      .notNull()
+      .default("child"),
+    parent_agent_id: text("parent_agent_id"),
+    locked: integer("locked").notNull().default(0),
+    tool_policy_json: text("tool_policy_json").notNull().default("{}"),
+    handoff_config_json: text("handoff_config_json").notNull().default("{}"),
+    runtime_config_json: text("runtime_config_json").notNull().default("{}"),
     model_ref: text("model_ref"),
     voice: text("voice"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
   },
-  (table) => [index("idx_agents_status").on(table.status)],
+  (table) => [
+    index("idx_agents_status").on(table.status),
+    index("idx_agents_kind").on(table.kind),
+    index("idx_agents_parent").on(table.parent_agent_id),
+  ],
+);
+
+export const agentRuns = sqliteTable(
+  "agent_runs",
+  {
+    id: text("id").primaryKey(),
+    conversation_id: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    root_agent_id: text("root_agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    final_agent_id: text("final_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    status: text("status", {
+      enum: ["queued", "running", "succeeded", "failed", "cancelled"],
+    }).notNull(),
+    model_ref: text("model_ref"),
+    started_at: integer("started_at").notNull(),
+    finished_at: integer("finished_at"),
+    trace_id: text("trace_id"),
+    input_summary: text("input_summary"),
+    output_summary: text("output_summary"),
+    error: text("error"),
+    usage_json: text("usage_json"),
+  },
+  (table) => [
+    index("idx_agent_runs_conversation").on(table.conversation_id),
+    index("idx_agent_runs_root").on(table.root_agent_id),
+    index("idx_agent_runs_started").on(table.started_at),
+  ],
+);
+
+export const agentRuntimeState = sqliteTable(
+  "agent_runtime_state",
+  {
+    agent_id: text("agent_id")
+      .primaryKey()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    status: text("status", {
+      enum: ["idle", "queued", "running", "handoff", "tool_calling", "learning", "failed"],
+    })
+      .notNull()
+      .default("idle"),
+    current_run_id: text("current_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    last_handoff_at: integer("last_handoff_at"),
+    last_tool_at: integer("last_tool_at"),
+    last_learning_at: integer("last_learning_at"),
+    last_error: text("last_error"),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_agent_runtime_status").on(table.status),
+    index("idx_agent_runtime_run").on(table.current_run_id),
+  ],
 );
 
 export const memories = sqliteTable(
@@ -142,7 +208,9 @@ export const harnessEvents = sqliteTable(
   "harness_events",
   {
     id: text("id").primaryKey(),
-    kind: text("kind", { enum: ["tool", "test", "approval", "automation", "error"] }).notNull(),
+    kind: text("kind", {
+      enum: ["tool", "test", "approval", "automation", "error", "agent", "handoff", "learning"],
+    }).notNull(),
     title: text("title").notNull(),
     status: text("status", {
       enum: ["queued", "running", "succeeded", "failed", "cancelled"],
@@ -239,6 +307,8 @@ export const schema = {
   conversations,
   messages,
   agents,
+  agentRuns,
+  agentRuntimeState,
   memories,
   workflows,
   workflowRuns,
@@ -257,6 +327,10 @@ export type MessageRow = typeof messages.$inferSelect;
 export type NewMessageRow = typeof messages.$inferInsert;
 export type AgentProfile = typeof agents.$inferSelect;
 export type NewAgentProfile = typeof agents.$inferInsert;
+export type AgentRun = typeof agentRuns.$inferSelect;
+export type NewAgentRun = typeof agentRuns.$inferInsert;
+export type AgentRuntimeState = typeof agentRuntimeState.$inferSelect;
+export type NewAgentRuntimeState = typeof agentRuntimeState.$inferInsert;
 export type MemoryRecord = typeof memories.$inferSelect;
 export type NewMemoryRecord = typeof memories.$inferInsert;
 export type WorkflowDefinition = typeof workflows.$inferSelect;

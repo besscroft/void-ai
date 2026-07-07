@@ -23,6 +23,14 @@ import { app } from "electron";
 import { is } from "@electron-toolkit/utils";
 import { encrypt, decrypt, type EncryptedPayload } from "./crypto";
 import {
+  DEFAULT_AGENT_HANDOFF_CONFIG,
+  DEFAULT_AGENT_RUNTIME_CONFIG,
+  DEFAULT_AGENT_TOOL_POLICY,
+  DEFAULT_AGENT_ID as SHARED_DEFAULT_AGENT_ID,
+  type AgentInput,
+  type AgentRuntimeStatus,
+} from "../../shared/types";
+import {
   schema,
   conversations,
   messages,
@@ -30,6 +38,8 @@ import {
   apiKeys,
   modelApiKeys,
   agents,
+  agentRuns,
+  agentRuntimeState,
   memories,
   workflows,
   workflowRuns,
@@ -40,6 +50,9 @@ import {
   type Conversation,
   type MessageRow,
   type AgentProfile,
+  type AgentRun,
+  type NewAgentRun,
+  type AgentRuntimeState,
   type MemoryRecord,
   type WorkflowDefinition,
   type WorkflowRun,
@@ -53,6 +66,8 @@ export type {
   Conversation,
   MessageRow,
   AgentProfile,
+  AgentRun,
+  AgentRuntimeState,
   MemoryRecord,
   WorkflowDefinition,
   WorkflowRun,
@@ -65,7 +80,7 @@ export type {
 const DB_FILENAME = "void-ai.db";
 /** 数据目录名（位于 userData 下） */
 const DATA_DIRNAME = "data";
-const DEFAULT_AGENT_ID = "agent-void";
+const DEFAULT_AGENT_ID = SHARED_DEFAULT_AGENT_ID;
 const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** drizzle 实例类型（基于 schema 推断，保证类型安全的查询/插入/更新） */
@@ -467,26 +482,433 @@ export function getAgent(id: string): AgentProfile | null {
   return getDb().select().from(agents).where(eq(agents.id, id)).get() ?? null;
 }
 
-export function saveAgent(agent: AgentProfile): void {
+export function createAgent(input: AgentInput): AgentProfile {
+  const now = Date.now();
+  const row = normalizeAgentInput({
+    id: randomUUID(),
+    input,
+    existing: null,
+    now,
+  });
+  getDb().insert(agents).values(row).run();
+  ensureAgentRuntimeState(row.id, "idle");
+  insertHarnessEvent({
+    kind: "agent",
+    title: "Child agent created: " + row.name,
+    status: "succeeded",
+    detail: { agentId: row.id, mode: parseAgentHandoffConfig(row).mode },
+  });
+  return row;
+}
+
+export function updateAgent(id: string, input: Partial<AgentInput>): AgentProfile {
+  const existing = getAgent(id);
+  if (!existing) throw new Error("Agent not found: " + id);
+  assertAgentEditable(existing);
+  const now = Date.now();
+  const next = normalizeAgentInput({
+    id,
+    input: { ...existing, ...input },
+    existing,
+    now,
+  });
   getDb()
-    .insert(agents)
-    .values(agent)
+    .update(agents)
+    .set({
+      name: next.name,
+      role: next.role,
+      description: next.description,
+      personality: next.personality,
+      soul_prompt: next.soul_prompt,
+      avatar: next.avatar,
+      status: next.status,
+      kind: next.kind,
+      parent_agent_id: next.parent_agent_id,
+      locked: next.locked,
+      tool_policy_json: next.tool_policy_json,
+      handoff_config_json: next.handoff_config_json,
+      runtime_config_json: next.runtime_config_json,
+      model_ref: next.model_ref,
+      voice: next.voice,
+      updated_at: now,
+    })
+    .where(eq(agents.id, id))
+    .run();
+  insertHarnessEvent({
+    kind: "agent",
+    title: "Child agent updated: " + next.name,
+    status: "succeeded",
+    detail: { agentId: next.id, status: next.status },
+  });
+  return getAgent(id) ?? next;
+}
+
+export function saveAgent(agent: AgentProfile): void {
+  const existing = getAgent(agent.id);
+  if (existing) {
+    updateAgent(agent.id, agent);
+    return;
+  }
+  if (agent.id === DEFAULT_AGENT_ID || agent.kind === "main" || agent.locked) {
+    throw new Error("Void is managed internally and cannot be created through this API.");
+  }
+  const now = Date.now();
+  const row = normalizeAgentInput({ id: agent.id, input: agent, existing: null, now });
+  getDb().insert(agents).values(row).run();
+  ensureAgentRuntimeState(row.id, "idle");
+}
+
+export function archiveAgent(id: string): AgentProfile {
+  const existing = getAgent(id);
+  if (!existing) throw new Error("Agent not found: " + id);
+  assertAgentEditable(existing);
+  getDb()
+    .update(agents)
+    .set({ status: "archived", updated_at: Date.now() })
+    .where(eq(agents.id, id))
+    .run();
+  upsertAgentRuntimeState({ agent_id: id, status: "idle", current_run_id: null });
+  insertHarnessEvent({
+    kind: "agent",
+    title: "Child agent archived: " + existing.name,
+    status: "succeeded",
+    detail: { agentId: id },
+  });
+  return getAgent(id) ?? { ...existing, status: "archived" };
+}
+
+export function restoreAgent(id: string): AgentProfile {
+  const existing = getAgent(id);
+  if (!existing) throw new Error("Agent not found: " + id);
+  assertAgentEditable(existing);
+  getDb()
+    .update(agents)
+    .set({ status: "active", updated_at: Date.now() })
+    .where(eq(agents.id, id))
+    .run();
+  ensureAgentRuntimeState(id, "idle");
+  insertHarnessEvent({
+    kind: "agent",
+    title: "Child agent restored: " + existing.name,
+    status: "succeeded",
+    detail: { agentId: id },
+  });
+  return getAgent(id) ?? { ...existing, status: "active" };
+}
+
+export function duplicateAgent(id: string): AgentProfile {
+  const existing = getAgent(id);
+  if (!existing) throw new Error("Agent not found: " + id);
+  if (existing.kind === "main" || existing.locked) {
+    throw new Error("Void cannot be duplicated.");
+  }
+  const copy = createAgent({
+    name: existing.name + " Copy",
+    role: existing.role,
+    description: existing.description,
+    personality: existing.personality,
+    soul_prompt: existing.soul_prompt,
+    avatar: existing.avatar,
+    status: existing.status === "archived" ? "draft" : existing.status,
+    model_ref: existing.model_ref,
+    voice: existing.voice,
+    tool_policy_json: existing.tool_policy_json,
+    handoff_config_json: existing.handoff_config_json,
+    runtime_config_json: existing.runtime_config_json,
+  });
+  insertHarnessEvent({
+    kind: "agent",
+    title: "Child agent duplicated: " + existing.name,
+    status: "succeeded",
+    detail: { sourceAgentId: id, agentId: copy.id },
+  });
+  return copy;
+}
+
+export function listAgentRuns(limit = 50): AgentRun[] {
+  return getDb().select().from(agentRuns).orderBy(desc(agentRuns.started_at)).limit(limit).all();
+}
+
+export function createAgentRun(
+  input: Omit<NewAgentRun, "id" | "started_at"> & {
+    id?: string;
+    started_at?: number;
+  },
+): AgentRun {
+  const row: NewAgentRun = {
+    id: input.id ?? randomUUID(),
+    conversation_id: input.conversation_id ?? null,
+    root_agent_id: input.root_agent_id,
+    final_agent_id: input.final_agent_id ?? null,
+    status: input.status,
+    model_ref: input.model_ref ?? null,
+    started_at: input.started_at ?? Date.now(),
+    finished_at: input.finished_at ?? null,
+    trace_id: input.trace_id ?? null,
+    input_summary: input.input_summary ?? null,
+    output_summary: input.output_summary ?? null,
+    error: input.error ?? null,
+    usage_json: input.usage_json ?? null,
+  };
+  getDb().insert(agentRuns).values(row).run();
+  return row as AgentRun;
+}
+
+export function updateAgentRun(
+  id: string,
+  patch: Partial<Omit<AgentRun, "id" | "started_at">>,
+): AgentRun | null {
+  const existing = getDb().select().from(agentRuns).where(eq(agentRuns.id, id)).get();
+  if (!existing) return null;
+  getDb()
+    .update(agentRuns)
+    .set({
+      final_agent_id: patch.final_agent_id ?? existing.final_agent_id,
+      status: patch.status ?? existing.status,
+      model_ref: patch.model_ref ?? existing.model_ref,
+      finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
+      trace_id: patch.trace_id === undefined ? existing.trace_id : patch.trace_id,
+      input_summary:
+        patch.input_summary === undefined ? existing.input_summary : patch.input_summary,
+      output_summary:
+        patch.output_summary === undefined ? existing.output_summary : patch.output_summary,
+      error: patch.error === undefined ? existing.error : patch.error,
+      usage_json: patch.usage_json === undefined ? existing.usage_json : patch.usage_json,
+    })
+    .where(eq(agentRuns.id, id))
+    .run();
+  return getDb().select().from(agentRuns).where(eq(agentRuns.id, id)).get() ?? null;
+}
+
+export function listAgentRuntimeStates(): AgentRuntimeState[] {
+  ensureAllAgentRuntimeStates();
+  return getDb().select().from(agentRuntimeState).orderBy(desc(agentRuntimeState.updated_at)).all();
+}
+
+export function upsertAgentRuntimeState(
+  patch: Partial<AgentRuntimeState> & { agent_id: string; status?: AgentRuntimeStatus },
+): AgentRuntimeState {
+  const now = Date.now();
+  const existing = getDb()
+    .select()
+    .from(agentRuntimeState)
+    .where(eq(agentRuntimeState.agent_id, patch.agent_id))
+    .get();
+  const row: AgentRuntimeState = {
+    agent_id: patch.agent_id,
+    status: patch.status ?? existing?.status ?? "idle",
+    current_run_id:
+      patch.current_run_id === undefined
+        ? (existing?.current_run_id ?? null)
+        : patch.current_run_id,
+    last_handoff_at:
+      patch.last_handoff_at === undefined
+        ? (existing?.last_handoff_at ?? null)
+        : patch.last_handoff_at,
+    last_tool_at:
+      patch.last_tool_at === undefined ? (existing?.last_tool_at ?? null) : patch.last_tool_at,
+    last_learning_at:
+      patch.last_learning_at === undefined
+        ? (existing?.last_learning_at ?? null)
+        : patch.last_learning_at,
+    last_error: patch.last_error === undefined ? (existing?.last_error ?? null) : patch.last_error,
+    updated_at: now,
+  };
+  getDb()
+    .insert(agentRuntimeState)
+    .values(row)
     .onConflictDoUpdate({
-      target: agents.id,
+      target: agentRuntimeState.agent_id,
       set: {
-        name: agent.name,
-        role: agent.role,
-        description: agent.description,
-        personality: agent.personality,
-        soul_prompt: agent.soul_prompt,
-        avatar: agent.avatar,
-        status: agent.status,
-        model_ref: agent.model_ref,
-        voice: agent.voice,
-        updated_at: Date.now(),
+        status: row.status,
+        current_run_id: row.current_run_id,
+        last_handoff_at: row.last_handoff_at,
+        last_tool_at: row.last_tool_at,
+        last_learning_at: row.last_learning_at,
+        last_error: row.last_error,
+        updated_at: now,
       },
     })
     .run();
+  return row;
+}
+
+export function runtimeSnapshot(): {
+  agentRuns: AgentRun[];
+  agentRuntimeStates: AgentRuntimeState[];
+} {
+  return {
+    agentRuns: listAgentRuns(),
+    agentRuntimeStates: listAgentRuntimeStates(),
+  };
+}
+
+export function updateVoidLearningState(input: {
+  status: AgentRuntimeStatus;
+  lastLearningAt?: number | null;
+  lastError?: string | null;
+  soulPromptAppend?: string;
+}): void {
+  upsertAgentRuntimeState({
+    agent_id: DEFAULT_AGENT_ID,
+    status: input.status,
+    last_learning_at: input.lastLearningAt ?? (input.status === "learning" ? null : Date.now()),
+    last_error: input.lastError ?? null,
+  });
+  if (!input.soulPromptAppend?.trim()) return;
+  const voidAgent = getAgent(DEFAULT_AGENT_ID);
+  if (!voidAgent) return;
+  const addition = input.soulPromptAppend.trim();
+  const current = voidAgent.soul_prompt.trim();
+  const marker = "\n\nLearning notes:\n";
+  const nextPrompt = truncateText(
+    current.includes(addition) ? current : current + marker + "- " + addition,
+    4_000,
+  );
+  getDb()
+    .update(agents)
+    .set({ soul_prompt: nextPrompt, updated_at: Date.now() })
+    .where(eq(agents.id, DEFAULT_AGENT_ID))
+    .run();
+}
+
+function normalizeAgentInput({
+  id,
+  input,
+  existing,
+  now,
+}: {
+  id: string;
+  input: Partial<AgentInput> & {
+    name?: string;
+    role?: string;
+    description?: string;
+    personality?: string;
+    soul_prompt?: string;
+    avatar?: string;
+  };
+  existing: AgentProfile | null;
+  now: number;
+}): AgentProfile {
+  const name = normalizeRequiredText(input.name ?? existing?.name, "Agent name", 80);
+  return {
+    id,
+    name,
+    role: normalizeRequiredText(input.role ?? existing?.role, "Agent role", 160),
+    description: normalizeRequiredText(
+      input.description ?? existing?.description,
+      "Agent description",
+      1_000,
+    ),
+    personality: normalizeRequiredText(
+      input.personality ?? existing?.personality,
+      "Agent personality",
+      1_000,
+    ),
+    soul_prompt: normalizeRequiredText(
+      input.soul_prompt ?? existing?.soul_prompt,
+      "Agent soul prompt",
+      4_000,
+    ),
+    avatar: normalizeAvatar(input.avatar ?? existing?.avatar ?? name),
+    status: input.status ?? existing?.status ?? "draft",
+    kind: "child",
+    parent_agent_id: DEFAULT_AGENT_ID,
+    locked: 0,
+    tool_policy_json: normalizeJsonObjectString(
+      input.tool_policy_json ?? existing?.tool_policy_json,
+      DEFAULT_AGENT_TOOL_POLICY,
+    ),
+    handoff_config_json: normalizeJsonObjectString(
+      input.handoff_config_json ?? existing?.handoff_config_json,
+      DEFAULT_AGENT_HANDOFF_CONFIG,
+    ),
+    runtime_config_json: normalizeJsonObjectString(
+      input.runtime_config_json ?? existing?.runtime_config_json,
+      DEFAULT_AGENT_RUNTIME_CONFIG,
+    ),
+    model_ref: normalizeNullableText(input.model_ref ?? existing?.model_ref, 160),
+    voice: normalizeNullableText(input.voice ?? existing?.voice, 80),
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  };
+}
+
+function assertAgentEditable(agent: AgentProfile): void {
+  if (agent.id === DEFAULT_AGENT_ID || agent.kind === "main" || agent.locked) {
+    throw new Error("Void is locked and cannot be edited, archived, or deleted.");
+  }
+}
+
+function ensureAgentRuntimeState(agentId: string, status: AgentRuntimeStatus): void {
+  upsertAgentRuntimeState({
+    agent_id: agentId,
+    status,
+    current_run_id: null,
+    last_error: null,
+  });
+}
+
+function ensureAllAgentRuntimeStates(): void {
+  for (const agent of listAgents()) {
+    const existing = getDb()
+      .select({ agent_id: agentRuntimeState.agent_id })
+      .from(agentRuntimeState)
+      .where(eq(agentRuntimeState.agent_id, agent.id))
+      .get();
+    if (!existing) ensureAgentRuntimeState(agent.id, "idle");
+  }
+}
+
+function parseAgentHandoffConfig(agent: AgentProfile): { mode: string } {
+  try {
+    const parsed = JSON.parse(agent.handoff_config_json) as { mode?: unknown };
+    return { mode: typeof parsed.mode === "string" ? parsed.mode : "consult" };
+  } catch {
+    return { mode: "consult" };
+  }
+}
+
+function normalizeRequiredText(raw: unknown, label: string, maxLength: number): string {
+  const text = coercePlainText(raw).trim();
+  if (!text) throw new Error(label + " is required.");
+  return truncateText(text, maxLength);
+}
+
+function normalizeNullableText(raw: unknown, maxLength: number): string | null {
+  if (raw == null) return null;
+  const text = coercePlainText(raw).trim();
+  return text ? truncateText(text, maxLength) : null;
+}
+
+function normalizeAvatar(raw: unknown): string {
+  const text = coercePlainText(raw, "A").trim();
+  return ((text.match(/[A-Za-z0-9]/)?.[0] ?? text.slice(0, 1)) || "A").toUpperCase();
+}
+
+function coercePlainText(raw: unknown, fallback = ""): string {
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  return fallback;
+}
+
+function normalizeJsonObjectString(raw: unknown, fallback: unknown): string {
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return JSON.stringify(parsed);
+      }
+    } catch {
+      // Fall back below.
+    }
+  }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return JSON.stringify(raw);
+  return JSON.stringify(fallback);
+}
+
+function truncateText(text: string, maxLength: number): string {
+  return text.length > maxLength ? text.slice(0, maxLength - 3) + "..." : text;
 }
 
 export function listMemories(): MemoryRecord[] {
@@ -614,6 +1036,8 @@ export function getSyncState(): SyncState {
 
 export function getWorkspaceSnapshot(): {
   agents: AgentProfile[];
+  agentRuns: AgentRun[];
+  agentRuntimeStates: AgentRuntimeState[];
   memories: MemoryRecord[];
   workflows: WorkflowDefinition[];
   workflowRuns: WorkflowRun[];
@@ -624,6 +1048,8 @@ export function getWorkspaceSnapshot(): {
 } {
   return {
     agents: listAgents(),
+    agentRuns: listAgentRuns(),
+    agentRuntimeStates: listAgentRuntimeStates(),
     memories: listMemories(),
     workflows: listWorkflows(),
     workflowRuns: listWorkflowRuns(),
@@ -666,7 +1092,11 @@ function seedWorkspaceDefaults(): void {
   const db = getDb();
   const now = Date.now();
 
-  if (db.select({ id: agents.id }).from(agents).limit(1).get()) return;
+  if (db.select({ id: agents.id }).from(agents).limit(1).get()) {
+    backfillAgentOrchestrationDefaults(now);
+    ensureAllAgentRuntimeStates();
+    return;
+  }
 
   db.transaction((tx) => {
     tx.insert(agents)
@@ -681,6 +1111,16 @@ function seedWorkspaceDefaults(): void {
             "保留连续的自我表达和关系记忆；优先理解用户真正想完成的事情，而不是只回答表层问题。",
           avatar: "V",
           status: "active",
+          kind: "main",
+          parent_agent_id: null,
+          locked: 1,
+          tool_policy_json: JSON.stringify(DEFAULT_AGENT_TOOL_POLICY),
+          handoff_config_json: JSON.stringify({
+            ...DEFAULT_AGENT_HANDOFF_CONFIG,
+            mode: "both",
+            expectedOutput: "Coordinate child agents and return the final user-facing response.",
+          }),
+          runtime_config_json: JSON.stringify({ ...DEFAULT_AGENT_RUNTIME_CONFIG, maxTurns: 10 }),
           model_ref: null,
           voice: "calm-cn",
           created_at: now,
@@ -695,6 +1135,17 @@ function seedWorkspaceDefaults(): void {
           soul_prompt: "保持怀疑精神；区分事实、推断和偏好；在高风险领域主动提醒验证。",
           avatar: "A",
           status: "active",
+          kind: "child",
+          parent_agent_id: DEFAULT_AGENT_ID,
+          locked: 0,
+          tool_policy_json: JSON.stringify(DEFAULT_AGENT_TOOL_POLICY),
+          handoff_config_json: JSON.stringify({
+            ...DEFAULT_AGENT_HANDOFF_CONFIG,
+            mode: "both",
+            accepts: ["research", "analysis", "decision support"],
+            expectedOutput: "A concise evidence-led analysis with assumptions and risks separated.",
+          }),
+          runtime_config_json: JSON.stringify(DEFAULT_AGENT_RUNTIME_CONFIG),
           model_ref: null,
           voice: "focused-cn",
           created_at: now,
@@ -709,6 +1160,21 @@ function seedWorkspaceDefaults(): void {
           soul_prompt: "行动前确认权限边界；每次自动化都留下可审计记录。",
           avatar: "O",
           status: "draft",
+          kind: "child",
+          parent_agent_id: DEFAULT_AGENT_ID,
+          locked: 0,
+          tool_policy_json: JSON.stringify({
+            ...DEFAULT_AGENT_TOOL_POLICY,
+            mode: "custom",
+            allowedToolIds: ["current_time", "workspace_snapshot", "memory_search"],
+          }),
+          handoff_config_json: JSON.stringify({
+            ...DEFAULT_AGENT_HANDOFF_CONFIG,
+            mode: "consult",
+            accepts: ["execution planning", "automation boundaries", "audit trail"],
+            expectedOutput: "A short execution plan with tool boundaries and verifiable results.",
+          }),
+          runtime_config_json: JSON.stringify(DEFAULT_AGENT_RUNTIME_CONFIG),
           model_ref: null,
           voice: "direct-cn",
           created_at: now,
@@ -944,4 +1410,34 @@ function seedWorkspaceDefaults(): void {
       })
       .run();
   });
+  ensureAllAgentRuntimeStates();
+}
+
+function backfillAgentOrchestrationDefaults(now: number): void {
+  const db = getDb();
+  const existingAgents = db.select().from(agents).all();
+  for (const agent of existingAgents) {
+    const isVoid = agent.id === DEFAULT_AGENT_ID;
+    db.update(agents)
+      .set({
+        kind: isVoid ? "main" : (agent.kind ?? "child"),
+        parent_agent_id: isVoid ? null : (agent.parent_agent_id ?? DEFAULT_AGENT_ID),
+        locked: isVoid ? 1 : (agent.locked ?? 0),
+        tool_policy_json: normalizeJsonObjectString(
+          agent.tool_policy_json,
+          DEFAULT_AGENT_TOOL_POLICY,
+        ),
+        handoff_config_json: normalizeJsonObjectString(
+          agent.handoff_config_json,
+          isVoid ? { ...DEFAULT_AGENT_HANDOFF_CONFIG, mode: "both" } : DEFAULT_AGENT_HANDOFF_CONFIG,
+        ),
+        runtime_config_json: normalizeJsonObjectString(
+          agent.runtime_config_json,
+          DEFAULT_AGENT_RUNTIME_CONFIG,
+        ),
+        updated_at: agent.updated_at || now,
+      })
+      .where(eq(agents.id, agent.id))
+      .run();
+  }
 }

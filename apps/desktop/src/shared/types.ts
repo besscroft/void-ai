@@ -26,6 +26,35 @@ export interface MessageRow {
 }
 
 export type AgentStatus = "active" | "draft" | "archived";
+export type AgentKind = "main" | "child";
+export type AgentHandoffMode = "handoff" | "consult" | "both";
+export type AgentRuntimeStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "handoff"
+  | "tool_calling"
+  | "learning"
+  | "failed";
+
+export interface AgentToolPolicy {
+  mode: "inherit" | "custom";
+  allowedToolIds: ChatToolId[];
+  requireApprovalToolIds: ChatToolId[];
+}
+
+export interface AgentHandoffConfig {
+  mode: AgentHandoffMode;
+  priority: "low" | "normal" | "high";
+  accepts: string[];
+  expectedOutput: string;
+}
+
+export interface AgentRuntimeConfig {
+  maxTurns: number;
+  temperature?: number;
+  notes?: string;
+}
 
 export interface AgentProfile {
   id: string;
@@ -36,9 +65,57 @@ export interface AgentProfile {
   soul_prompt: string;
   avatar: string;
   status: AgentStatus;
+  kind: AgentKind;
+  parent_agent_id: string | null;
+  locked: number;
+  tool_policy_json: string;
+  handoff_config_json: string;
+  runtime_config_json: string;
   model_ref: string | null;
   voice: string | null;
   created_at: number;
+  updated_at: number;
+}
+
+export interface AgentInput {
+  name: string;
+  role: string;
+  description: string;
+  personality: string;
+  soul_prompt: string;
+  avatar: string;
+  status?: AgentStatus;
+  model_ref?: string | null;
+  voice?: string | null;
+  tool_policy_json?: string;
+  handoff_config_json?: string;
+  runtime_config_json?: string;
+}
+
+export interface AgentRun {
+  id: string;
+  conversation_id: string | null;
+  root_agent_id: string;
+  final_agent_id: string | null;
+  status: RunStatus;
+  model_ref: string | null;
+  started_at: number;
+  finished_at: number | null;
+  trace_id: string | null;
+  input_summary: string | null;
+  output_summary: string | null;
+  error: string | null;
+  usage_json: string | null;
+}
+
+export interface AgentRuntimeState {
+  agent_id: string;
+  status: AgentRuntimeStatus;
+  current_run_id: string | null;
+  last_handoff_at: number | null;
+  last_tool_at: number | null;
+  last_learning_at: number | null;
+  last_error: string | null;
   updated_at: number;
 }
 
@@ -93,7 +170,7 @@ export interface WorkflowRun {
 
 export interface HarnessEvent {
   id: string;
-  kind: "tool" | "test" | "approval" | "automation" | "error";
+  kind: "tool" | "test" | "approval" | "automation" | "error" | "agent" | "handoff" | "learning";
   title: string;
   status: RunStatus;
   detail_json: string;
@@ -183,6 +260,23 @@ export interface ChatToolDescriptor {
 export const DEFAULT_CHAT_TOOL_SELECTION: ChatToolSelectionRequest = {
   mode: "auto",
   selectedToolIds: [],
+};
+
+export const DEFAULT_AGENT_TOOL_POLICY: AgentToolPolicy = {
+  mode: "inherit",
+  allowedToolIds: [],
+  requireApprovalToolIds: ["conversation_search", "memory_save"],
+};
+
+export const DEFAULT_AGENT_HANDOFF_CONFIG: AgentHandoffConfig = {
+  mode: "consult",
+  priority: "normal",
+  accepts: [],
+  expectedOutput: "Return concise findings, constraints, and recommended next steps.",
+};
+
+export const DEFAULT_AGENT_RUNTIME_CONFIG: AgentRuntimeConfig = {
+  maxTurns: 8,
 };
 
 export function isChatToolId(value: unknown): value is ChatToolId {
@@ -764,6 +858,8 @@ export interface CacheStats {
 
 export interface WorkspaceSnapshot {
   agents: AgentProfile[];
+  agentRuns: AgentRun[];
+  agentRuntimeStates: AgentRuntimeState[];
   memories: MemoryRecord[];
   workflows: WorkflowDefinition[];
   workflowRuns: WorkflowRun[];

@@ -174,6 +174,74 @@ void describe("local chat server", () => {
     assert.equal(model.doStreamCalls[0]?.reasoning, "high");
   });
 
+  void it("routes OpenAI chat requests through the Agents SDK runtime", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [],
+        }),
+      }),
+    });
+    let called = false;
+    const toolSelection = { mode: "manual" as const, selectedToolIds: ["memory_search" as const] };
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: (modelRef) => {
+        assert.equal(modelRef, "openai/gpt-test");
+        return {
+          model,
+          providerId: "openai",
+          providerKind: "openai",
+          modelId: "gpt-test",
+          temperature: 0.7,
+          topP: 1,
+          maxOutputTokens: 256,
+        };
+      },
+      buildChatToolRuntime: () => {
+        throw new Error("AI SDK fallback should not run for OpenAI provider models.");
+      },
+      buildAgentSystemPrompt: () => "Void root prompt",
+      runOpenAIAgentsChat: async (options) => {
+        called = true;
+        assert.equal(options.modelRef, "openai/gpt-test");
+        assert.equal(options.conversationId, "c-openai");
+        assert.equal(options.preferredAgentId, "agent-analyst");
+        assert.equal(options.reasoning, "high");
+        assert.deepEqual(options.toolSelection, toolSelection);
+        assert.equal(options.buildAgentSystemPrompt("agent-void", "c-openai"), "Void root prompt");
+        return new Response("agents-stream", {
+          status: 200,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "x-vercel-ai-ui-message-stream": "v1",
+          },
+        });
+      },
+    });
+
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({
+        messages: validMessages,
+        model: "openai/gpt-test",
+        agentId: "agent-analyst",
+        conversationId: "c-openai",
+        reasoning: "high",
+        toolSelection,
+      }),
+    });
+
+    assert.equal(called, true);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
+    assert.equal(await response.text(), "agents-stream");
+  });
+
   void it("injects prior assistant reactions into agent instructions", async () => {
     const model = new MockLanguageModelV4({
       doStream: async () => ({

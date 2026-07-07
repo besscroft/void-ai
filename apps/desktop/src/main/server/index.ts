@@ -41,6 +41,7 @@ interface CreateAppOptions {
   buildChatToolRuntime?: typeof import("../lib/chat-tools").buildChatToolRuntime;
   auditChatToolApprovalResponses?: typeof import("../lib/chat-tools").auditChatToolApprovalResponses;
   buildAgentSystemPrompt?: (agentId?: string | null, conversationId?: string) => string;
+  runOpenAIAgentsChat?: typeof import("../lib/openai-agents-runtime").runOpenAIAgentsChat;
 }
 
 const DEFAULT_CHAT_MODEL_CAPABILITIES: ModelCapabilities = {
@@ -294,6 +295,21 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       const resolved = resolveModel(body.model);
       const chatToolModelContext = toChatToolModelContext(body.model, resolved);
       const reasoning = normalizeChatReasoningForModel(parsedReasoning, chatToolModelContext);
+      if (resolved.providerKind === "openai") {
+        const runOpenAIAgentsChat =
+          options.runOpenAIAgentsChat ??
+          (await import("../lib/openai-agents-runtime")).runOpenAIAgentsChat;
+        return await runOpenAIAgentsChat({
+          messages: body.messages,
+          modelRef: body.model,
+          resolved,
+          conversationId: body.conversationId,
+          preferredAgentId: body.agentId,
+          reasoning: reasoning.value,
+          toolSelection: body.toolSelection,
+          buildAgentSystemPrompt,
+        });
+      }
       auditChatToolApprovalResponses?.({
         messages: body.messages,
         model: chatToolModelContext,

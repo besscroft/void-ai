@@ -29,8 +29,14 @@ export function AgentSelector({
 
   useEffect(() => {
     void api.agents.list().then((items) => {
-      setAgents(items);
-      if (!value && items.length > 0) onChange(items[0].id);
+      const visible = items.filter(
+        (agent) => agent.status !== "archived" || agent.id === DEFAULT_AGENT_ID,
+      );
+      setAgents(visible);
+      if (!value && visible.length > 0) onChange(visible[0].id);
+      if (value && !visible.some((agent) => agent.id === value) && visible.length > 0) {
+        onChange(visible[0].id);
+      }
     });
   }, [onChange, value]);
 
@@ -108,7 +114,7 @@ export function AgentSelector({
                       </Chip>
                     </span>
                     <span className="mt-0.5 line-clamp-2 text-xs text-foreground/55">
-                      {agent.role}
+                      {agent.kind === "child" ? `${agent.role} · routed by Void` : agent.role}
                     </span>
                   </span>
                   {active ? (

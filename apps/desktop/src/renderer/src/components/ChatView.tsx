@@ -262,7 +262,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     onFinish: ({ messages, isError }) => {
       if (!isError) setChatError(null);
       setIsStopped(false);
-      void persistMessagesSnapshot(conversationId, messages, createdAtRef.current);
+      void persistMessagesSnapshot(conversationId, messages, createdAtRef.current)
+        .then(() => api.agents.queueLearning(conversationId))
+        .catch((err) => console.error("[chat] failed to persist messages or queue learning:", err));
       void api.conversations.touch(conversationId);
       // 自动生成标题：本轮发送了消息 + assistant 完整产生 + 还没生成过
       tryAutoTitle(conversationId, messages, lastSentCountRef.current, titledRef);

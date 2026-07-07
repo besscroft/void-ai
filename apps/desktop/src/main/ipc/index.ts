@@ -20,7 +20,14 @@ import {
   setApiKey,
   deleteApiKey,
   listAgents,
+  getAgent,
+  createAgent,
+  updateAgent,
+  archiveAgent,
+  restoreAgent as restoreAgentProfile,
+  duplicateAgent,
   saveAgent,
+  runtimeSnapshot,
   listMemories,
   saveMemory,
   deleteMemory,
@@ -49,6 +56,7 @@ import {
 } from "../lib/providers";
 import { getCacheStats, clearCache } from "../lib/cache";
 import type {
+  AgentInput,
   AgentProfile,
   Conversation,
   CustomModelInput,
@@ -56,6 +64,7 @@ import type {
   MemoryRecord,
   MessageRow,
 } from "../../shared/types";
+import { queueAgentLearning } from "../lib/agent-learning";
 
 /**
  * IPC handlers 注册
@@ -151,6 +160,19 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   // ---------- AI 工作台 ----------
   ipcMain.handle("workspace:snapshot", () => getWorkspaceSnapshot());
   ipcMain.handle("agents:list", () => listAgents());
+  ipcMain.handle("agents:get", (_e, id: string) => getAgent(id));
+  ipcMain.handle("agents:create", (_e, input: AgentInput) => createAgent(input));
+  ipcMain.handle("agents:update", (_e, id: string, input: Partial<AgentInput>) =>
+    updateAgent(id, input),
+  );
+  ipcMain.handle("agents:archive", (_e, id: string) => archiveAgent(id));
+  ipcMain.handle("agents:restore", (_e, id: string) => restoreAgentProfile(id));
+  ipcMain.handle("agents:duplicate", (_e, id: string) => duplicateAgent(id));
+  ipcMain.handle("agents:runtimeSnapshot", () => runtimeSnapshot());
+  ipcMain.handle("agents:queueLearning", (_e, conversationId: string) => {
+    queueAgentLearning(conversationId);
+    return true;
+  });
   ipcMain.handle("agents:save", (_e, agent: AgentProfile) => {
     saveAgent(agent);
     return true;

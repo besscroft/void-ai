@@ -20,6 +20,7 @@ import {
   listMemories,
   listMessages,
   saveMemory,
+  upsertAgentRuntimeState,
 } from "./db";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
@@ -48,6 +49,11 @@ export interface ChatToolRuntimeConfig {
   stopWhen?: StreamTextOptions["stopWhen"];
   onStepEnd?: StreamTextOptions["onStepEnd"];
   instructions?: string;
+}
+
+export interface ChatToolAuditContext {
+  runId?: string;
+  agentId?: string | null;
 }
 
 export function auditChatToolApprovalResponses({
@@ -310,6 +316,72 @@ export function buildChatToolRuntime({
     }),
     instructions: createToolInstructions(activeTools),
   };
+}
+
+export async function executeChatHostTool({
+  toolId,
+  input,
+  model,
+  conversationId,
+  agentId,
+  audit,
+}: {
+  toolId: ChatToolId;
+  input: unknown;
+  model: ChatToolModelContext;
+  conversationId?: string;
+  agentId?: string | null;
+  audit?: ChatToolAuditContext;
+}): Promise<unknown> {
+  const descriptor = TOOL_DEFINITIONS[toolId];
+  return executeWithAudit(
+    toolId,
+    descriptor.label,
+    model,
+    conversationId,
+    async () => {
+      switch (toolId) {
+        case "current_time":
+          return getCurrentSystemTime();
+        case "web_search":
+          return searchWebFallback(input as WebSearchInput);
+        case "memory_search": {
+          const value = input as MemorySearchInput;
+          const query = normalizeQuery(value.query);
+          const limit = normalizeLimit(value.limit, 6, 12);
+          const results = searchMemories(query, limit);
+          return { query, count: results.length, results };
+        }
+        case "workspace_snapshot": {
+          const value = input as WorkspaceSnapshotInput;
+          return summarizeWorkspaceSnapshot(normalizeLimit(value.limit, 5, 10));
+        }
+        case "model_capabilities":
+          return {
+            providerId: model.providerId,
+            providerKind: model.providerKind,
+            modelId: model.modelId,
+            capabilities: model.capabilities,
+            tools: createChatToolDescriptors(model).map((item) => ({
+              id: item.id,
+              available: item.available,
+              defaultAuto: item.defaultAuto,
+              requiresApproval: item.requiresApproval,
+              unavailableReason: item.unavailableReason,
+            })),
+          };
+        case "conversation_search": {
+          const value = input as ConversationSearchInput;
+          const query = normalizeQuery(value.query);
+          const limit = normalizeLimit(value.limit, 6, 12);
+          return searchConversation(conversationId, query, limit);
+        }
+        case "memory_save":
+          return saveChatMemory(input as MemorySaveInput, conversationId, agentId);
+      }
+    },
+    audit,
+  );
 }
 
 function resolveToolChoice(
@@ -576,8 +648,18 @@ async function executeWithAudit<T>(
   model: ChatToolModelContext,
   conversationId: string | undefined,
   execute: () => Promise<T>,
+  audit?: ChatToolAuditContext,
 ): Promise<T> {
   const started = Date.now();
+  if (audit?.agentId) {
+    recordAgentRuntimeState({
+      agent_id: audit.agentId,
+      status: "tool_calling",
+      current_run_id: audit.runId ?? null,
+      last_tool_at: started,
+      last_error: null,
+    });
+  }
   try {
     const output = await execute();
     recordHarnessEvent({
@@ -585,11 +667,22 @@ async function executeWithAudit<T>(
       title,
       status: "succeeded",
       detail: baseAuditDetail(model, conversationId, {
+        runId: audit?.runId,
+        agentId: audit?.agentId,
         toolId,
         durationMs: Date.now() - started,
         summary: summarizeToolOutput(output),
       }),
     });
+    if (audit?.agentId) {
+      recordAgentRuntimeState({
+        agent_id: audit.agentId,
+        status: "running",
+        current_run_id: audit.runId ?? null,
+        last_tool_at: Date.now(),
+        last_error: null,
+      });
+    }
     return output;
   } catch (error) {
     recordHarnessEvent({
@@ -597,12 +690,34 @@ async function executeWithAudit<T>(
       title,
       status: "failed",
       detail: baseAuditDetail(model, conversationId, {
+        runId: audit?.runId,
+        agentId: audit?.agentId,
         toolId,
         durationMs: Date.now() - started,
         error: error instanceof Error ? error.message : String(error),
       }),
     });
+    if (audit?.agentId) {
+      recordAgentRuntimeState({
+        agent_id: audit.agentId,
+        status: "failed",
+        current_run_id: audit.runId ?? null,
+        last_tool_at: Date.now(),
+        last_error: error instanceof Error ? error.message : String(error),
+      });
+    }
     throw error;
+  }
+}
+
+function recordAgentRuntimeState(patch: Parameters<typeof upsertAgentRuntimeState>[0]): void {
+  try {
+    upsertAgentRuntimeState(patch);
+  } catch (error) {
+    console.warn(
+      "[chat-tools] failed to record agent runtime state:",
+      error instanceof Error ? error.message : error,
+    );
   }
 }
 
@@ -1285,7 +1400,7 @@ function baseAuditDetail(
 }
 
 function recordHarnessEvent(input: {
-  kind: "tool" | "test" | "approval" | "automation" | "error";
+  kind: "tool" | "test" | "approval" | "automation" | "error" | "agent" | "handoff" | "learning";
   title: string;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   detail: unknown;

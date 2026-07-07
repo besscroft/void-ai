@@ -163,6 +163,23 @@ void describe("chat tool runtime", () => {
     assert.equal(typeof output.localDateTime, "string");
   });
 
+  void it("executes host tools with agent audit context", async () => {
+    const before = Date.now();
+    const output = (await chatTools.executeChatHostTool({
+      toolId: "current_time",
+      input: {},
+      model: modelContext("openai-compatible"),
+      conversationId: "c1",
+      agentId: "agent-analyst",
+      audit: { runId: "run-1", agentId: "agent-analyst" },
+    })) as { timestampMs: number; utcIso: string };
+    const after = Date.now();
+
+    assert.ok(output.timestampMs >= before);
+    assert.ok(output.timestampMs <= after);
+    assert.equal(new Date(output.utcIso).getTime(), output.timestampMs);
+  });
+
   void it("limits manual compatible-provider tools without forcing tool choice", () => {
     const runtime = chatTools.buildChatToolRuntime({
       selection: {
