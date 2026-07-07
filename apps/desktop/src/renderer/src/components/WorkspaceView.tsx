@@ -111,16 +111,16 @@ const statusKeys: Record<string, TranslationKey> = {
   syncing: "status.sync.syncing",
 };
 
-const runtimeStatusLabels: Record<AgentRuntimeStatus, string> = {
-  idle: "Idle",
-  queued: "Queued",
-  running: "Running",
-  reviewing: "Reviewing",
-  handoff: "Handoff",
-  tool_calling: "Tool calling",
-  sandbox: "Sandbox",
-  learning: "Learning",
-  failed: "Failed",
+const runtimeStatusKeys: Record<AgentRuntimeStatus, TranslationKey> = {
+  idle: "status.sync.idle",
+  queued: "status.run.queued",
+  running: "status.run.running",
+  reviewing: "status.agentRuntime.reviewing",
+  handoff: "status.agentRuntime.handoff",
+  tool_calling: "status.agentRuntime.toolCalling",
+  sandbox: "status.agentRuntime.sandbox",
+  learning: "status.agentRuntime.learning",
+  failed: "status.run.failed",
 };
 
 const workspaceKindKeys: Record<string, TranslationKey> = {
@@ -161,6 +161,18 @@ const syncModeKeys: Record<string, TranslationKey> = {
 const syncConflictKeys: Record<string, TranslationKey> = {
   last_write_wins: "workspace.sync.conflict.last_write_wins",
   merge_with_review: "workspace.sync.conflict.merge_with_review",
+};
+
+const agentHandoffModeKeys: Record<AgentHandoffConfig["mode"], TranslationKey> = {
+  both: "workspace.agent.option.handoff.both",
+  consult: "workspace.agent.option.handoff.consult",
+  handoff: "workspace.agent.option.handoff.handoff",
+};
+
+const agentHandoffPriorityKeys: Record<AgentHandoffConfig["priority"], TranslationKey> = {
+  high: "workspace.agent.option.priority.high",
+  low: "workspace.agent.option.priority.low",
+  normal: "workspace.agent.option.priority.normal",
 };
 
 export function WorkspaceView({ section, onSelectView }: WorkspaceViewProps): React.JSX.Element {
@@ -327,10 +339,11 @@ function DashboardPanel({
       <section className="rounded-lg border border-foreground/10 bg-foreground/[0.025] p-4">
         <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground/70">Void OS is ready</p>
+            <p className="text-sm font-medium text-foreground/70">
+              {t("workspace.dashboard.readyTitle")}
+            </p>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/55">
-              Local memory, agents, and runs stay on this device. Use the core spaces below when you
-              want to talk, shape agents, or review what Void has learned.
+              {t("workspace.dashboard.readyDescription")}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4 lg:grid-cols-2">
@@ -342,9 +355,12 @@ function DashboardPanel({
               label={t("workspace.metric.memories")}
               value={f.number(snapshot.memories.length)}
             />
-            <DashboardSignal label="Running now" value={f.number(busyStates.length)} />
             <DashboardSignal
-              label="Last run"
+              label={t("workspace.dashboard.runningNow")}
+              value={f.number(busyStates.length)}
+            />
+            <DashboardSignal
+              label={t("workspace.dashboard.lastRun")}
               value={lastRun ? labelFor(t, statusKeys, lastRun.status) : t("workspace.value.never")}
             />
           </div>
@@ -354,7 +370,7 @@ function DashboardPanel({
       <section className="grid gap-4 xl:grid-cols-[1fr_0.85fr]">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <SectionHeading title="Agents at a glance" />
+            <SectionHeading title={t("workspace.dashboard.agentsGlance")} />
             <Button
               variant="secondary"
               size="sm"
@@ -362,7 +378,7 @@ function DashboardPanel({
               isDisabled={!onSelectView}
             >
               <IconCpu className="size-3.5" />
-              Manage agents
+              {t("workspace.dashboard.manageAgents")}
             </Button>
           </div>
           <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
@@ -385,10 +401,20 @@ function DashboardPanel({
                       <StatusChip status={runtime?.status ?? "idle"} />
                     </div>
                     <div className="mt-4 grid gap-1.5 text-xs text-foreground/55">
-                      <InfoRow label="Lifecycle" value={labelFor(t, statusKeys, agent.status)} />
-                      <InfoRow label="Mode" value={`${handoff.mode} / ${handoff.priority}`} />
                       <InfoRow
-                        label="Updated"
+                        label={t("workspace.agent.field.lifecycle")}
+                        value={labelFor(t, statusKeys, agent.status)}
+                      />
+                      <InfoRow
+                        label={t("workspace.agent.field.routing")}
+                        value={`${labelFor(t, agentHandoffModeKeys, handoff.mode)} / ${labelFor(
+                          t,
+                          agentHandoffPriorityKeys,
+                          handoff.priority,
+                        )}`}
+                      />
+                      <InfoRow
+                        label={t("workspace.agent.field.updated")}
                         value={agent.updated_at ? f.dateTime(agent.updated_at) : "-"}
                       />
                     </div>
@@ -400,7 +426,7 @@ function DashboardPanel({
         </div>
 
         <div className="space-y-3">
-          <SectionHeading title="Recent activity" />
+          <SectionHeading title={t("workspace.dashboard.recentActivity")} />
           <Timeline items={recentActivity} />
         </div>
       </section>
@@ -455,7 +481,7 @@ function AgentsPanel({
   snapshot: WorkspaceSnapshot;
   refresh: () => void;
 }): React.JSX.Element {
-  const { f } = useT();
+  const { t, f } = useT();
   const detailState = useOverlayState();
   const [selectedAgent, setSelectedAgent] = useState<AgentProfile | null>(null);
   const [editorMode, setEditorMode] = useState<"create" | "edit" | null>(null);
@@ -534,10 +560,10 @@ function AgentsPanel({
   };
 
   const saveAgent = async (): Promise<void> => {
-    const nextValidationErrors = validateAgentForm(form);
+    const nextValidationErrors = validateAgentForm(form, t);
     setValidationErrors(nextValidationErrors);
     if (Object.keys(nextValidationErrors).length > 0) {
-      setError("Please complete the required fields.");
+      setError(t("workspace.agent.validation.requiredSummary"));
       return;
     }
 
@@ -556,14 +582,14 @@ function AgentsPanel({
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-foreground/70">Agent roster</p>
+          <p className="text-sm font-medium text-foreground/70">{t("workspace.agent.roster")}</p>
           <p className="mt-1 text-sm text-foreground/50">
-            {f.number(activeChildren)} active child agents. Void stays locked as the local root.
+            {t("workspace.agent.rosterSummary", { count: f.number(activeChildren) })}
           </p>
         </div>
         <Button size="sm" variant="primary" onPress={openCreate}>
           <IconPlus className="size-3.5" />
-          New agent
+          {t("workspace.agent.new")}
         </Button>
       </div>
 
@@ -660,11 +686,14 @@ function AgentCard({
   onArchive: () => void;
   onRestore: () => void;
 }): React.JSX.Element {
-  const { f } = useT();
+  const { t, f } = useT();
   const locked = isLockedAgent(agent);
   const toolPolicy = normalizeAgentToolPolicy(agent.tool_policy_json);
   const handoffConfig = normalizeAgentHandoffConfig(agent.handoff_config_json);
   const runtimeConfig = normalizeAgentRuntimeConfig(agent.runtime_config_json);
+  const latestRunLabel = latestRun
+    ? `${labelFor(t, statusKeys, latestRun.status)} / ${f.dateTime(latestRun.started_at)}`
+    : t("workspace.value.never");
 
   return (
     <Card className="min-h-[260px] transition hover:border-accent/30 hover:bg-foreground/[0.018]">
@@ -688,7 +717,7 @@ function AgentCard({
                   <p className="truncate text-sm font-semibold">{agent.name}</p>
                   {locked ? (
                     <Chip size="sm" variant="secondary">
-                      Locked
+                      {t("workspace.agent.locked")}
                     </Chip>
                   ) : null}
                 </div>
@@ -703,18 +732,37 @@ function AgentCard({
           </p>
 
           <div className="mt-4 grid gap-1.5 text-xs text-foreground/55">
-            <InfoRow label="Lifecycle" value={<StatusChip status={agent.status} />} />
-            <InfoRow label="Enabled" value={agent.enabled !== 0 ? "Available" : "Off"} />
-            <InfoRow label="Routing" value={`${handoffConfig.mode} / ${handoffConfig.priority}`} />
-            <InfoRow label="Tools" value={toolPolicySummary(toolPolicy)} />
-            <InfoRow label="Model" value={agent.model_ref ?? "Inherit"} />
-            <InfoRow label="Runtime" value={`${runtimeConfig.maxTurns} turns`} />
             <InfoRow
-              label="Latest"
+              label={t("workspace.agent.field.lifecycle")}
+              value={<StatusChip status={agent.status} />}
+            />
+            <InfoRow
+              label={t("workspace.agent.field.enabled")}
               value={
-                latestRun ? `${latestRun.status} / ${f.dateTime(latestRun.started_at)}` : "Never"
+                agent.enabled !== 0 ? t("workspace.agent.available") : t("workspace.value.off")
               }
             />
+            <InfoRow
+              label={t("workspace.agent.field.routing")}
+              value={`${labelFor(t, agentHandoffModeKeys, handoffConfig.mode)} / ${labelFor(
+                t,
+                agentHandoffPriorityKeys,
+                handoffConfig.priority,
+              )}`}
+            />
+            <InfoRow
+              label={t("workspace.agent.field.tools")}
+              value={toolPolicySummary(t, toolPolicy)}
+            />
+            <InfoRow
+              label={t("workspace.agent.field.model")}
+              value={agent.model_ref ?? t("workspace.agent.inherit")}
+            />
+            <InfoRow
+              label={t("workspace.agent.field.runtime")}
+              value={t("workspace.agent.turns", { count: f.number(runtimeConfig.maxTurns) })}
+            />
+            <InfoRow label={t("workspace.agent.field.latest")} value={latestRunLabel} />
           </div>
 
           <div
@@ -726,29 +774,37 @@ function AgentCard({
               isSelected={agent.enabled !== 0}
               isDisabled={isBusy || locked}
               onChange={onToggle}
-              aria-label={`Enable ${agent.name}`}
+              aria-label={t("workspace.agent.enableAria", { name: agent.name })}
             >
               <Switch.Content>
                 <Switch.Control>
                   <Switch.Thumb />
                 </Switch.Control>
-                Enabled
+                {t("workspace.agent.enabledSwitch")}
               </Switch.Content>
             </Switch>
             <div className="flex items-center gap-1">
-              <IconButton label="Edit" isDisabled={locked || isBusy} onPress={onEdit}>
+              <IconButton label={t("common.edit")} isDisabled={locked || isBusy} onPress={onEdit}>
                 <IconEdit className="size-3.5" />
               </IconButton>
-              <IconButton label="Duplicate" isDisabled={locked || isBusy} onPress={onDuplicate}>
+              <IconButton
+                label={t("workspace.agent.action.duplicate")}
+                isDisabled={locked || isBusy}
+                onPress={onDuplicate}
+              >
                 <IconCopy className="size-3.5" />
               </IconButton>
               {agent.status === "archived" ? (
-                <IconButton label="Restore" isDisabled={locked || isBusy} onPress={onRestore}>
+                <IconButton
+                  label={t("common.restore")}
+                  isDisabled={locked || isBusy}
+                  onPress={onRestore}
+                >
                   <IconRotateCcw className="size-3.5" />
                 </IconButton>
               ) : (
                 <IconButton
-                  label="Archive"
+                  label={t("workspace.agent.action.archive")}
                   tone="danger"
                   isDisabled={locked || isBusy}
                   onPress={onArchive}
@@ -781,7 +837,7 @@ function AgentDetailDrawer({
   onClose: () => void;
   onEdit: (agent: AgentProfile) => void;
 }): React.JSX.Element {
-  const { f } = useT();
+  const { t, f } = useT();
   const runs = agent ? runsForAgent(snapshot.agentRuns, agent.id) : [];
   const runIds = new Set(runs.map((run) => run.id));
   const steps = snapshot.agentRunSteps
@@ -795,32 +851,83 @@ function AgentDetailDrawer({
   const handoffConfig = normalizeAgentHandoffConfig(agent?.handoff_config_json);
   const runtimeConfig = normalizeAgentRuntimeConfig(agent?.runtime_config_json);
   const locked = agent ? isLockedAgent(agent) : true;
+  const routingLabel = `${labelFor(t, agentHandoffModeKeys, handoffConfig.mode)} / ${labelFor(
+    t,
+    agentHandoffPriorityKeys,
+    handoffConfig.priority,
+  )}`;
+  const overviewItems = agent
+    ? [
+        {
+          label: t("workspace.agent.field.enabled"),
+          value: agent.enabled !== 0 ? t("workspace.agent.available") : t("workspace.value.off"),
+        },
+        { label: t("workspace.agent.field.handoff"), value: routingLabel },
+        {
+          label: t("workspace.agent.field.accepts"),
+          value: handoffConfig.accepts.join(", ") || t("workspace.agent.anyMatchingTask"),
+        },
+        {
+          label: t("workspace.agent.field.tools"),
+          value: toolPolicySummary(t, toolPolicy),
+        },
+        {
+          label: t("workspace.agent.field.model"),
+          value: agent.model_ref ?? t("workspace.agent.modelInherit"),
+        },
+        {
+          label: t("workspace.agent.field.voice"),
+          value: agent.voice ?? t("workspace.agent.default"),
+        },
+        { label: t("workspace.agent.field.maxTurns"), value: f.number(runtimeConfig.maxTurns) },
+        { label: t("workspace.agent.field.updated"), value: f.dateTime(agent.updated_at) },
+        {
+          label: t("workspace.agent.field.lastLearning"),
+          value: formatNullableDate(
+            f,
+            runtime?.last_learning_at ?? null,
+            t("workspace.value.never"),
+          ),
+        },
+        ...(runtime?.last_error
+          ? [{ label: t("workspace.agent.field.lastError"), value: runtime.last_error }]
+          : []),
+      ]
+    : [];
 
   return (
     <Drawer state={state}>
       <Drawer.Backdrop isDismissable>
-        <Drawer.Content placement="right" className="w-full max-w-3xl">
-          <Drawer.Dialog>
-            <Drawer.Header>
+        <Drawer.Content
+          placement="right"
+          className="w-[calc(100vw_-_24px)] max-w-4xl sm:w-[min(920px,calc(100vw_-_320px))]"
+        >
+          <Drawer.Dialog className="flex h-full min-h-0 flex-col">
+            <Drawer.Header className="shrink-0">
               <div className="min-w-0">
-                <Drawer.Heading>{agent?.name ?? "Agent details"}</Drawer.Heading>
+                <Drawer.Heading>
+                  {agent?.name ?? t("workspace.agent.detailFallback")}
+                </Drawer.Heading>
                 <p className="mt-1 text-sm text-foreground/50">{agent?.role}</p>
               </div>
               <Drawer.CloseTrigger />
             </Drawer.Header>
-            <Drawer.Body>
+            <Drawer.Body className="min-h-0 flex-1 overflow-y-auto">
               {agent ? (
                 <Tabs
                   selectedKey={selectedTab}
                   onSelectionChange={(key) => setSelectedTab(String(key))}
                   variant="secondary"
                 >
-                  <Tabs.ListContainer>
-                    <Tabs.List aria-label="Agent detail tabs">
-                      <Tabs.Tab id="overview">Overview</Tabs.Tab>
-                      <Tabs.Tab id="instructions">Instructions</Tabs.Tab>
-                      <Tabs.Tab id="runs">Runs</Tabs.Tab>
-                      <Tabs.Tab id="activity">Activity</Tabs.Tab>
+                  <Tabs.ListContainer className="overflow-x-auto">
+                    <Tabs.List
+                      className="min-w-max"
+                      aria-label={t("workspace.agent.detailTabsLabel")}
+                    >
+                      <Tabs.Tab id="overview">{t("workspace.agent.tab.overview")}</Tabs.Tab>
+                      <Tabs.Tab id="instructions">{t("workspace.agent.tab.instructions")}</Tabs.Tab>
+                      <Tabs.Tab id="runs">{t("workspace.agent.tab.runs")}</Tabs.Tab>
+                      <Tabs.Tab id="activity">{t("workspace.agent.tab.activity")}</Tabs.Tab>
                     </Tabs.List>
                   </Tabs.ListContainer>
 
@@ -836,46 +943,27 @@ function AgentDetailDrawer({
                           <StatusChip status={runtime?.status ?? "idle"} />
                           {locked ? (
                             <Chip size="sm" variant="secondary">
-                              Locked root
+                              {t("workspace.agent.lockedRoot")}
                             </Chip>
                           ) : null}
                         </div>
                       </div>
                     </div>
-                    <div className="grid gap-2 text-sm text-foreground/60">
-                      <InfoRow label="Enabled" value={agent.enabled !== 0 ? "Available" : "Off"} />
-                      <InfoRow
-                        label="Handoff"
-                        value={`${handoffConfig.mode} / ${handoffConfig.priority}`}
-                      />
-                      <InfoRow
-                        label="Accepts"
-                        value={handoffConfig.accepts.join(", ") || "Any matching task"}
-                      />
-                      <InfoRow label="Tools" value={toolPolicySummary(toolPolicy)} />
-                      <InfoRow
-                        label="Model"
-                        value={agent.model_ref ?? "Inherit selected chat model"}
-                      />
-                      <InfoRow label="Voice" value={agent.voice ?? "Default"} />
-                      <InfoRow label="Max turns" value={String(runtimeConfig.maxTurns)} />
-                      <InfoRow label="Updated" value={f.dateTime(agent.updated_at)} />
-                      <InfoRow
-                        label="Last learning"
-                        value={formatNullableDate(f, runtime?.last_learning_at ?? null)}
-                      />
-                      {runtime?.last_error ? (
-                        <InfoRow label="Last error" value={runtime.last_error} />
-                      ) : null}
-                    </div>
+                    <DetailInfoGrid items={overviewItems} />
                   </Tabs.Panel>
 
                   <Tabs.Panel id="instructions" className="space-y-3 pt-4">
-                    <ReadOnlyBlock title="Personality" value={agent.personality} />
-                    <ReadOnlyBlock title="Soul prompt" value={agent.soul_prompt} />
                     <ReadOnlyBlock
-                      title="Expected output"
-                      value={handoffConfig.expectedOutput || "No specific output contract."}
+                      title={t("workspace.agent.field.personality")}
+                      value={agent.personality}
+                    />
+                    <ReadOnlyBlock
+                      title={t("workspace.agent.field.soulPrompt")}
+                      value={agent.soul_prompt}
+                    />
+                    <ReadOnlyBlock
+                      title={t("workspace.agent.field.expectedOutput")}
+                      value={handoffConfig.expectedOutput || t("workspace.agent.noOutputContract")}
                     />
                   </Tabs.Panel>
 
@@ -885,17 +973,19 @@ function AgentDetailDrawer({
 
                   <Tabs.Panel id="activity" className="space-y-4 pt-4">
                     <MiniList
-                      title="Run steps"
-                      empty="No steps recorded for this agent"
+                      title={t("workspace.agent.runSteps")}
+                      empty={t("workspace.agent.noSteps")}
                       items={steps.map((step) => ({
                         id: step.id,
                         title: step.title,
-                        detail: `${step.kind} / ${step.status} / ${f.dateTime(step.started_at)}`,
+                        detail: `${step.kind} / ${labelFor(t, statusKeys, step.status)} / ${f.dateTime(
+                          step.started_at,
+                        )}`,
                       }))}
                     />
                     <div>
                       <div className="mb-2 text-xs font-medium uppercase tracking-normal text-foreground/40">
-                        Harness events
+                        {t("workspace.agent.harnessEvents")}
                       </div>
                       <Timeline items={activity} />
                     </div>
@@ -903,17 +993,17 @@ function AgentDetailDrawer({
                 </Tabs>
               ) : null}
             </Drawer.Body>
-            <Drawer.Footer>
+            <Drawer.Footer className="shrink-0 border-t border-foreground/10">
               <div className="flex w-full justify-between gap-2">
                 <Button variant="tertiary" onPress={onClose}>
-                  Close
+                  {t("common.close")}
                 </Button>
                 <Button
                   variant="primary"
                   onPress={() => agent && onEdit(agent)}
                   isDisabled={!agent || locked}
                 >
-                  Edit agent
+                  {t("workspace.agent.action.editAgent")}
                 </Button>
               </div>
             </Drawer.Footer>
@@ -951,21 +1041,31 @@ function AgentEditorModal({
   selectedTab: string;
   setSelectedTab: (key: string) => void;
 }): React.JSX.Element {
+  const { t } = useT();
   const open = mode !== null;
 
   return (
     <Modal isOpen={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <Modal.Backdrop isDismissable={!isSaving}>
-        <Modal.Container size="lg" placement="center" scroll="inside">
-          <Modal.Dialog>
-            <Modal.Header>
+        <Modal.Container
+          size="lg"
+          placement="center"
+          scroll="inside"
+          className="w-[min(920px,calc(100vw_-_32px))] max-w-4xl"
+        >
+          <Modal.Dialog className="flex max-h-[min(760px,calc(100vh_-_48px))] min-h-0 flex-col">
+            <Modal.Header className="shrink-0">
               <div className="flex w-full items-start justify-between gap-3">
                 <div className="min-w-0">
                   <Modal.Heading className="text-base font-semibold">
-                    {mode === "edit" ? `Edit ${agent?.name ?? "agent"}` : "New agent"}
+                    {mode === "edit"
+                      ? t("workspace.agent.editTitle", {
+                          name: agent?.name ?? t("workspace.agent.editFallback"),
+                        })
+                      : t("workspace.agent.new")}
                   </Modal.Heading>
                   <p className="mt-1 text-sm text-foreground/50">
-                    Configure identity, instructions, runtime, and routing in one focused flow.
+                    {t("workspace.agent.editorDescription")}
                   </p>
                 </div>
                 <Button
@@ -975,13 +1075,13 @@ function AgentEditorModal({
                   variant="tertiary"
                   onPress={onClose}
                   isDisabled={isSaving}
-                  aria-label="Close"
+                  aria-label={t("common.close")}
                 >
                   <IconClose className="size-4" />
                 </Button>
               </div>
             </Modal.Header>
-            <Modal.Body>
+            <Modal.Body className="min-h-0 flex-1 overflow-y-auto">
               <div className="space-y-4">
                 {error ? (
                   <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -994,46 +1094,49 @@ function AgentEditorModal({
                   onSelectionChange={(key) => setSelectedTab(String(key))}
                   variant="secondary"
                 >
-                  <Tabs.ListContainer>
-                    <Tabs.List aria-label="Agent editor tabs">
-                      <Tabs.Tab id="basics">Basics</Tabs.Tab>
-                      <Tabs.Tab id="instructions">Instructions</Tabs.Tab>
-                      <Tabs.Tab id="runtime">Runtime</Tabs.Tab>
-                      <Tabs.Tab id="routing">Routing</Tabs.Tab>
+                  <Tabs.ListContainer className="overflow-x-auto">
+                    <Tabs.List
+                      className="min-w-max"
+                      aria-label={t("workspace.agent.editorTabsLabel")}
+                    >
+                      <Tabs.Tab id="basics">{t("workspace.agent.tab.basics")}</Tabs.Tab>
+                      <Tabs.Tab id="instructions">{t("workspace.agent.tab.instructions")}</Tabs.Tab>
+                      <Tabs.Tab id="runtime">{t("workspace.agent.tab.runtime")}</Tabs.Tab>
+                      <Tabs.Tab id="routing">{t("workspace.agent.tab.routing")}</Tabs.Tab>
                     </Tabs.List>
                   </Tabs.ListContainer>
 
                   <Tabs.Panel id="basics" className="space-y-3 pt-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <TextInputField
-                        label="Name"
+                        label={t("workspace.agent.field.name")}
                         required
                         value={form.name}
                         error={validationErrors.name}
                         onChange={(name) => onChange({ ...form, name })}
                       />
                       <TextInputField
-                        label="Avatar"
+                        label={t("workspace.agent.field.avatar")}
                         value={form.avatar}
                         onChange={(avatar) => onChange({ ...form, avatar: avatar.slice(0, 2) })}
                       />
                       <TextInputField
-                        label="Role"
+                        label={t("workspace.agent.field.role")}
                         required
                         value={form.role}
                         error={validationErrors.role}
                         onChange={(role) => onChange({ ...form, role })}
                       />
                       <SelectField
-                        label="Lifecycle"
+                        label={t("workspace.agent.field.lifecycle")}
                         value={form.status}
                         onChange={(status) =>
                           onChange({ ...form, status: status as AgentProfile["status"] })
                         }
                         options={[
-                          ["active", "Active"],
-                          ["draft", "Draft"],
-                          ["archived", "Archived"],
+                          ["active", t("status.agent.active")],
+                          ["draft", t("status.agent.draft")],
+                          ["archived", t("status.agent.archived")],
                         ]}
                       />
                     </div>
@@ -1041,17 +1144,17 @@ function AgentEditorModal({
                       size="sm"
                       isSelected={form.enabled}
                       onChange={(enabled) => onChange({ ...form, enabled })}
-                      aria-label="Agent enabled"
+                      aria-label={t("workspace.agent.enabledSwitch")}
                     >
                       <Switch.Content>
                         <Switch.Control>
                           <Switch.Thumb />
                         </Switch.Control>
-                        Enabled for orchestration
+                        {t("workspace.agent.enabledForOrchestration")}
                       </Switch.Content>
                     </Switch>
                     <TextAreaField
-                      label="Description"
+                      label={t("workspace.agent.field.description")}
                       required
                       rows={3}
                       value={form.description}
@@ -1062,7 +1165,7 @@ function AgentEditorModal({
 
                   <Tabs.Panel id="instructions" className="space-y-3 pt-4">
                     <TextAreaField
-                      label="Personality"
+                      label={t("workspace.agent.field.personality")}
                       required
                       rows={4}
                       value={form.personality}
@@ -1070,7 +1173,7 @@ function AgentEditorModal({
                       onChange={(personality) => onChange({ ...form, personality })}
                     />
                     <TextAreaField
-                      label="Soul prompt"
+                      label={t("workspace.agent.field.soulPrompt")}
                       required
                       rows={8}
                       value={form.soul_prompt}
@@ -1082,11 +1185,11 @@ function AgentEditorModal({
                   <Tabs.Panel id="runtime" className="space-y-4 pt-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <SelectField
-                        label="Model override"
+                        label={t("workspace.agent.field.modelOverride")}
                         value={form.model_ref}
                         onChange={(model_ref) => onChange({ ...form, model_ref })}
                         options={[
-                          ["", "Inherit selected chat model"],
+                          ["", t("workspace.agent.modelInherit")],
                           ...managedModels.map(
                             (model) =>
                               [
@@ -1097,13 +1200,13 @@ function AgentEditorModal({
                         ]}
                       />
                       <TextInputField
-                        label="Voice"
-                        placeholder="optional voice profile"
+                        label={t("workspace.agent.field.voice")}
+                        placeholder={t("workspace.agent.optionalVoice")}
                         value={form.voice}
                         onChange={(voice) => onChange({ ...form, voice })}
                       />
                       <NumberField
-                        label="Max turns"
+                        label={t("workspace.agent.field.maxTurns")}
                         min={1}
                         max={20}
                         value={form.runtimeConfig.maxTurns}
@@ -1115,7 +1218,7 @@ function AgentEditorModal({
                         }
                       />
                       <NumberField
-                        label="Temperature"
+                        label={t("workspace.agent.field.temperature")}
                         min={0}
                         max={2}
                         step={0.1}
@@ -1128,7 +1231,7 @@ function AgentEditorModal({
                         }
                       />
                       <NumberField
-                        label="Top-P"
+                        label={t("workspace.agent.field.topP")}
                         min={0}
                         max={1}
                         step={0.05}
@@ -1141,7 +1244,7 @@ function AgentEditorModal({
                         }
                       />
                       <NumberField
-                        label="Max output tokens"
+                        label={t("workspace.agent.field.maxOutputTokens")}
                         min={1}
                         max={32768}
                         value={form.runtimeConfig.maxOutputTokens ?? 4096}
@@ -1153,7 +1256,7 @@ function AgentEditorModal({
                         }
                       />
                       <SelectField
-                        label="Reasoning"
+                        label={t("workspace.agent.field.reasoning")}
                         value={form.runtimeConfig.reasoning ?? "provider-default"}
                         onChange={(reasoning) =>
                           onChange({
@@ -1165,17 +1268,17 @@ function AgentEditorModal({
                           })
                         }
                         options={[
-                          ["provider-default", "Provider default"],
-                          ["none", "None"],
-                          ["minimal", "Minimal"],
-                          ["low", "Low"],
-                          ["medium", "Medium"],
-                          ["high", "High"],
-                          ["xhigh", "XHigh"],
+                          ["provider-default", t("reasoning.level.provider-default")],
+                          ["none", t("reasoning.level.none")],
+                          ["minimal", t("reasoning.level.minimal")],
+                          ["low", t("reasoning.level.low")],
+                          ["medium", t("reasoning.level.medium")],
+                          ["high", t("reasoning.level.high")],
+                          ["xhigh", t("reasoning.level.xhigh")],
                         ]}
                       />
                       <SelectField
-                        label="Review policy"
+                        label={t("workspace.agent.field.reviewPolicy")}
                         value={form.runtimeConfig.reviewPolicy ?? "review_sensitive"}
                         onChange={(reviewPolicy) =>
                           onChange({
@@ -1187,14 +1290,14 @@ function AgentEditorModal({
                           })
                         }
                         options={[
-                          ["inherit", "Inherit"],
-                          ["auto", "Auto allow low risk"],
-                          ["review_sensitive", "Review sensitive"],
-                          ["review_all", "Review all tools"],
+                          ["inherit", t("workspace.agent.option.review.inherit")],
+                          ["auto", t("workspace.agent.option.review.auto")],
+                          ["review_sensitive", t("workspace.agent.option.review.sensitive")],
+                          ["review_all", t("workspace.agent.option.review.all")],
                         ]}
                       />
                       <SelectField
-                        label="Sandbox policy"
+                        label={t("workspace.agent.field.sandboxPolicy")}
                         value={form.runtimeConfig.sandboxPolicy ?? "local"}
                         onChange={(sandboxPolicy) =>
                           onChange({
@@ -1206,10 +1309,10 @@ function AgentEditorModal({
                           })
                         }
                         options={[
-                          ["inherit", "Inherit"],
-                          ["disabled", "Disabled"],
-                          ["local", "Local restricted"],
-                          ["docker", "Docker preferred"],
+                          ["inherit", t("workspace.agent.option.sandbox.inherit")],
+                          ["disabled", t("workspace.agent.option.sandbox.disabled")],
+                          ["local", t("workspace.agent.option.sandbox.local")],
+                          ["docker", t("workspace.agent.option.sandbox.docker")],
                         ]}
                       />
                     </div>
@@ -1219,7 +1322,7 @@ function AgentEditorModal({
                   <Tabs.Panel id="routing" className="space-y-3 pt-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <SelectField
-                        label="Mode"
+                        label={t("workspace.agent.field.mode")}
                         value={form.handoffConfig.mode}
                         onChange={(mode) =>
                           onChange({
@@ -1231,13 +1334,13 @@ function AgentEditorModal({
                           })
                         }
                         options={[
-                          ["handoff", "Handoff"],
-                          ["consult", "Consult"],
-                          ["both", "Both"],
+                          ["handoff", t("workspace.agent.option.handoff.handoff")],
+                          ["consult", t("workspace.agent.option.handoff.consult")],
+                          ["both", t("workspace.agent.option.handoff.both")],
                         ]}
                       />
                       <SelectField
-                        label="Priority"
+                        label={t("workspace.agent.field.priority")}
                         value={form.handoffConfig.priority}
                         onChange={(priority) =>
                           onChange({
@@ -1249,15 +1352,15 @@ function AgentEditorModal({
                           })
                         }
                         options={[
-                          ["low", "Low"],
-                          ["normal", "Normal"],
-                          ["high", "High"],
+                          ["low", t("workspace.agent.option.priority.low")],
+                          ["normal", t("workspace.agent.option.priority.normal")],
+                          ["high", t("workspace.agent.option.priority.high")],
                         ]}
                       />
                     </div>
                     <TextInputField
-                      label="Accepts"
-                      placeholder="research, planning, critique"
+                      label={t("workspace.agent.field.accepts")}
+                      placeholder={t("workspace.agent.acceptsPlaceholder")}
                       value={form.handoffConfig.accepts.join(", ")}
                       onChange={(raw) =>
                         onChange({
@@ -1270,7 +1373,7 @@ function AgentEditorModal({
                       }
                     />
                     <TextAreaField
-                      label="Expected output"
+                      label={t("workspace.agent.field.expectedOutput")}
                       rows={4}
                       value={form.handoffConfig.expectedOutput}
                       onChange={(expectedOutput) =>
@@ -1284,13 +1387,18 @@ function AgentEditorModal({
                 </Tabs>
               </div>
             </Modal.Body>
-            <Modal.Footer>
+            <Modal.Footer className="shrink-0 border-t border-foreground/10">
               <div className="flex w-full flex-wrap justify-end gap-2">
                 <Button variant="secondary" onPress={onClose} isDisabled={isSaving}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
-                <Button variant="primary" onPress={onSave} isPending={isSaving}>
-                  Save agent
+                <Button
+                  variant="primary"
+                  onPress={onSave}
+                  isPending={isSaving}
+                  isDisabled={isSaving}
+                >
+                  {t("workspace.agent.action.save")}
                 </Button>
               </div>
             </Modal.Footer>
@@ -1310,6 +1418,25 @@ function ReadOnlyBlock({ title, value }: { title: string; value: string }): Reac
   );
 }
 
+function DetailInfoGrid({
+  items,
+}: {
+  items: Array<{ label: string; value: ReactNode }>;
+}): React.JSX.Element {
+  return (
+    <div className="grid gap-2 md:grid-cols-2">
+      {items.map((item) => (
+        <div key={item.label} className="rounded-md border border-foreground/10 px-3 py-2.5">
+          <div className="text-xs text-foreground/42">{item.label}</div>
+          <div className="mt-1 min-w-0 break-words text-sm font-medium leading-5 text-foreground/72">
+            {item.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ToolPolicyEditor({
   form,
   onChange,
@@ -1317,6 +1444,7 @@ function ToolPolicyEditor({
   form: AgentFormState;
   onChange: (next: AgentFormState) => void;
 }): React.JSX.Element {
+  const { t } = useT();
   const custom = form.toolPolicy.mode === "custom";
   const setPolicy = (toolPolicy: AgentToolPolicy): void => onChange({ ...form, toolPolicy });
 
@@ -1324,27 +1452,27 @@ function ToolPolicyEditor({
     <div className="rounded-md border border-foreground/10 p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium">Tool policy</div>
+          <div className="text-sm font-medium">{t("workspace.agent.toolPolicy.title")}</div>
           <div className="text-xs text-foreground/50">
-            Approval tools stay explicit even when the child inherits global tools.
+            {t("workspace.agent.toolPolicy.description")}
           </div>
         </div>
         <SelectField
-          label="Mode"
+          label={t("workspace.agent.field.mode")}
           compact
           value={form.toolPolicy.mode}
           onChange={(mode) =>
             setPolicy({ ...form.toolPolicy, mode: mode as AgentToolPolicy["mode"] })
           }
           options={[
-            ["inherit", "Inherit"],
-            ["custom", "Custom"],
+            ["inherit", t("workspace.agent.option.toolPolicy.inherit")],
+            ["custom", t("workspace.agent.option.toolPolicy.custom")],
           ]}
         />
       </div>
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <ToolCheckboxGroup
-          title="Allowed tools"
+          title={t("workspace.agent.toolPolicy.allowed")}
           disabled={!custom}
           selected={custom ? form.toolPolicy.allowedToolIds : CHAT_TOOL_IDS}
           onToggle={(toolId, selected) =>
@@ -1355,7 +1483,7 @@ function ToolPolicyEditor({
           }
         />
         <ToolCheckboxGroup
-          title="Requires approval"
+          title={t("workspace.agent.toolPolicy.approval")}
           selected={form.toolPolicy.requireApprovalToolIds}
           onToggle={(toolId, selected) =>
             setPolicy({
@@ -1411,7 +1539,7 @@ function ToolCheckboxGroup({
 }
 
 function AgentRunsList({ runs }: { runs: WorkspaceSnapshot["agentRuns"] }): React.JSX.Element {
-  const { f } = useT();
+  const { t, f } = useT();
   if (runs.length === 0) {
     return <EmptyPanel />;
   }
@@ -1426,10 +1554,15 @@ function AgentRunsList({ runs }: { runs: WorkspaceSnapshot["agentRuns"] }): Reac
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{run.id.slice(0, 8)}</span>
               <StatusChip status={run.status} />
-              <span className="text-xs text-foreground/45">{run.model_ref ?? "model inherit"}</span>
+              <span className="text-xs text-foreground/45">
+                {run.model_ref ?? t("workspace.agent.modelInheritShort")}
+              </span>
             </div>
             <div className="mt-1 truncate text-xs text-foreground/50">
-              {run.output_summary ?? run.input_summary ?? run.error ?? "No summary"}
+              {run.output_summary ??
+                run.input_summary ??
+                run.error ??
+                t("workspace.agent.noSummary")}
             </div>
           </div>
           <span className="text-xs text-foreground/45">{f.dateTime(run.started_at)}</span>
@@ -1638,9 +1771,9 @@ function isLockedAgent(agent: AgentProfile): boolean {
   return agent.locked !== 0 || agent.kind === "main" || agent.id === DEFAULT_AGENT_ID;
 }
 
-function validateAgentForm(form: AgentFormState): AgentValidationErrors {
+function validateAgentForm(form: AgentFormState, t: TFunction): AgentValidationErrors {
   const errors: AgentValidationErrors = {};
-  const required = "Required";
+  const required = t("workspace.agent.validation.required");
   if (!form.name.trim()) errors.name = required;
   if (!form.role.trim()) errors.role = required;
   if (!form.description.trim()) errors.description = required;
@@ -1649,11 +1782,13 @@ function validateAgentForm(form: AgentFormState): AgentValidationErrors {
   return errors;
 }
 
-function toolPolicySummary(policy: AgentToolPolicy): string {
-  if (policy.mode === "inherit") return "Inherit";
+function toolPolicySummary(t: TFunction, policy: AgentToolPolicy): string {
+  if (policy.mode === "inherit") return t("workspace.agent.inherit");
   const allowed = policy.allowedToolIds.length;
   const approvals = policy.requireApprovalToolIds.length;
-  return approvals > 0 ? `${allowed} allowed, ${approvals} approval` : `${allowed} allowed`;
+  return approvals > 0
+    ? t("workspace.agent.toolPolicy.summaryWithApproval", { allowed, approvals })
+    : t("workspace.agent.toolPolicy.summaryAllowed", { allowed });
 }
 
 function harnessEventsForAgent(
@@ -1737,8 +1872,12 @@ function runsForAgent(runs: WorkspaceSnapshot["agentRuns"], agentId: string) {
   return runs.filter((run) => run.final_agent_id === agentId || run.root_agent_id === agentId);
 }
 
-function formatNullableDate(f: ReturnType<typeof useT>["f"], value: number | null): string {
-  return value ? f.dateTime(value) : "Never";
+function formatNullableDate(
+  f: ReturnType<typeof useT>["f"],
+  value: number | null,
+  fallback: string,
+): string {
+  return value ? f.dateTime(value) : fallback;
 }
 
 function WorkflowsPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.Element {
@@ -2217,7 +2356,9 @@ function StatusChip({ status }: { status: string }): React.JSX.Element {
   const { t } = useT();
   const label = statusKeys[status]
     ? t(statusKeys[status])
-    : (runtimeStatusLabels[status as AgentRuntimeStatus] ?? status);
+    : runtimeStatusKeys[status as AgentRuntimeStatus]
+      ? t(runtimeStatusKeys[status as AgentRuntimeStatus])
+      : status;
   const color =
     status === "succeeded" || status === "active" || status === "enabled" || status === "online"
       ? "success"
