@@ -19,6 +19,7 @@ import {
   DEFAULT_AGENT_ID,
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
+  isChatToolReference,
   normalizeChatToolSelection,
   type AgentHandoffConfig,
   type AgentProfile,
@@ -485,7 +486,7 @@ function selectedToolIds(
       ? selected.filter((id) => policy.allowedToolIds.includes(id))
       : selected;
   return [...new Set(isVoid ? allowed : allowed.filter((id) => id !== "memory_save"))].filter(
-    (id): id is ChatToolId => CHAT_TOOL_IDS.includes(id),
+    isChatToolId,
   );
 }
 
@@ -619,10 +620,10 @@ function readToolPolicy(raw: string): AgentToolPolicy {
   return readJsonObject(raw, DEFAULT_AGENT_TOOL_POLICY, (value) => ({
     mode: value.mode === "custom" ? "custom" : "inherit",
     allowedToolIds: Array.isArray(value.allowedToolIds)
-      ? value.allowedToolIds.filter(isChatToolId)
+      ? value.allowedToolIds.filter(isChatToolReference)
       : [],
     requireApprovalToolIds: Array.isArray(value.requireApprovalToolIds)
-      ? value.requireApprovalToolIds.filter(isChatToolId)
+      ? value.requireApprovalToolIds.filter(isChatToolReference)
       : DEFAULT_AGENT_TOOL_POLICY.requireApprovalToolIds,
   }));
 }

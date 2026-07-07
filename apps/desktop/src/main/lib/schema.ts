@@ -397,6 +397,103 @@ export const serverNodes = sqliteTable(
   (table) => [index("idx_server_nodes_kind").on(table.kind)],
 );
 
+export const mcpServers = sqliteTable(
+  "mcp_servers",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    transport: text("transport", { enum: ["stdio", "http", "sse"] }).notNull(),
+    enabled: integer("enabled").notNull().default(1),
+    auto_use: integer("auto_use").notNull().default(0),
+    requires_approval: integer("requires_approval").notNull().default(1),
+    status: text("status", { enum: ["ready", "disabled", "error", "unknown"] })
+      .notNull()
+      .default("unknown"),
+    command: text("command"),
+    args_json: text("args_json").notNull().default("[]"),
+    url: text("url"),
+    headers_json: text("headers_json").notNull().default("{}"),
+    env_json: text("env_json").notNull().default("{}"),
+    cwd: text("cwd"),
+    last_error: text("last_error"),
+    last_connected_at: integer("last_connected_at"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_mcp_servers_enabled").on(table.enabled),
+    index("idx_mcp_servers_status").on(table.status),
+  ],
+);
+
+export const mcpTools = sqliteTable(
+  "mcp_tools",
+  {
+    id: text("id").primaryKey(),
+    server_id: text("server_id")
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    title: text("title"),
+    description: text("description").notNull(),
+    input_schema_json: text("input_schema_json").notNull().default("{}"),
+    output_schema_json: text("output_schema_json").notNull().default("{}"),
+    enabled: integer("enabled").notNull().default(1),
+    auto_use: integer("auto_use").notNull().default(0),
+    requires_approval: integer("requires_approval").notNull().default(1),
+    discovered_at: integer("discovered_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_mcp_tools_server").on(table.server_id),
+    index("idx_mcp_tools_enabled").on(table.enabled),
+  ],
+);
+
+export const extensionSkills = sqliteTable(
+  "extension_skills",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    category: text("category").notNull(),
+    enabled: integer("enabled").notNull().default(1),
+    auto_use: integer("auto_use").notNull().default(0),
+    requires_approval: integer("requires_approval").notNull().default(1),
+    trigger_keywords_json: text("trigger_keywords_json").notNull().default("[]"),
+    tags_json: text("tags_json").notNull().default("[]"),
+    config_schema_json: text("config_schema_json").notNull().default("{}"),
+    config_json: text("config_json").notNull().default("{}"),
+    steps_json: text("steps_json").notNull().default("[]"),
+    workflow_id: text("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
+    last_run_at: integer("last_run_at"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_extension_skills_enabled").on(table.enabled),
+    index("idx_extension_skills_category").on(table.category),
+  ],
+);
+
+export const extensionSecrets = sqliteTable(
+  "extension_secrets",
+  {
+    id: text("id").primaryKey(),
+    owner_type: text("owner_type", { enum: ["mcp", "skill"] }).notNull(),
+    owner_id: text("owner_id").notNull(),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_extension_secrets_owner").on(table.owner_type, table.owner_id),
+    index("idx_extension_secrets_key").on(table.key),
+  ],
+);
+
 export const interactionProfiles = sqliteTable("interaction_profiles", {
   id: text("id").primaryKey(),
   kind: text("kind", { enum: ["chat", "voice", "video", "mouse", "desktop_pet"] }).notNull(),
@@ -475,6 +572,10 @@ export const schema = {
   sandboxSnapshots,
   sandboxArtifacts,
   serverNodes,
+  mcpServers,
+  mcpTools,
+  extensionSkills,
+  extensionSecrets,
   interactionProfiles,
   syncState,
   settings,
@@ -501,6 +602,7 @@ export type NewMemoryRecord = typeof memories.$inferInsert;
 export type WorkflowDefinition = typeof workflows.$inferSelect;
 export type NewWorkflowDefinition = typeof workflows.$inferInsert;
 export type WorkflowRun = typeof workflowRuns.$inferSelect;
+export type NewWorkflowRun = typeof workflowRuns.$inferInsert;
 export type HarnessEvent = typeof harnessEvents.$inferSelect;
 export type SandboxSession = typeof sandboxSessions.$inferSelect;
 export type NewSandboxSession = typeof sandboxSessions.$inferInsert;
@@ -509,6 +611,14 @@ export type NewSandboxSnapshot = typeof sandboxSnapshots.$inferInsert;
 export type SandboxArtifact = typeof sandboxArtifacts.$inferSelect;
 export type NewSandboxArtifact = typeof sandboxArtifacts.$inferInsert;
 export type ServerNode = typeof serverNodes.$inferSelect;
+export type McpServer = typeof mcpServers.$inferSelect;
+export type NewMcpServer = typeof mcpServers.$inferInsert;
+export type McpTool = typeof mcpTools.$inferSelect;
+export type NewMcpTool = typeof mcpTools.$inferInsert;
+export type ExtensionSkill = typeof extensionSkills.$inferSelect;
+export type NewExtensionSkill = typeof extensionSkills.$inferInsert;
+export type ExtensionSecret = typeof extensionSecrets.$inferSelect;
+export type NewExtensionSecret = typeof extensionSecrets.$inferInsert;
 export type InteractionProfile = typeof interactionProfiles.$inferSelect;
 export type SyncState = typeof syncState.$inferSelect;
 export type Setting = typeof settings.$inferSelect;

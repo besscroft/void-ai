@@ -1,9 +1,11 @@
 import {
   CHAT_TOOL_IDS,
   normalizeChatToolSelection,
+  type ChatToolReference,
   type ChatToolDescriptor,
   type ChatToolId,
   type ChatToolSelectionRequest,
+  type ExtensionsSnapshot,
   type ModelOption,
   type ProviderInfo,
 } from "@shared/types";
@@ -153,14 +155,16 @@ export function findSelectedChatModel(
 export function createClientChatToolDescriptors({
   selectedModel,
   providers,
+  extensions,
 }: {
   selectedModel: string | null | undefined;
   providers: ProviderInfo[];
+  extensions?: ExtensionsSnapshot | null;
 }): ChatToolDescriptor[] {
   const selected = findSelectedChatModel(selectedModel, providers);
   const supportsToolCalling = selected?.model.capabilities.toolCalling === true;
 
-  return CHAT_TOOL_IDS.map((id) => {
+  const builtIn = CHAT_TOOL_IDS.map((id) => {
     const meta = TOOL_METADATA[id];
     const webSearchExecution =
       id === "web_search" && selected ? getWebSearchExecution(selected.provider.kind) : undefined;
@@ -186,12 +190,14 @@ export function createClientChatToolDescriptors({
         : getUnavailableReason({ id, selected, supportsToolCalling }),
     };
   });
+
+  return [...builtIn, ...createExtensionChatToolDescriptors(extensions, supportsToolCalling)];
 }
 
 export function getActiveChatToolIds(
   selection: ChatToolSelectionRequest,
   descriptors: ChatToolDescriptor[],
-): ChatToolId[] {
+): ChatToolReference[] {
   const normalized = normalizeChatToolSelection(selection);
   if (normalized.mode === "off") return [];
   if (normalized.mode === "auto") {
@@ -203,6 +209,63 @@ export function getActiveChatToolIds(
     descriptors.filter((descriptor) => descriptor.available).map((descriptor) => descriptor.id),
   );
   return normalized.selectedToolIds.filter((id) => availableIds.has(id));
+}
+
+function createExtensionChatToolDescriptors(
+  extensions: ExtensionsSnapshot | null | undefined,
+  supportsToolCalling: boolean,
+): ChatToolDescriptor[] {
+  if (!extensions) return [];
+  const serverById = new Map(extensions.mcpServers.map((server) => [server.id, server]));
+  const mcpDescriptors = extensions.mcpTools.map((mcpTool) => {
+    const server = serverById.get(mcpTool.server_id);
+    const enabled = !!server && server.enabled !== 0 && mcpTool.enabled !== 0;
+    const available = supportsToolCalling && enabled;
+    return {
+      id: `mcp:${mcpTool.server_id}:${mcpTool.name}`,
+      label: mcpTool.title || `${server?.name ?? mcpTool.server_id}: ${mcpTool.name}`,
+      description: mcpTool.description || `MCP tool from ${server?.name ?? "server"}.`,
+      kind: "host",
+      execution: "host",
+      category: "mcp",
+      defaultAuto:
+        supportsToolCalling && enabled && (server?.auto_use ?? 0) !== 0 && mcpTool.auto_use !== 0,
+      requiresApproval: (server?.requires_approval ?? 1) !== 0 || mcpTool.requires_approval !== 0,
+      available,
+      unavailableReason: available
+        ? undefined
+        : supportsToolCalling
+          ? "MCP server or tool is disabled."
+          : "Selected model does not advertise tool calling.",
+      sourceId: mcpTool.server_id,
+      sourceName: server?.name,
+    } satisfies ChatToolDescriptor;
+  });
+
+  const skillDescriptors = extensions.skills.map((skill) => {
+    const enabled = skill.enabled !== 0;
+    const available = supportsToolCalling && enabled;
+    return {
+      id: `skill:${skill.id}`,
+      label: skill.name,
+      description: skill.description || "Workflow skill",
+      kind: "host",
+      execution: "host",
+      category: "skill",
+      defaultAuto: supportsToolCalling && enabled && skill.auto_use !== 0,
+      requiresApproval: skill.requires_approval !== 0,
+      available,
+      unavailableReason: available
+        ? undefined
+        : supportsToolCalling
+          ? "Skill is disabled."
+          : "Selected model does not advertise tool calling.",
+      sourceId: skill.id,
+      sourceName: skill.category,
+    } satisfies ChatToolDescriptor;
+  });
+
+  return [...mcpDescriptors, ...skillDescriptors];
 }
 
 function isNativeWebSearchProvider(kind: ProviderInfo["kind"]): boolean {

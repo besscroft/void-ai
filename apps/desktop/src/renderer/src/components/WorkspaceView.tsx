@@ -15,6 +15,7 @@ import {
   useOverlayState,
 } from "@heroui/react";
 import { api, type WorkspaceSnapshot } from "../lib/api";
+import { ExtensionsPanel } from "./ExtensionsPanel";
 import { useT, type TranslationKey } from "../lib/i18n";
 import {
   CHAT_TOOL_IDS,
@@ -29,6 +30,7 @@ import {
   type AgentRuntimeStatus,
   type AgentToolPolicy,
   type ChatToolId,
+  type ChatToolReference,
   type ManagedModelInfo,
   type WorkflowStep,
 } from "@shared/types";
@@ -50,6 +52,7 @@ import {
 export type WorkspaceSection =
   | "dashboard"
   | "agents"
+  | "extensions"
   | "workflows"
   | "memory"
   | "sandbox"
@@ -65,6 +68,7 @@ interface WorkspaceViewProps {
 const sectionTitleKey: Record<WorkspaceSection, TranslationKey> = {
   dashboard: "workspace.title.dashboard",
   agents: "workspace.title.agents",
+  extensions: "workspace.title.extensions",
   workflows: "workspace.title.workflows",
   memory: "workspace.title.memory",
   sandbox: "workspace.title.sandbox",
@@ -77,6 +81,7 @@ const sectionTitleKey: Record<WorkspaceSection, TranslationKey> = {
 const sectionSubtitleKey: Record<WorkspaceSection, TranslationKey> = {
   dashboard: "workspace.subtitle.dashboard",
   agents: "workspace.subtitle.agents",
+  extensions: "workspace.subtitle.extensions",
   workflows: "workspace.subtitle.workflows",
   memory: "workspace.subtitle.memory",
   sandbox: "workspace.subtitle.sandbox",
@@ -259,6 +264,7 @@ function WorkspaceContent({
   refresh: () => void;
 }): React.JSX.Element {
   if (section === "agents") return <AgentsPanel snapshot={snapshot} refresh={refresh} />;
+  if (section === "extensions") return <ExtensionsPanel />;
   if (section === "workflows") return <WorkflowsPanel snapshot={snapshot} />;
   if (section === "memory") return <MemoryPanel snapshot={snapshot} />;
   if (section === "sandbox") return <SandboxPanel snapshot={snapshot} />;
@@ -1163,7 +1169,7 @@ function ToolCheckboxGroup({
   disabled = false,
 }: {
   title: string;
-  selected: readonly ChatToolId[];
+  selected: readonly ChatToolReference[];
   onToggle: (toolId: ChatToolId, selected: boolean) => void;
   disabled?: boolean;
 }): React.JSX.Element {
@@ -1430,10 +1436,6 @@ function buildAgentInput(form: AgentFormState): AgentInput {
   };
 }
 
-function isKnownToolId(value: unknown): value is ChatToolId {
-  return typeof value === "string" && (CHAT_TOOL_IDS as readonly string[]).includes(value);
-}
-
 function splitCommaList(raw: string): string[] {
   return raw
     .split(",")
@@ -1442,9 +1444,13 @@ function splitCommaList(raw: string): string[] {
     .slice(0, 12);
 }
 
-function toggleToolId(list: ChatToolId[], toolId: ChatToolId, selected: boolean): ChatToolId[] {
+function toggleToolId(
+  list: ChatToolReference[],
+  toolId: ChatToolId,
+  selected: boolean,
+): ChatToolReference[] {
   const next = selected ? [...list, toolId] : list.filter((item) => item !== toolId);
-  return [...new Set(next)].filter(isKnownToolId);
+  return [...new Set(next)];
 }
 
 function latestRunFor(runs: WorkspaceSnapshot["agentRuns"], agentId: string) {

@@ -3,6 +3,9 @@ import { isStepCount, jsonSchema, tool } from "ai";
 import type { streamText, ToolApprovalConfiguration, ToolChoice, ToolSet } from "ai";
 import {
   CHAT_TOOL_IDS,
+  isChatToolId,
+  isMcpToolReference,
+  isSkillToolReference,
   normalizeChatToolSelection,
   type ChatToolDescriptor,
   type ChatToolId,
@@ -22,6 +25,8 @@ import {
   saveMemory,
   upsertAgentRuntimeState,
 } from "./db";
+import { createMcpToolDescriptors, createMcpToolSet } from "./mcp-manager";
+import { createSkillToolDescriptors, createSkillToolSet } from "./skill-runtime";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
 
@@ -44,6 +49,7 @@ export interface ChatToolRuntimeConfig {
   descriptors: ChatToolDescriptor[];
   tools?: ToolSet;
   activeTools?: string[];
+  approvalToolNames?: string[];
   toolChoice?: ToolChoice<ToolSet>;
   toolApproval?: ToolApprovalConfiguration<ToolSet, unknown>;
   stopWhen?: StreamTextOptions["stopWhen"];
@@ -278,7 +284,7 @@ export function createChatToolDescriptors(model: ChatToolModelContext): ChatTool
   const supportsTools = model.capabilities.toolCalling;
   const webSearchExecution = getWebSearchExecution(model);
 
-  return CHAT_TOOL_IDS.map((id) => {
+  const builtInDescriptors = CHAT_TOOL_IDS.map((id) => {
     const base = TOOL_DEFINITIONS[id];
     const available = supportsTools && (id !== "web_search" || !!webSearchExecution);
     const unavailableReason = available
@@ -305,6 +311,20 @@ export function createChatToolDescriptors(model: ChatToolModelContext): ChatTool
       unavailableReason,
     };
   });
+
+  const dynamicDescriptors = [...createMcpToolDescriptors(), ...createSkillToolDescriptors()].map(
+    (descriptor) =>
+      supportsTools
+        ? descriptor
+        : {
+            ...descriptor,
+            available: false,
+            defaultAuto: false,
+            unavailableReason: "Selected model does not advertise tool calling.",
+          },
+  );
+
+  return [...builtInDescriptors, ...dynamicDescriptors];
 }
 
 export function buildChatToolRuntime({
@@ -331,6 +351,11 @@ export function buildChatToolRuntime({
           .map((descriptor) => descriptor.id)
       : selection.selectedToolIds;
 
+  const unknown = selectedIds.filter((id) => !descriptorById.has(id));
+  if (unknown.length > 0) {
+    throw new ChatToolSelectionError("Unknown chat tool: " + unknown[0]);
+  }
+
   const unavailable = selectedIds
     .map((id) => descriptorById.get(id))
     .filter(
@@ -347,8 +372,9 @@ export function buildChatToolRuntime({
   const activeTools: string[] = [];
   const providerExecutedToolNames = new Set<string>();
   const hostTools = createHostTools({ model, descriptors, conversationId, agentId });
+  const approvalToolNames: string[] = [];
 
-  for (const id of selectedIds) {
+  for (const id of selectedIds.filter(isChatToolId)) {
     if (id === "web_search") {
       const nativeTool = model.nativeTools.find((item) => item.id === "web_search");
       if (nativeTool) {
@@ -370,6 +396,28 @@ export function buildChatToolRuntime({
     activeTools.push(id);
   }
 
+  const dynamicRuntimes = [
+    createMcpToolSet({
+      references: selectedIds.filter(isMcpToolReference),
+      model,
+      conversationId,
+      agentId,
+    }),
+    createSkillToolSet({
+      references: selectedIds.filter(isSkillToolReference),
+      model,
+      conversationId,
+      agentId,
+    }),
+  ];
+  for (const runtime of dynamicRuntimes) {
+    for (const [toolName, value] of Object.entries(runtime.tools)) {
+      assignTool(toolSet, toolName, value);
+    }
+    activeTools.push(...runtime.activeTools);
+    approvalToolNames.push(...runtime.approvalToolNames);
+  }
+
   if (activeTools.length === 0) return { descriptors, toolChoice: "none" };
 
   const toolChoice = resolveToolChoice(selection.mode, activeTools, model);
@@ -378,8 +426,9 @@ export function buildChatToolRuntime({
     descriptors,
     tools: toolSet,
     activeTools,
+    approvalToolNames,
     toolChoice,
-    toolApproval: createToolApproval(conversationId, agentId, model),
+    toolApproval: createToolApproval(conversationId, agentId, model, approvalToolNames),
     stopWhen: isStepCount(5),
     onStepEnd: createStepAuditor({
       model,
@@ -672,8 +721,9 @@ function createToolApproval(
   conversationId: string | undefined,
   agentId: string | null | undefined,
   model: ChatToolModelContext,
+  dynamicToolNames: string[] = [],
 ): ToolApprovalConfiguration<ToolSet, unknown> {
-  return {
+  const approvals: Record<string, () => "user-approval"> = {
     conversation_search: () => {
       recordHarnessEvent({
         kind: "approval",
@@ -693,6 +743,20 @@ function createToolApproval(
       return "user-approval";
     },
   };
+
+  for (const toolName of dynamicToolNames) {
+    approvals[toolName] = () => {
+      recordHarnessEvent({
+        kind: "approval",
+        title: "Approval requested: " + toolName,
+        status: "queued",
+        detail: baseAuditDetail(model, conversationId, { agentId, toolName, source: "extension" }),
+      });
+      return "user-approval";
+    };
+  }
+
+  return approvals as ToolApprovalConfiguration<ToolSet, unknown>;
 }
 
 function createStepAuditor({

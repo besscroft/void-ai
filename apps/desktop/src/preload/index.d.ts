@@ -6,12 +6,21 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  ExtensionSecretInput,
+  ExtensionSecretPublic,
+  ExtensionSkill,
+  ExtensionSkillInput,
+  ExtensionsSnapshot,
   HarnessEvent,
   InteractionProfile,
   LocalServerInfo,
   ManagedModelInfo,
   MemoryRecord,
   MessageRow,
+  McpDiscoveryResult,
+  McpServer,
+  McpServerInput,
+  McpTool,
   ProviderModelSyncResult,
   ProviderInfo,
   ProviderTestResult,
@@ -110,6 +119,32 @@ export interface VoidAIApi {
     get: () => Promise<SyncState>;
   };
   // Provider 元信息
+  extensions: {
+    snapshot: () => Promise<ExtensionsSnapshot>;
+    mcp: {
+      create: (input: McpServerInput) => Promise<McpServer>;
+      update: (id: string, input: Partial<McpServerInput>) => Promise<McpServer>;
+      delete: (id: string) => Promise<boolean>;
+      setEnabled: (id: string, enabled: boolean) => Promise<McpServer>;
+      test: (id: string) => Promise<McpDiscoveryResult>;
+      discover: (id: string) => Promise<McpDiscoveryResult>;
+      updateTool: (
+        id: string,
+        patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
+      ) => Promise<McpTool>;
+      setSecret: (input: ExtensionSecretInput) => Promise<ExtensionSecretPublic>;
+      deleteSecret: (id: string) => Promise<boolean>;
+    };
+    skills: {
+      create: (input: ExtensionSkillInput) => Promise<ExtensionSkill>;
+      update: (id: string, input: Partial<ExtensionSkillInput>) => Promise<ExtensionSkill>;
+      delete: (id: string) => Promise<boolean>;
+      setEnabled: (id: string, enabled: boolean) => Promise<ExtensionSkill>;
+      run: (skillId: string, input?: unknown) => Promise<unknown>;
+      setSecret: (input: ExtensionSecretInput) => Promise<ExtensionSecretPublic>;
+      deleteSecret: (id: string) => Promise<boolean>;
+    };
+  };
   providers: {
     list: () => Promise<ProviderInfo[]>;
     listManagedModels: () => Promise<ManagedModelInfo[]>;

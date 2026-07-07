@@ -41,11 +41,12 @@ export type AgentRuntimeStatus =
 
 export type AgentReviewPolicy = "inherit" | "auto" | "review_sensitive" | "review_all";
 export type AgentSandboxPolicy = "inherit" | "disabled" | "local" | "docker";
+export type ChatToolReference = string;
 
 export interface AgentToolPolicy {
   mode: "inherit" | "custom";
-  allowedToolIds: ChatToolId[];
-  requireApprovalToolIds: ChatToolId[];
+  allowedToolIds: ChatToolReference[];
+  requireApprovalToolIds: ChatToolReference[];
 }
 
 export interface AgentHandoffConfig {
@@ -279,6 +280,149 @@ export interface ServerNode {
   created_at: number;
   updated_at: number;
 }
+
+export type ExtensionStatus = "ready" | "disabled" | "error" | "unknown";
+export type McpTransportKind = "stdio" | "http" | "sse";
+export type ExtensionOwnerType = "mcp" | "skill";
+
+export interface McpServer {
+  id: string;
+  name: string;
+  description: string;
+  transport: McpTransportKind;
+  enabled: number;
+  auto_use: number;
+  requires_approval: number;
+  status: ExtensionStatus;
+  command: string | null;
+  args_json: string;
+  url: string | null;
+  headers_json: string;
+  env_json: string;
+  cwd: string | null;
+  last_error: string | null;
+  last_connected_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface McpServerInput {
+  name: string;
+  description?: string;
+  transport: McpTransportKind;
+  enabled?: boolean | number;
+  auto_use?: boolean | number;
+  requires_approval?: boolean | number;
+  command?: string | null;
+  args?: string[] | string;
+  url?: string | null;
+  headers?: Record<string, string> | string;
+  env?: Record<string, string> | string;
+  cwd?: string | null;
+}
+
+export interface McpTool {
+  id: string;
+  server_id: string;
+  name: string;
+  title: string | null;
+  description: string;
+  input_schema_json: string;
+  output_schema_json: string;
+  enabled: number;
+  auto_use: number;
+  requires_approval: number;
+  discovered_at: number;
+  updated_at: number;
+}
+
+export interface McpDiscoveryResult {
+  server: McpServer;
+  tools: McpTool[];
+  resources: number;
+  resourceTemplates: number;
+  prompts: number;
+  message: string;
+}
+
+export type ExtensionSkillStepType = "prompt" | "tool" | "approval" | "memory" | "handoff";
+
+export interface ExtensionSkillStep {
+  id: string;
+  type: ExtensionSkillStepType;
+  title: string;
+  detail: string;
+}
+
+export interface ExtensionSkill {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  enabled: number;
+  auto_use: number;
+  requires_approval: number;
+  trigger_keywords_json: string;
+  tags_json: string;
+  config_schema_json: string;
+  config_json: string;
+  steps_json: string;
+  workflow_id: string | null;
+  last_run_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ExtensionSkillInput {
+  name: string;
+  description?: string;
+  category?: string;
+  enabled?: boolean | number;
+  auto_use?: boolean | number;
+  requires_approval?: boolean | number;
+  triggerKeywords?: string[] | string;
+  tags?: string[] | string;
+  configSchema?: JsonObject | string;
+  config?: JsonObject | string;
+  steps?: ExtensionSkillStep[] | string;
+  workflow_id?: string | null;
+}
+
+export interface ExtensionSecret {
+  id: string;
+  owner_type: ExtensionOwnerType;
+  owner_id: string;
+  key: string;
+  label: string;
+  ciphertext: string;
+  updated_at: number;
+}
+
+export interface ExtensionSecretInput {
+  ownerType: ExtensionOwnerType;
+  ownerId: string;
+  key: string;
+  label?: string;
+  value: string;
+}
+
+export interface ExtensionSecretPublic {
+  id: string;
+  owner_type: ExtensionOwnerType;
+  owner_id: string;
+  key: string;
+  label: string;
+  updated_at: number;
+}
+
+export interface ExtensionsSnapshot {
+  mcpServers: McpServer[];
+  mcpTools: McpTool[];
+  skills: ExtensionSkill[];
+  secrets: ExtensionSecretPublic[];
+  workflowRuns: WorkflowRun[];
+  harnessEvents: HarnessEvent[];
+}
 export const CHAT_SESSION_HEADER = "x-void-ai-session";
 
 export interface LocalServerInfo {
@@ -335,7 +479,7 @@ export type ChatToolMode = "off" | "auto" | "manual";
 
 export interface ChatToolSelectionRequest {
   mode: ChatToolMode;
-  selectedToolIds: ChatToolId[];
+  selectedToolIds: ChatToolReference[];
 }
 
 export interface ChatToolsSetting {
@@ -344,16 +488,27 @@ export interface ChatToolsSetting {
 }
 
 export interface ChatToolDescriptor {
-  id: ChatToolId;
+  id: ChatToolReference;
   label: string;
   description: string;
   kind: "provider" | "host";
   execution?: "provider" | "host";
-  category: "web" | "system" | "memory" | "workspace" | "model" | "conversation" | "sandbox";
+  category:
+    | "web"
+    | "system"
+    | "memory"
+    | "workspace"
+    | "model"
+    | "conversation"
+    | "sandbox"
+    | "mcp"
+    | "skill";
   defaultAuto: boolean;
   requiresApproval: boolean;
   available: boolean;
   unavailableReason?: string;
+  sourceId?: string;
+  sourceName?: string;
 }
 
 export const DEFAULT_CHAT_TOOL_SELECTION: ChatToolSelectionRequest = {
@@ -474,6 +629,18 @@ export function isChatToolId(value: unknown): value is ChatToolId {
   return typeof value === "string" && (CHAT_TOOL_IDS as readonly string[]).includes(value);
 }
 
+export function isMcpToolReference(value: unknown): value is string {
+  return typeof value === "string" && /^mcp:[A-Za-z0-9_.-]+:.+$/.test(value);
+}
+
+export function isSkillToolReference(value: unknown): value is string {
+  return typeof value === "string" && /^skill:[A-Za-z0-9_.-]+$/.test(value);
+}
+
+export function isChatToolReference(value: unknown): value is ChatToolReference {
+  return isChatToolId(value) || isMcpToolReference(value) || isSkillToolReference(value);
+}
+
 export function isChatToolMode(value: unknown): value is ChatToolMode {
   return value === "off" || value === "auto" || value === "manual";
 }
@@ -482,7 +649,7 @@ export function normalizeChatToolSelection(raw: unknown): ChatToolSelectionReque
   if (!raw || typeof raw !== "object") return { ...DEFAULT_CHAT_TOOL_SELECTION };
   const value = raw as Partial<ChatToolSelectionRequest>;
   const ids = Array.isArray(value.selectedToolIds)
-    ? value.selectedToolIds.filter(isChatToolId)
+    ? value.selectedToolIds.filter(isChatToolReference)
     : [];
   return {
     mode: isChatToolMode(value.mode) ? value.mode : DEFAULT_CHAT_TOOL_SELECTION.mode,
@@ -549,9 +716,12 @@ function readAgentConfigObject(raw: unknown): Record<string, unknown> | null {
   return null;
 }
 
-function normalizeToolIdList(raw: unknown, fallback: readonly ChatToolId[]): ChatToolId[] {
+function normalizeToolIdList(
+  raw: unknown,
+  fallback: readonly ChatToolReference[],
+): ChatToolReference[] {
   const source = Array.isArray(raw) ? raw : fallback;
-  return [...new Set(source.filter(isChatToolId))];
+  return [...new Set(source.filter(isChatToolReference))];
 }
 
 function isAgentHandoffMode(value: unknown): value is AgentHandoffMode {

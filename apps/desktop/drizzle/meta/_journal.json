@@ -43,6 +43,13 @@
       "when": 1783393094637,
       "tag": "0005_boring_frightful_four",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783400976299,
+      "tag": "0006_square_bromley",
+      "breakpoints": true
     }
   ]
 }
