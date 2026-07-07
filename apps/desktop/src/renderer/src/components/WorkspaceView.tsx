@@ -4,7 +4,6 @@ import {
   Card,
   Checkbox,
   Chip,
-  Drawer,
   Input,
   Label,
   Modal,
@@ -108,6 +107,7 @@ const statusKeys: Record<string, TranslationKey> = {
   ready: "status.interaction.ready",
   running: "status.run.running",
   succeeded: "status.run.succeeded",
+  stopped: "status.sandbox.stopped",
   syncing: "status.sync.syncing",
 };
 
@@ -121,6 +121,37 @@ const runtimeStatusKeys: Record<AgentRuntimeStatus, TranslationKey> = {
   sandbox: "status.agentRuntime.sandbox",
   learning: "status.agentRuntime.learning",
   failed: "status.run.failed",
+};
+
+const harnessKindKeys: Record<WorkspaceSnapshot["harnessEvents"][number]["kind"], TranslationKey> =
+  {
+    agent: "harness.kind.agent",
+    approval: "harness.kind.approval",
+    automation: "harness.kind.automation",
+    error: "harness.kind.error",
+    guardrail: "harness.kind.guardrail",
+    handoff: "harness.kind.handoff",
+    learning: "harness.kind.learning",
+    sandbox: "harness.kind.sandbox",
+    test: "harness.kind.test",
+    tool: "harness.kind.tool",
+  };
+
+const sandboxIsolationModeKeys: Record<
+  WorkspaceSnapshot["sandboxSessions"][number]["isolation_mode"],
+  TranslationKey
+> = {
+  docker: "workspace.sandbox.isolation.docker",
+  local: "workspace.sandbox.isolation.local",
+};
+
+const sandboxArtifactKindKeys: Record<
+  WorkspaceSnapshot["sandboxArtifacts"][number]["kind"],
+  TranslationKey
+> = {
+  directory: "workspace.sandbox.artifactKind.directory",
+  file: "workspace.sandbox.artifactKind.file",
+  preview: "workspace.sandbox.artifactKind.preview",
 };
 
 const workspaceKindKeys: Record<string, TranslationKey> = {
@@ -308,7 +339,9 @@ function DashboardPanel({
     snapshot.agents.find((agent) => agent.kind === "main");
   const visibleAgents = [
     ...(voidAgent ? [voidAgent] : []),
-    ...snapshot.agents.filter((agent) => agent.kind === "child").slice(0, 5),
+    ...snapshot.agents
+      .filter((agent) => agent.kind === "child" && agent.status !== "archived")
+      .slice(0, 5),
   ];
   const activeAgents = snapshot.agents.filter(
     (agent) => agent.status === "active" && agent.enabled !== 0,
@@ -515,7 +548,9 @@ function AgentsPanel({
     snapshot.agents.find((agent) => agent.kind === "main");
   const orderedAgents = useMemo(() => {
     const main = snapshot.agents.find((agent) => agent.id === DEFAULT_AGENT_ID) ?? voidAgent;
-    const children = snapshot.agents.filter((agent) => agent.kind === "child");
+    const children = snapshot.agents.filter(
+      (agent) => agent.kind === "child" && agent.status !== "archived",
+    );
     return [...(main ? [main] : []), ...children];
   }, [snapshot.agents, voidAgent]);
   const activeChildren = snapshot.agents.filter(
@@ -618,7 +653,7 @@ function AgentsPanel({
         </div>
       ) : null}
 
-      <AgentDetailDrawer
+      <AgentDetailModal
         agent={selectedAgent}
         snapshot={snapshot}
         selectedTab={detailTab}
@@ -821,7 +856,7 @@ function AgentCard({
   );
 }
 
-function AgentDetailDrawer({
+function AgentDetailModal({
   agent,
   snapshot,
   selectedTab,
@@ -897,23 +932,36 @@ function AgentDetailDrawer({
     : [];
 
   return (
-    <Drawer state={state}>
-      <Drawer.Backdrop isDismissable>
-        <Drawer.Content
-          placement="right"
-          className="w-[calc(100vw_-_24px)] max-w-4xl sm:w-[min(920px,calc(100vw_-_320px))]"
+    <Modal isOpen={state.isOpen} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <Modal.Backdrop isDismissable>
+        <Modal.Container
+          size="lg"
+          placement="center"
+          scroll="inside"
+          className="w-[min(980px,calc(100vw_-_32px))] max-w-5xl"
         >
-          <Drawer.Dialog className="flex h-full min-h-0 flex-col">
-            <Drawer.Header className="shrink-0">
-              <div className="min-w-0">
-                <Drawer.Heading>
-                  {agent?.name ?? t("workspace.agent.detailFallback")}
-                </Drawer.Heading>
-                <p className="mt-1 text-sm text-foreground/50">{agent?.role}</p>
+          <Modal.Dialog className="flex max-h-[min(820px,calc(100vh_-_48px))] min-h-0 flex-col">
+            <Modal.Header className="shrink-0 border-b border-foreground/10">
+              <div className="flex w-full items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Modal.Heading className="truncate text-base font-semibold">
+                    {agent?.name ?? t("workspace.agent.detailFallback")}
+                  </Modal.Heading>
+                  <p className="mt-1 truncate text-sm text-foreground/50">{agent?.role}</p>
+                </div>
+                <Button
+                  type="button"
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={onClose}
+                  aria-label={t("common.close")}
+                >
+                  <IconClose className="size-4" />
+                </Button>
               </div>
-              <Drawer.CloseTrigger />
-            </Drawer.Header>
-            <Drawer.Body className="min-h-0 flex-1 overflow-y-auto">
+            </Modal.Header>
+            <Modal.Body className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {agent ? (
                 <Tabs
                   selectedKey={selectedTab}
@@ -993,8 +1041,8 @@ function AgentDetailDrawer({
                   </Tabs.Panel>
                 </Tabs>
               ) : null}
-            </Drawer.Body>
-            <Drawer.Footer className="shrink-0 border-t border-foreground/10">
+            </Modal.Body>
+            <Modal.Footer className="shrink-0 border-t border-foreground/10">
               <div className="flex w-full justify-between gap-2">
                 <Button variant="tertiary" onPress={onClose}>
                   {t("common.close")}
@@ -1007,11 +1055,11 @@ function AgentDetailDrawer({
                   {t("workspace.agent.action.editAgent")}
                 </Button>
               </div>
-            </Drawer.Footer>
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
-    </Drawer>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }
 
@@ -1966,7 +2014,7 @@ function MemoryPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.E
 }
 
 function SandboxPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.Element {
-  const { f } = useT();
+  const { t, f } = useT();
   const sandboxSteps = snapshot.agentRunSteps
     .filter((step) => step.kind === "sandbox")
     .slice(0, 12);
@@ -1975,37 +2023,35 @@ function SandboxPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={<IconLayout />}
-          label="Sessions"
+          label={t("workspace.sandbox.metric.sessions")}
           value={f.number(snapshot.sandboxSessions.length)}
-          detail="local-first sandbox runs"
+          detail={t("workspace.sandbox.metric.sessionsDetail")}
         />
         <MetricCard
           icon={<IconDatabase />}
-          label="Snapshots"
+          label={t("workspace.sandbox.metric.snapshots")}
           value={f.number(snapshot.sandboxSnapshots.length)}
-          detail="restorable file states"
+          detail={t("workspace.sandbox.metric.snapshotsDetail")}
         />
         <MetricCard
           icon={<IconGlobe />}
-          label="Artifacts"
+          label={t("workspace.sandbox.metric.artifacts")}
           value={f.number(snapshot.sandboxArtifacts.length)}
-          detail="files and preview ports"
+          detail={t("workspace.sandbox.metric.artifactsDetail")}
         />
         <MetricCard
           icon={<IconCpu />}
-          label="Actions"
+          label={t("workspace.sandbox.metric.actions")}
           value={f.number(sandboxSteps.length)}
-          detail="recent sandbox steps"
+          detail={t("workspace.sandbox.metric.actionsDetail")}
         />
       </div>
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <Card>
           <Card.Header>
-            <Card.Title>Sandbox sessions</Card.Title>
-            <Card.Description>
-              Isolation mode, run link, root path, and last update
-            </Card.Description>
+            <Card.Title>{t("workspace.sandbox.sessions.title")}</Card.Title>
+            <Card.Description>{t("workspace.sandbox.sessions.desc")}</Card.Description>
           </Card.Header>
           <Card.Content>
             {snapshot.sandboxSessions.length === 0 ? (
@@ -2022,23 +2068,29 @@ function SandboxPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.
                       <span className="flex flex-wrap gap-1.5">
                         <StatusChip status={session.status} />
                         <Chip size="sm" variant="secondary">
-                          {session.isolation_mode}
+                          {labelFor(t, sandboxIsolationModeKeys, session.isolation_mode)}
                         </Chip>
                         {session.docker_available ? (
                           <Chip size="sm" color="success" variant="soft">
-                            Docker detected
+                            {t("workspace.sandbox.dockerDetected")}
                           </Chip>
                         ) : (
                           <Chip size="sm" variant="secondary">
-                            Local fallback
+                            {t("workspace.sandbox.localFallback")}
                           </Chip>
                         )}
                       </span>
                     </div>
                     <div className="truncate text-xs text-foreground/50">{session.root_path}</div>
                     <div className="text-xs text-foreground/45">
-                      {session.run_id ? `Run ${session.run_id.slice(0, 8)} / ` : ""}
-                      Updated {f.dateTime(session.updated_at)}
+                      {session.run_id
+                        ? t("workspace.sandbox.sessionRunUpdated", {
+                            run: session.run_id.slice(0, 8),
+                            time: f.dateTime(session.updated_at),
+                          })
+                        : t("workspace.sandbox.sessionUpdated", {
+                            time: f.dateTime(session.updated_at),
+                          })}
                     </div>
                   </div>
                 ))}
@@ -2050,13 +2102,13 @@ function SandboxPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.
         <div className="space-y-4">
           <Card>
             <Card.Header>
-              <Card.Title>Snapshots</Card.Title>
-              <Card.Description>Saved sandbox file manifests</Card.Description>
+              <Card.Title>{t("workspace.sandbox.snapshots.title")}</Card.Title>
+              <Card.Description>{t("workspace.sandbox.snapshots.desc")}</Card.Description>
             </Card.Header>
             <Card.Content>
               <MiniList
-                title="Recent"
-                empty="No snapshots yet"
+                title={t("workspace.sandbox.recent")}
+                empty={t("workspace.sandbox.snapshots.empty")}
                 items={snapshot.sandboxSnapshots.slice(0, 8).map((snapshot) => ({
                   id: snapshot.id,
                   title: snapshot.label,
@@ -2068,17 +2120,22 @@ function SandboxPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.
 
           <Card>
             <Card.Header>
-              <Card.Title>Artifacts</Card.Title>
-              <Card.Description>Exported files and preview URLs</Card.Description>
+              <Card.Title>{t("workspace.sandbox.artifacts.title")}</Card.Title>
+              <Card.Description>{t("workspace.sandbox.artifacts.desc")}</Card.Description>
             </Card.Header>
             <Card.Content>
               <MiniList
-                title="Recent"
-                empty="No artifacts yet"
+                title={t("workspace.sandbox.recent")}
+                empty={t("workspace.sandbox.artifacts.empty")}
                 items={snapshot.sandboxArtifacts.slice(0, 8).map((artifact) => ({
                   id: artifact.id,
                   title: artifact.path,
-                  detail: artifact.url ?? `${artifact.kind} / ${artifact.size_bytes ?? 0} bytes`,
+                  detail:
+                    artifact.url ??
+                    t("workspace.sandbox.artifactDetail", {
+                      kind: labelFor(t, sandboxArtifactKindKeys, artifact.kind),
+                      size: f.number(artifact.size_bytes ?? 0),
+                    }),
                 }))}
               />
             </Card.Content>
@@ -2086,7 +2143,7 @@ function SandboxPanel({ snapshot }: { snapshot: WorkspaceSnapshot }): React.JSX.
         </div>
       </section>
 
-      <SectionHeading title="Command and sandbox history" />
+      <SectionHeading title={t("workspace.sandbox.history.title")} />
       {sandboxSteps.length === 0 ? (
         <EmptyPanel />
       ) : (
@@ -2412,7 +2469,7 @@ function MetricCard({
 }
 
 function Timeline({ items }: { items: WorkspaceSnapshot["harnessEvents"] }): React.JSX.Element {
-  const { f } = useT();
+  const { t, f } = useT();
   if (items.length === 0) return <EmptyPanel />;
 
   return (
@@ -2431,7 +2488,9 @@ function Timeline({ items }: { items: WorkspaceSnapshot["harnessEvents"] }): Rea
           </span>
           <span className="min-w-0">
             <span className="block truncate text-sm font-medium">{event.title}</span>
-            <span className="block truncate text-xs text-foreground/50">{event.kind}</span>
+            <span className="block truncate text-xs text-foreground/50">
+              {labelFor(t, harnessKindKeys, event.kind)}
+            </span>
           </span>
           <span className="flex items-center gap-2">
             <StatusChip status={event.status} />

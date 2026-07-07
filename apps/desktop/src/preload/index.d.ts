@@ -124,6 +124,7 @@ export interface VoidAIApi {
     show: () => Promise<DesktopPetSnapshot>;
     hide: () => Promise<DesktopPetSnapshot>;
     resetPosition: () => Promise<DesktopPetSnapshot>;
+    moveWindowBy: (delta: { dx: number; dy: number }) => Promise<boolean>;
     openMain: (conversationId?: string) => Promise<boolean>;
     onOpenConversation: (handler: (conversationId?: string) => void) => () => void;
   };

@@ -7,7 +7,7 @@ import {
   moodFromAgentRuntimeStatus,
   normalizeDesktopPetConfig,
 } from "../../shared/types";
-import { clampDesktopPetBounds } from "./desktop-pet-bounds";
+import { clampDesktopPetBounds, moveDesktopPetBounds } from "./desktop-pet-bounds";
 
 void describe("desktop pet config", () => {
   void it("normalizes the legacy prototype config shape", () => {
@@ -89,6 +89,22 @@ void describe("desktop pet bounds", () => {
       width: 1280,
       height: 720,
     });
+
+    assert.deepEqual(bounds, { x: 960, y: 0, width: 320, height: 420 });
+  });
+
+  void it("moves the current window bounds by a delta and clamps to the active display", () => {
+    const config = normalizeDesktopPetConfig({
+      window: { x: 100, y: 120, width: 320, height: 420, alwaysOnTop: true },
+    });
+    const display = { x: 0, y: 0, width: 1280, height: 720 };
+    const bounds = moveDesktopPetBounds(
+      config,
+      { x: 960, y: 220, width: 320, height: 420 },
+      { dx: 80, dy: -260 },
+      [display],
+      display,
+    );
 
     assert.deepEqual(bounds, { x: 960, y: 0, width: 320, height: 420 });
   });

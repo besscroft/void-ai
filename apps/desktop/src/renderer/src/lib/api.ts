@@ -138,6 +138,8 @@ export const api = {
     show: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.show(),
     hide: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.hide(),
     resetPosition: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.resetPosition(),
+    moveWindowBy: (delta: { dx: number; dy: number }): Promise<boolean> =>
+      assertApi().desktopPet.moveWindowBy(delta),
     openMain: (conversationId?: string): Promise<boolean> =>
       assertApi().desktopPet.openMain(conversationId),
     onOpenConversation: (handler: (conversationId?: string) => void): (() => void) =>

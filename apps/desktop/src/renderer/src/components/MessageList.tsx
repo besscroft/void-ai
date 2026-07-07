@@ -57,6 +57,7 @@ interface MessageListProps {
   errorDetail?: string | null;
   /** 后备建议（empty 状态） */
   emptySuggestions?: string[];
+  followupSuggestions?: string[];
   onRetry?: () => void;
   onRetryMessage?: (messageId: string) => Promise<void> | void;
   onDismissError?: () => void;
@@ -97,6 +98,7 @@ export function MessageList({
   error,
   errorDetail,
   emptySuggestions,
+  followupSuggestions,
   onRetry,
   onRetryMessage,
   onDismissError,
@@ -109,6 +111,14 @@ export function MessageList({
 }: MessageListProps): React.JSX.Element {
   const { t } = useT();
   const activityStatus = getMessageActivityStatus(messages, isLoading, status);
+  const lastMessage = messages.at(-1);
+  const shouldShowFollowups =
+    !isLoading &&
+    status === "ready" &&
+    !error &&
+    lastMessage?.role === "assistant" &&
+    !!onSuggestion &&
+    !!followupSuggestions?.length;
 
   if (messages.length === 0 && !isLoading) {
     return (
@@ -158,6 +168,24 @@ export function MessageList({
             />
           </motion.div>
         ))}
+
+        {shouldShowFollowups ? (
+          <motion.div
+            key="followup-suggestions"
+            layout="position"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+            className="flex justify-start"
+          >
+            <PromptSuggestions
+              title={t("chat.followups.title")}
+              suggestions={followupSuggestions ?? []}
+              onSelect={(prompt) => onSuggestion?.(prompt)}
+              className="max-w-[min(1050px,100%)] pr-6 sm:pr-10 lg:pr-16"
+            />
+          </motion.div>
+        ) : null}
 
         {activityStatus ? <MessageActivity status={activityStatus} /> : null}
 

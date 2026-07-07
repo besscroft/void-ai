@@ -39,6 +39,29 @@ export function clampDesktopPetBounds(
   };
 }
 
+export function moveDesktopPetBounds(
+  config: DesktopPetConfig,
+  current: DesktopPetBounds,
+  delta: { dx: number; dy: number },
+  displays: DesktopPetDisplayBounds[],
+  fallbackDisplay: DesktopPetDisplayBounds,
+): DesktopPetBounds {
+  return clampDesktopPetBounds(
+    {
+      ...config,
+      window: {
+        ...config.window,
+        x: current.x + delta.dx,
+        y: current.y + delta.dy,
+        width: current.width,
+        height: current.height,
+      },
+    },
+    displays,
+    fallbackDisplay,
+  );
+}
+
 function pointInBounds(
   x: number | undefined,
   y: number | undefined,

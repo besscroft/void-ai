@@ -1476,7 +1476,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monoFontFamily: "",
   translucentSidebar: true,
   contrast: 50,
-  usePointerCursor: false,
+  usePointerCursor: true,
   reduceMotion: "system",
   fontSize: "base",
   codeFontSizePx: 13,

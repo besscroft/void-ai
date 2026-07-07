@@ -163,6 +163,15 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     ],
     [t],
   );
+  const followupSuggestions = useMemo(
+    () => [
+      t("chat.followups.nextSteps"),
+      t("chat.followups.summarize"),
+      t("chat.followups.examples"),
+      t("chat.followups.alternatives"),
+    ],
+    [t],
+  );
 
   useEffect(() => {
     void api.settings.get(SettingKey.SelectedModel).then((model) => {
@@ -709,7 +718,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     <div className="flex flex-1 flex-col overflow-hidden">
       <ChatHeader
         status={statusKind}
-        runtimeSummary={formatRuntimeSummary(runtimeSnapshot, conversationId)}
+        runtimeSummary={formatRuntimeSummary(runtimeSnapshot, conversationId, t)}
       />
 
       {isEmpty ? (
@@ -727,6 +736,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           error={chat.error}
           errorDetail={chatError}
           emptySuggestions={emptyStateSuggestions}
+          followupSuggestions={followupSuggestions}
           onRetry={handleRetry}
           onRetryMessage={handleRetryMediaMessage}
           onDismissError={handleDismissError}
@@ -811,13 +821,14 @@ function formatRuntimeSummary(
     | "sandboxArtifacts"
   > | null,
   conversationId: string,
+  t: ReturnType<typeof useT>["t"],
 ): string | undefined {
   if (!snapshot) return undefined;
   const conversationState = snapshot.conversationAgentStates.find(
     (state) => state.conversation_id === conversationId,
   );
   if (conversationState?.status === "reviewing") {
-    return conversationState.summary || "Waiting for user approval";
+    return conversationState.summary || t("chat.runtime.waitingApproval");
   }
   if (conversationState?.summary) return conversationState.summary;
 
@@ -839,7 +850,7 @@ function formatRuntimeSummary(
     .filter((step) => step.run_id === run.id)
     .sort((a, b) => b.started_at - a.started_at)[0];
   if (latestStep) return latestStep.title;
-  return "Agent runtime is preparing";
+  return t("chat.runtime.preparing");
 }
 
 /* ---------- 自动标题生成 ---------- */

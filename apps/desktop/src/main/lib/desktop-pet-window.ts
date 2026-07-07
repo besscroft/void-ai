@@ -10,7 +10,11 @@ import {
   setDesktopPetEnabled,
   updateDesktopPetConfig,
 } from "./db";
-import { clampDesktopPetBounds, type DesktopPetBounds } from "./desktop-pet-bounds";
+import {
+  clampDesktopPetBounds,
+  moveDesktopPetBounds,
+  type DesktopPetBounds,
+} from "./desktop-pet-bounds";
 
 export const DESKTOP_PET_OPEN_CONVERSATION_CHANNEL = "desktopPet:openConversation";
 
@@ -40,6 +44,9 @@ export class DesktopPetWindowController {
     ipcMain.handle("desktopPet:show", () => this.show());
     ipcMain.handle("desktopPet:hide", () => this.hide());
     ipcMain.handle("desktopPet:resetPosition", () => this.resetPosition());
+    ipcMain.handle("desktopPet:moveWindowBy", (_event, delta: { dx?: unknown; dy?: unknown }) =>
+      this.moveWindowBy(delta),
+    );
     ipcMain.handle("desktopPet:openMain", (_event, conversationId?: string) =>
       this.openMain(conversationId),
     );
@@ -77,6 +84,21 @@ export class DesktopPetWindowController {
 
   async resetPosition(): Promise<DesktopPetSnapshot> {
     return this.updateConfig({ window: { x: undefined, y: undefined } });
+  }
+
+  async moveWindowBy(delta: { dx?: unknown; dy?: unknown }): Promise<boolean> {
+    if (!this.petWindow || this.petWindow.isDestroyed()) return false;
+    const dx = typeof delta.dx === "number" && Number.isFinite(delta.dx) ? delta.dx : 0;
+    const dy = typeof delta.dy === "number" && Number.isFinite(delta.dy) ? delta.dy : 0;
+    if (dx === 0 && dy === 0) return true;
+
+    const current = this.petWindow.getBounds();
+    const snapshot = getDesktopPetSnapshot();
+    const nextBounds = getMovedDesktopPetBounds(snapshot.config, current, { dx, dy });
+
+    this.petWindow.setBounds(nextBounds);
+    this.scheduleBoundsSave();
+    return true;
   }
 
   async openMain(conversationId?: string): Promise<boolean> {
@@ -213,4 +235,19 @@ export class DesktopPetWindowController {
 export function getClampedDesktopPetBounds(config: DesktopPetConfig): DesktopPetBounds {
   const displays = screen.getAllDisplays().map((display) => display.workArea);
   return clampDesktopPetBounds(config, displays, screen.getPrimaryDisplay().workArea);
+}
+
+export function getMovedDesktopPetBounds(
+  config: DesktopPetConfig,
+  current: DesktopPetBounds,
+  delta: { dx: number; dy: number },
+): DesktopPetBounds {
+  const displays = screen.getAllDisplays().map((display) => display.workArea);
+  return moveDesktopPetBounds(
+    config,
+    current,
+    delta,
+    displays,
+    screen.getPrimaryDisplay().workArea,
+  );
 }

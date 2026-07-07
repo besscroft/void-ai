@@ -39,6 +39,7 @@ import {
 } from "./icons";
 import {
   ACCENT_PRESETS,
+  type AgentProfile,
   FONT_PRESETS,
   FONT_SIZE_PX,
   MONO_FONT_PRESETS,
@@ -3131,14 +3132,17 @@ function ModelOptionsDialog({
 
 function TrashTab(): React.JSX.Element {
   const { t, f, locale } = useT();
+  const [trashKind, setTrashKind] = useState<"conversations" | "agents">("conversations");
   const [items, setItems] = useState<Conversation[]>([]);
+  const [agentItems, setAgentItems] = useState<AgentProfile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [agentLoading, setAgentLoading] = useState(false);
   const [pendingPermanentDelete, setPendingPermanentDelete] = useState<Conversation | null>(null);
   const [pendingBatchDelete, setPendingBatchDelete] = useState<number | null>(null);
   // 多选：使用 Set 便于 O(1) 判断；仅跟踪选中的 id
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const refresh = (): void => {
+  const refreshConversations = (): void => {
     setLoading(true);
     void api.conversations
       .purgeExpired()
@@ -3147,6 +3151,27 @@ function TrashTab(): React.JSX.Element {
       .catch((error) => notify.error(t("toast.trash.loadFailed"), error, locale))
       .finally(() => setLoading(false))
       .catch(() => undefined);
+  };
+
+  const refreshAgents = (): void => {
+    setAgentLoading(true);
+    void api.agents
+      .list()
+      .then((agents) =>
+        setAgentItems(
+          agents
+            .filter((agent) => agent.kind === "child" && agent.status === "archived")
+            .sort((a, b) => b.updated_at - a.updated_at),
+        ),
+      )
+      .catch((error) => notify.error(t("toast.trash.loadAgentsFailed"), error, locale))
+      .finally(() => setAgentLoading(false))
+      .catch(() => undefined);
+  };
+
+  const refresh = (): void => {
+    refreshConversations();
+    refreshAgents();
   };
 
   useEffect(() => {
@@ -3200,7 +3225,22 @@ function TrashTab(): React.JSX.Element {
         },
         locale,
       )
-      .then(refresh)
+      .then(refreshConversations)
+      .catch(() => undefined);
+  };
+
+  const handleAgentRestore = (agent: AgentProfile): void => {
+    void notify
+      .promise(
+        api.agents.restore(agent.id),
+        {
+          loading: t("toast.agent.restoring"),
+          success: t("toast.agent.restored"),
+          error: t("toast.agent.restoreFailed"),
+        },
+        locale,
+      )
+      .then(refreshAgents)
       .catch(() => undefined);
   };
 
@@ -3217,7 +3257,7 @@ function TrashTab(): React.JSX.Element {
         },
         locale,
       )
-      .then(refresh)
+      .then(refreshConversations)
       .catch(() => undefined);
     setPendingPermanentDelete(null);
   };
@@ -3242,7 +3282,7 @@ function TrashTab(): React.JSX.Element {
       .then(() => {
         // 操作成功后清空选择 + 列表由 refresh 重建
         setSelectedIds(new Set());
-        return refresh();
+        return refreshConversations();
       })
       .catch(() => undefined);
     setPendingBatchDelete(null);
@@ -3250,15 +3290,72 @@ function TrashTab(): React.JSX.Element {
 
   return (
     <section className="space-y-4">
-      <div>
-        <h3 className="flex items-center gap-2 text-sm font-medium text-foreground/70">
-          <IconTrash className="size-4" />
-          {t("trash.title")}
-        </h3>
-        <p className="mt-1 text-xs text-foreground/50">{t("trash.desc")}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="flex items-center gap-2 text-sm font-medium text-foreground/70">
+            <IconTrash className="size-4" />
+            {t("trash.title")}
+          </h3>
+          <p className="mt-1 text-xs text-foreground/50">
+            {trashKind === "conversations" ? t("trash.desc") : t("trash.agents.desc")}
+          </p>
+        </div>
+        <ToggleButtonGroup
+          selectionMode="single"
+          disallowEmptySelection
+          size="sm"
+          selectedKeys={[trashKind]}
+          onSelectionChange={(keys) => {
+            const next = Array.from(keys)[0];
+            if (next === "conversations" || next === "agents") setTrashKind(next);
+          }}
+        >
+          <ToggleButton id="conversations">{t("trash.tab.conversations")}</ToggleButton>
+          <ToggleButton id="agents">
+            <ToggleButtonGroup.Separator />
+            {t("trash.tab.agents")}
+          </ToggleButton>
+        </ToggleButtonGroup>
       </div>
 
-      {items.length === 0 ? (
+      {trashKind === "agents" ? (
+        agentItems.length === 0 ? (
+          <div className="rounded-md border border-foreground/10 px-4 py-8 text-center text-sm text-foreground/45">
+            {agentLoading ? t("chat.loadingHistory") : t("trash.agents.empty")}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {agentItems.map((agent) => (
+              <div key={agent.id} className="rounded-md border border-foreground/10 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-foreground/10 bg-foreground/[0.03] text-lg">
+                      {agent.avatar || "A"}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{agent.name}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-foreground/55">
+                        {agent.role || agent.description || t("trash.agents.noRole")}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/45">
+                        <span>
+                          {t("trash.agentUpdated")}: {f.dateTime(agent.updated_at)}
+                        </span>
+                        <span>
+                          {t("trash.agentStatus")}: {t("trash.agentArchived")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <Button variant="secondary" size="sm" onPress={() => handleAgentRestore(agent)}>
+                    {t("common.restore")}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : items.length === 0 ? (
         <div className="rounded-md border border-foreground/10 px-4 py-8 text-center text-sm text-foreground/45">
           {loading ? t("chat.loadingHistory") : t("trash.empty")}
         </div>

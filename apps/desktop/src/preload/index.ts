@@ -80,6 +80,8 @@ const api = {
     show: () => ipcRenderer.invoke("desktopPet:show"),
     hide: () => ipcRenderer.invoke("desktopPet:hide"),
     resetPosition: () => ipcRenderer.invoke("desktopPet:resetPosition"),
+    moveWindowBy: (delta: { dx: number; dy: number }) =>
+      ipcRenderer.invoke("desktopPet:moveWindowBy", delta),
     openMain: (conversationId?: string) =>
       ipcRenderer.invoke("desktopPet:openMain", conversationId),
     onOpenConversation: (handler: (conversationId?: string) => void) => {

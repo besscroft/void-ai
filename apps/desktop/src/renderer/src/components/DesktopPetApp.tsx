@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -70,10 +70,20 @@ function DesktopPetChat({
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const createdAtRef = useRef<Map<string, number>>(new Map());
   const hydratedConversationRef = useRef<string | null>(null);
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const selectedModelRef = useRef<string | null>(snapshot.selectedModel);
+  const dragRef = useRef({
+    pointerId: -1,
+    lastX: 0,
+    lastY: 0,
+    totalX: 0,
+    totalY: 0,
+    moved: false,
+  });
+  const suppressClickRef = useRef(false);
 
   useEffect(() => {
     selectedModelRef.current = snapshot.selectedModel;
@@ -179,8 +189,60 @@ function DesktopPetChat({
     void api.desktopPet.hide();
   };
 
+  const handlePetPointerDown = (event: PointerEvent<HTMLButtonElement>): void => {
+    if (event.button !== 0) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      lastX: event.screenX,
+      lastY: event.screenY,
+      totalX: 0,
+      totalY: 0,
+      moved: false,
+    };
+    setDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePetPointerMove = (event: PointerEvent<HTMLButtonElement>): void => {
+    const drag = dragRef.current;
+    if (drag.pointerId !== event.pointerId) return;
+    const dx = event.screenX - drag.lastX;
+    const dy = event.screenY - drag.lastY;
+    if (dx === 0 && dy === 0) return;
+
+    drag.lastX = event.screenX;
+    drag.lastY = event.screenY;
+    drag.totalX += dx;
+    drag.totalY += dy;
+    if (Math.abs(drag.totalX) + Math.abs(drag.totalY) > 4) drag.moved = true;
+    void api.desktopPet.moveWindowBy({ dx, dy });
+  };
+
+  const finishPetDrag = (event: PointerEvent<HTMLButtonElement>): void => {
+    const drag = dragRef.current;
+    if (drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    suppressClickRef.current = drag.moved;
+    dragRef.current = {
+      pointerId: -1,
+      lastX: 0,
+      lastY: 0,
+      totalX: 0,
+      totalY: 0,
+      moved: false,
+    };
+    setDragging(false);
+    if (suppressClickRef.current) {
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+    }
+  };
+
   return (
-    <div className="desktop-pet-drag flex h-full w-full flex-col justify-end bg-transparent p-3 text-foreground">
+    <div className="flex h-full w-full flex-col justify-end bg-transparent p-3 text-foreground">
       <div className="desktop-pet-no-drag self-end">
         <Button
           isIconOnly
@@ -196,8 +258,18 @@ function DesktopPetChat({
 
       <button
         type="button"
-        className="desktop-pet-no-drag mx-auto mt-auto flex flex-col items-center gap-2 outline-none"
-        onClick={() => setExpanded((next) => !next)}
+        className={`desktop-pet-no-drag mx-auto mt-auto flex touch-none select-none flex-col items-center gap-2 outline-none ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+        onPointerDown={handlePetPointerDown}
+        onPointerMove={handlePetPointerMove}
+        onPointerUp={finishPetDrag}
+        onPointerCancel={finishPetDrag}
+        onClick={(event) => {
+          if (suppressClickRef.current) {
+            event.preventDefault();
+            return;
+          }
+          setExpanded((next) => !next);
+        }}
         aria-label={t("desktopPet.toggle")}
       >
         <span className={`desktop-pet-orb desktop-pet-mood-${mood}`}>
