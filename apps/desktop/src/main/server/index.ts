@@ -17,6 +17,7 @@ import {
   type ChatReasoningLevel,
   type ChatToolSelectionRequest,
   type LocalServerInfo,
+  type MediaGenerationErrorResponse,
   type MediaGenerationRequest,
   type MediaGenerationResponse,
   type ModelCapabilities,
@@ -119,12 +120,23 @@ export function createApp(options: CreateAppOptions = {}): Hono {
 
   app.post("/api/media/generate", async (c) => {
     if (!isAuthorized(c, token)) {
-      return c.json({ error: "Unauthorized chat session" }, 401);
+      return c.json(
+        {
+          error: "Unauthorized chat session",
+          code: "unauthorized",
+        } satisfies MediaGenerationErrorResponse,
+        401,
+      );
     }
 
     const body = (await c.req.json()) as Partial<MediaGenerationRequest>;
     const validationError = validateMediaGenerationRequest(body);
-    if (validationError) return c.json({ error: validationError }, 400);
+    if (validationError) {
+      return c.json(
+        { error: validationError, code: "invalid_request" } satisfies MediaGenerationErrorResponse,
+        400,
+      );
+    }
     const request = body as MediaGenerationRequest;
 
     try {
@@ -245,7 +257,8 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[server] /api/media/generate failed:", message);
-      return c.json({ error: message }, getHttpErrorStatus(err));
+      const error = classifyMediaGenerationError(message, request);
+      return c.json(error, mediaErrorStatus(error.code, err));
     }
   });
   app.post("/api/chat", async (c) => {
@@ -475,6 +488,44 @@ function buildMediaMetadata(warnings: unknown, providerMetadata: unknown): Recor
     warnings: Array.isArray(warnings) ? warnings : [],
     providerMetadata: providerMetadata ?? {},
   };
+}
+
+function classifyMediaGenerationError(
+  message: string,
+  request: MediaGenerationRequest,
+): MediaGenerationErrorResponse {
+  const lower = message.toLowerCase();
+  const base = { error: message, kind: request.kind, model: request.model };
+  if (lower.includes("api key") || lower.includes("not configured")) {
+    return { ...base, code: "no_model" };
+  }
+  if (lower.includes("disabled") || lower.includes("unknown model")) {
+    return { ...base, code: "no_model" };
+  }
+  if (lower.includes("does not support")) {
+    return { ...base, code: "unsupported_model" };
+  }
+  if (
+    lower.includes("not enabled for this group") ||
+    lower.includes("permission") ||
+    lower.includes("forbidden") ||
+    lower.includes("unauthorized")
+  ) {
+    return { ...base, code: "permission_denied" };
+  }
+  return { ...base, code: "upstream_error" };
+}
+
+function mediaErrorStatus(
+  code: MediaGenerationErrorResponse["code"],
+  err: unknown,
+): 400 | 401 | 403 | 500 {
+  if (code === "unauthorized") return 401;
+  if (code === "permission_denied") return 403;
+  if (code === "invalid_request" || code === "no_model" || code === "unsupported_model") {
+    return 400;
+  }
+  return getHttpErrorStatus(err);
 }
 
 /** Start the local HTTP server bound to loopback on a random free port. */

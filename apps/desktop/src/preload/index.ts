@@ -94,6 +94,7 @@ const api = {
   },
   tools: {
     snapshot: () => ipcRenderer.invoke("tools:snapshot"),
+    updateTool: (id: string, patch: unknown) => ipcRenderer.invoke("tools:updateTool", id, patch),
     mcp: {
       create: (input: unknown) => ipcRenderer.invoke("tools:mcp:create", input),
       update: (id: string, input: unknown) => ipcRenderer.invoke("tools:mcp:update", id, input),

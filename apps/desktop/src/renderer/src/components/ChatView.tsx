@@ -63,6 +63,7 @@ import {
   type ChatReasoningLevel,
   type ChatToolSelectionRequest,
   type LocalServerInfo,
+  type MediaGenerationErrorResponse,
   type MediaGenerationKind,
   type MediaGenerationResponse,
   type MediaGenerationSettings,
@@ -438,7 +439,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         },
         body: JSON.stringify(request),
       });
-      if (!response.ok) throw new Error(await readMediaErrorResponse(response));
+      if (!response.ok) {
+        const mediaError = await readMediaErrorResponse(response);
+        throw new Error(formatMediaError(mediaError, request.kind, t));
+      }
       const result = (await response.json()) as MediaGenerationResponse;
       const resultMessage = buildMediaResultMessage(assistantMessageId, result);
       const nextMessages = appendOrReplaceMessage(pendingMessages, resultMessage);
@@ -999,18 +1003,69 @@ function isMediaGenerationKind(value: unknown): value is MediaGenerationKind {
   return value === "image" || value === "speech" || value === "transcription" || value === "video";
 }
 
-async function readMediaErrorResponse(response: Response): Promise<string> {
+async function readMediaErrorResponse(response: Response): Promise<MediaGenerationErrorResponse> {
   try {
-    const data = (await response.json()) as { error?: unknown };
-    if (typeof data.error === "string" && data.error.trim()) return data.error.trim();
+    const data = (await response.json()) as Partial<MediaGenerationErrorResponse>;
+    if (typeof data.error === "string" && data.error.trim()) {
+      return {
+        error: data.error.trim(),
+        code: isMediaGenerationErrorCode(data.code) ? data.code : "upstream_error",
+        kind: isMediaGenerationKind(data.kind) ? data.kind : undefined,
+        model: typeof data.model === "string" ? data.model : undefined,
+      };
+    }
   } catch {
     // Fall back to text below.
   }
   try {
     const text = await response.text();
-    if (text.trim()) return text.trim();
+    if (text.trim()) return { error: text.trim(), code: "upstream_error" };
   } catch {
     // Fall through to status text.
   }
-  return response.statusText || `HTTP ${response.status}`;
+  return { error: response.statusText || `HTTP ${response.status}`, code: "upstream_error" };
+}
+
+function isMediaGenerationErrorCode(value: unknown): value is MediaGenerationErrorResponse["code"] {
+  return (
+    value === "unauthorized" ||
+    value === "invalid_request" ||
+    value === "no_model" ||
+    value === "unsupported_model" ||
+    value === "permission_denied" ||
+    value === "upstream_error"
+  );
+}
+
+function formatMediaError(
+  error: MediaGenerationErrorResponse,
+  fallbackKind: MediaGenerationKind,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const kind = t(mediaKindLabelKey(error.kind ?? fallbackKind));
+  switch (error.code) {
+    case "no_model":
+      return t("media.error.noModel", { kind });
+    case "unsupported_model":
+      return t("media.error.unsupported", { kind });
+    case "permission_denied":
+      return t("media.error.permission");
+    case "unauthorized":
+    case "invalid_request":
+    case "upstream_error":
+      return t("media.error.upstream", { message: error.error });
+  }
+}
+
+function mediaKindLabelKey(kind: MediaGenerationKind): string {
+  switch (kind) {
+    case "image":
+      return "input.media.image";
+    case "speech":
+      return "input.media.speech";
+    case "transcription":
+      return "input.media.transcription";
+    case "video":
+      return "input.media.video";
+  }
 }

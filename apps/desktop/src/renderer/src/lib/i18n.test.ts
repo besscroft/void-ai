@@ -7,6 +7,101 @@ void describe("messages", () => {
   void it("keeps zh-CN and en dictionaries in key parity", () => {
     assert.deepEqual(Object.keys(en).sort(), Object.keys(zhCN).sort());
   });
+
+  void it("keeps primary Chinese navigation and management surfaces localized", () => {
+    assert.equal(translate("zh-CN", "shell.nav.conversations"), "对话");
+    assert.equal(translate("zh-CN", "main.title.agents"), "智能体");
+    assert.equal(translate("zh-CN", "main.title.workflows"), "工作流");
+    assert.equal(translate("zh-CN", "main.title.tools"), "工具");
+    assert.equal(translate("zh-CN", "main.title.memory"), "记忆");
+    assert.equal(translate("zh-CN", "settings.title"), "设置");
+    assert.equal(translate("zh-CN", "agents.action.new"), "新建智能体");
+    assert.equal(translate("zh-CN", "tools.tab.registry"), "工具注册表");
+    assert.equal(translate("zh-CN", "tools.tab.skills"), "技能");
+  });
+
+  void it("does not expose placeholder English on critical zh-CN keys", () => {
+    const criticalPrefixes = ["agents.", "tools.", "chatTools.", "input.media.", "settings."];
+    const placeholderValues = new Set([
+      "Title",
+      "Subtitle",
+      "Description",
+      "Placeholder",
+      "NoDescription",
+      "NoRuns",
+      "NoTools",
+      "ModelDeleteFailed",
+      "ProviderDeleteFailed",
+      "RestoreFailed",
+      "ManualOnly",
+      "GenerateAudio",
+      "ImageOutput",
+      "ToolCalling",
+    ]);
+    const failures = Object.entries(zhCN)
+      .filter(([key]) => criticalPrefixes.some((prefix) => key.startsWith(prefix)))
+      .filter(([, value]) => placeholderValues.has(value))
+      .map(([key, value]) => `${key}=${value}`);
+
+    assert.deepEqual(failures, []);
+  });
+
+  void it("keeps non-technical English out of critical zh-CN surfaces", () => {
+    const criticalPrefixes = [
+      "agents.",
+      "tools.",
+      "chatTools.",
+      "input.media.",
+      "main.",
+      "shell.nav.",
+      "settings.",
+      "toast.model.",
+    ];
+    const allowedEnglish = new Set([
+      "AI",
+      "API",
+      "Base64",
+      "CPU",
+      "Claude",
+      "Diagnostics",
+      "Docker",
+      "FPS",
+      "GB",
+      "GPU",
+      "Gemini",
+      "HTTP",
+      "ID",
+      "JSON",
+      "KB",
+      "LM",
+      "MB",
+      "MCP",
+      "Ollama",
+      "OpenAI",
+      "Runtime",
+      "SSE",
+      "Schema",
+      "Studio",
+      "Top-P",
+      "URL",
+      "UUID",
+      "WebGPU",
+      "ai",
+      "stdio",
+      "token",
+      "vLLM",
+    ]);
+    const failures = Object.entries(zhCN)
+      .filter(([key]) => criticalPrefixes.some((prefix) => key.startsWith(prefix)))
+      .flatMap(([key, value]) => {
+        const scrubbed = value.replace(/\{[^}]+\}/g, "").replace(/\$secret:key/g, "");
+        return (scrubbed.match(/[A-Za-z][A-Za-z0-9._/-]*/g) ?? [])
+          .filter((word) => !allowedEnglish.has(word))
+          .map((word) => `${key}=${word}`);
+      });
+
+    assert.deepEqual(failures, []);
+  });
 });
 
 void describe("resolveLanguage", () => {
