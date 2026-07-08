@@ -1,4 +1,10 @@
-const PLACEHOLDER_CONVERSATION_TITLES = new Set(["新会话", "新建会话", "New chat"]);
+const PLACEHOLDER_CONVERSATION_TITLES = new Set([
+  "新会话",
+  "新建会话",
+  "新建对话",
+  "New chat",
+  "New conversation",
+]);
 
 /**
  * 判断当前标题是否已经是“真实标题”。

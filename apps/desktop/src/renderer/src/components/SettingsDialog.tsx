@@ -59,6 +59,8 @@ import {
   type LanguageMode,
   type ReduceMotion,
   type DiffMark,
+  type ToolServer,
+  type ToolSkill,
 } from "@shared/types";
 
 interface SettingsDialogProps {
@@ -3135,31 +3137,69 @@ function ModelOptionsDialog({
   );
 }
 
+type TrashKind = "conversations" | "agents" | "mcp" | "skills";
+type DeletableTrashKind = Exclude<TrashKind, "agents">;
+
+interface TrashRow {
+  kind: DeletableTrashKind;
+  id: string;
+  title: string;
+  description: string;
+  meta: string[];
+  detail?: string;
+  error?: string | null;
+  deletedAt: number | null;
+  purgeAfter: number | null;
+}
+
+interface PendingTrashDelete {
+  kind: DeletableTrashKind;
+  id: string;
+  title: string;
+}
+
+interface PendingTrashBatchDelete {
+  kind: DeletableTrashKind;
+  count: number;
+}
+
 function TrashTab(): React.JSX.Element {
   const { t, f, locale } = useT();
-  const [trashKind, setTrashKind] = useState<"conversations" | "agents">("conversations");
-  const [items, setItems] = useState<Conversation[]>([]);
+  const [trashKind, setTrashKind] = useState<TrashKind>("conversations");
+  const [conversationItems, setConversationItems] = useState<Conversation[]>([]);
   const [agentItems, setAgentItems] = useState<AgentProfile[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [agentLoading, setAgentLoading] = useState(false);
-  const [pendingPermanentDelete, setPendingPermanentDelete] = useState<Conversation | null>(null);
-  const [pendingBatchDelete, setPendingBatchDelete] = useState<number | null>(null);
-  // 澶氶€夛細浣跨敤 Set 渚夸簬 O(1) 鍒ゆ柇锛涗粎璺熻釜閫変腑鐨?id
+  const [mcpItems, setMcpItems] = useState<ToolServer[]>([]);
+  const [skillItems, setSkillItems] = useState<ToolSkill[]>([]);
+  const [loading, setLoading] = useState<Record<TrashKind, boolean>>({
+    conversations: false,
+    agents: false,
+    mcp: false,
+    skills: false,
+  });
+  const [pendingPermanentDelete, setPendingPermanentDelete] =
+    useState<PendingTrashDelete | null>(null);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState<PendingTrashBatchDelete | null>(
+    null,
+  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  const setKindLoading = (kind: TrashKind, value: boolean): void => {
+    setLoading((current) => ({ ...current, [kind]: value }));
+  };
+
   const refreshConversations = (): void => {
-    setLoading(true);
+    setKindLoading("conversations", true);
     void api.conversations
       .purgeExpired()
       .then(() => api.conversations.listDeleted())
-      .then(setItems)
+      .then(setConversationItems)
       .catch((error) => notify.error(t("toast.trash.loadFailed"), error, locale))
-      .finally(() => setLoading(false))
+      .finally(() => setKindLoading("conversations", false))
       .catch(() => undefined);
   };
 
   const refreshAgents = (): void => {
-    setAgentLoading(true);
+    setKindLoading("agents", true);
     void api.agents
       .list()
       .then((agents) =>
@@ -3170,24 +3210,95 @@ function TrashTab(): React.JSX.Element {
         ),
       )
       .catch((error) => notify.error(t("toast.trash.loadAgentsFailed"), error, locale))
-      .finally(() => setAgentLoading(false))
+      .finally(() => setKindLoading("agents", false))
+      .catch(() => undefined);
+  };
+
+  const refreshMcp = (): void => {
+    setKindLoading("mcp", true);
+    void api.tools.mcp
+      .purgeExpired()
+      .then(() => api.tools.mcp.listDeleted())
+      .then(setMcpItems)
+      .catch((error) => notify.error(t("toast.trash.loadMcpFailed"), error, locale))
+      .finally(() => setKindLoading("mcp", false))
+      .catch(() => undefined);
+  };
+
+  const refreshSkills = (): void => {
+    setKindLoading("skills", true);
+    void api.tools.skills
+      .purgeExpired()
+      .then(() => api.tools.skills.listDeleted())
+      .then(setSkillItems)
+      .catch((error) => notify.error(t("toast.trash.loadSkillsFailed"), error, locale))
+      .finally(() => setKindLoading("skills", false))
       .catch(() => undefined);
   };
 
   const refresh = (): void => {
     refreshConversations();
     refreshAgents();
+    refreshMcp();
+    refreshSkills();
   };
 
   useEffect(() => {
     refresh();
   }, []);
 
-  // 鍒楄〃鍙樻洿锛坮efresh / 鍗曟潯鍒犻櫎 / 鎵归噺鍒犻櫎锛夊悗锛屾竻鐞嗗凡涓嶅瓨鍦ㄧ殑 id
+  const activeRows = useMemo<TrashRow[]>(() => {
+    if (trashKind === "mcp") {
+      return mcpItems.map((server) => ({
+        kind: "mcp",
+        id: server.id,
+        title: server.name,
+        description: server.description || t("tools.mcp.noDescription"),
+        detail: mcpEndpointSummary(server),
+        error: server.last_error,
+        meta: [
+          `${t("trash.transport")}: ${server.transport}`,
+          `${t("trash.status")}: ${server.status}`,
+          `${t("trash.timeout")}: ${server.timeout_seconds}s`,
+        ],
+        deletedAt: server.deleted_at,
+        purgeAfter: server.purge_after_at,
+      }));
+    }
+    if (trashKind === "skills") {
+      return skillItems.map((skill) => ({
+        kind: "skills",
+        id: skill.id,
+        title: skill.name,
+        description: skill.description || t("tools.skill.noDescription"),
+        detail: skillSourceSummary(skill),
+        meta: [`${t("trash.category")}: ${skill.category}`],
+        deletedAt: skill.deleted_at,
+        purgeAfter: skill.purge_after_at,
+      }));
+    }
+    if (trashKind === "conversations") {
+      return conversationItems.map((conversation) => ({
+        kind: "conversations",
+        id: conversation.id,
+        title: conversation.title,
+        description: "",
+        meta: [],
+        deletedAt: conversation.deleted_at,
+        purgeAfter: conversation.purge_after_at,
+      }));
+    }
+    return [];
+  }, [conversationItems, mcpItems, skillItems, t, trashKind]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [trashKind]);
+
   useEffect(() => {
     setSelectedIds((prev) => {
       if (prev.size === 0) return prev;
-      const alive = new Set(items.map((c) => c.id));
+      const alive = new Set(activeRows.map((row) => row.id));
       let changed = false;
       const next = new Set<string>();
       for (const id of prev) {
@@ -3196,18 +3307,17 @@ function TrashTab(): React.JSX.Element {
       }
       return changed ? next : prev;
     });
-  }, [items]);
+  }, [activeRows]);
 
-  // 鍏ㄩ€?/ 鍗婇€夌姸鎬侊紙鍩轰簬褰撳墠 items锛?
   const selectionState = useMemo<{ allSelected: boolean; indeterminate: boolean }>(() => {
-    if (items.length === 0) return { allSelected: false, indeterminate: false };
-    const allSelected = selectedIds.size === items.length;
+    if (activeRows.length === 0) return { allSelected: false, indeterminate: false };
+    const allSelected = selectedIds.size === activeRows.length;
     const indeterminate = selectedIds.size > 0 && !allSelected;
     return { allSelected, indeterminate };
-  }, [items.length, selectedIds.size]);
+  }, [activeRows.length, selectedIds.size]);
 
   const toggleAll = (next: boolean): void => {
-    setSelectedIds(next ? new Set(items.map((c) => c.id)) : new Set());
+    setSelectedIds(next ? new Set(activeRows.map((row) => row.id)) : new Set());
   };
 
   const toggleOne = (id: string, next: boolean): void => {
@@ -3219,18 +3329,53 @@ function TrashTab(): React.JSX.Element {
     });
   };
 
-  const handleRestore = (conversation: Conversation): void => {
+  const refreshKind = (kind: TrashKind): void => {
+    if (kind === "conversations") refreshConversations();
+    else if (kind === "agents") refreshAgents();
+    else if (kind === "mcp") refreshMcp();
+    else refreshSkills();
+  };
+
+  const trashItemLabel = (kind: TrashKind): string => {
+    if (kind === "conversations") return t("trash.item.conversation");
+    if (kind === "agents") return t("trash.item.agent");
+    if (kind === "mcp") return t("trash.item.mcp");
+    return t("trash.item.skill");
+  };
+
+  const trashDescription = (): string => {
+    if (trashKind === "conversations") return t("trash.desc");
+    if (trashKind === "agents") return t("trash.agents.desc");
+    if (trashKind === "mcp") return t("trash.mcp.desc");
+    return t("trash.skills.desc");
+  };
+
+  const emptyMessage = (): string => {
+    if (trashKind === "conversations") return t("trash.empty");
+    if (trashKind === "agents") return t("trash.agents.empty");
+    if (trashKind === "mcp") return t("trash.mcp.empty");
+    return t("trash.skills.empty");
+  };
+
+  const restoreTrashItem = (row: TrashRow): void => {
+    const promise =
+      row.kind === "conversations"
+        ? api.conversations.restore(row.id)
+        : row.kind === "mcp"
+          ? api.tools.mcp.restore(row.id)
+          : api.tools.skills.restore(row.id);
+
     void notify
       .promise(
-        api.conversations.restore(conversation.id),
+        promise,
         {
-          loading: t("toast.conversation.restoring"),
-          success: t("toast.conversation.restored"),
-          error: t("toast.conversation.restoreFailed"),
+          loading: t("toast.trash.restoring", { item: trashItemLabel(row.kind) }),
+          success: t("toast.trash.restored", { item: trashItemLabel(row.kind) }),
+          error: t("toast.trash.restoreFailed", { item: trashItemLabel(row.kind) }),
         },
         locale,
       )
-      .then(refreshConversations)
+      .then(() => refreshKind(row.kind))
       .catch(() => undefined);
   };
 
@@ -3251,18 +3396,25 @@ function TrashTab(): React.JSX.Element {
 
   const handlePermanentDelete = (): void => {
     if (!pendingPermanentDelete) return;
-    const id = pendingPermanentDelete.id;
+    const item = pendingPermanentDelete;
+    const promise =
+      item.kind === "conversations"
+        ? api.conversations.permanentDelete(item.id)
+        : item.kind === "mcp"
+          ? api.tools.mcp.permanentDelete(item.id)
+          : api.tools.skills.permanentDelete(item.id);
+
     void notify
       .promise(
-        api.conversations.permanentDelete(id),
+        promise,
         {
-          loading: t("toast.conversation.permanentDeleting"),
-          success: t("toast.conversation.permanentDeleted"),
-          error: t("toast.conversation.permanentDeleteFailed"),
+          loading: t("toast.trash.permanentDeleting", { item: trashItemLabel(item.kind) }),
+          success: t("toast.trash.permanentDeleted", { item: trashItemLabel(item.kind) }),
+          error: t("toast.trash.permanentDeleteFailed", { item: trashItemLabel(item.kind) }),
         },
         locale,
       )
-      .then(refreshConversations)
+      .then(() => refreshKind(item.kind))
       .catch(() => undefined);
     setPendingPermanentDelete(null);
   };
@@ -3270,24 +3422,32 @@ function TrashTab(): React.JSX.Element {
   const handleBatchDelete = (): void => {
     if (!pendingBatchDelete) return;
     const ids = Array.from(selectedIds);
+    const kind = pendingBatchDelete.kind;
     if (ids.length === 0) {
       setPendingBatchDelete(null);
       return;
     }
+
+    const promise =
+      kind === "conversations"
+        ? api.conversations.permanentDeleteBatch(ids)
+        : kind === "mcp"
+          ? api.tools.mcp.permanentDeleteBatch(ids)
+          : api.tools.skills.permanentDeleteBatch(ids);
+
     void notify
       .promise(
-        api.conversations.permanentDeleteBatch(ids),
+        promise,
         {
-          loading: t("toast.conversation.permanentDeleting"),
-          success: t("toast.conversation.permanentDeletedBatch", { count: ids.length }),
-          error: t("toast.conversation.permanentDeleteFailed"),
+          loading: t("toast.trash.permanentDeleting", { item: trashItemLabel(kind) }),
+          success: t("toast.trash.permanentDeletedBatch", { count: ids.length }),
+          error: t("toast.trash.permanentDeleteFailed", { item: trashItemLabel(kind) }),
         },
         locale,
       )
       .then(() => {
-        // 鎿嶄綔鎴愬姛鍚庢竻绌洪€夋嫨 + 鍒楄〃鐢?refresh 閲嶅缓
         setSelectedIds(new Set());
-        return refreshConversations();
+        refreshKind(kind);
       })
       .catch(() => undefined);
     setPendingBatchDelete(null);
@@ -3296,14 +3456,12 @@ function TrashTab(): React.JSX.Element {
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="flex items-center gap-2 text-sm font-medium text-foreground/70">
-            <IconTrash className="size-4" />
-            {t("trash.title")}
+        <div className="min-w-0 flex-1">
+          <h3 className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground/70">
+            <IconTrash className="size-4 shrink-0" />
+            <span className="truncate">{t("trash.title")}</span>
           </h3>
-          <p className="mt-1 text-xs text-foreground/50">
-            {trashKind === "conversations" ? t("trash.desc") : t("trash.agents.desc")}
-          </p>
+          <p className="mt-1 max-w-3xl text-xs text-foreground/50">{trashDescription()}</p>
         </div>
         <ToggleButtonGroup
           selectionMode="single"
@@ -3312,27 +3470,34 @@ function TrashTab(): React.JSX.Element {
           selectedKeys={[trashKind]}
           onSelectionChange={(keys) => {
             const next = Array.from(keys)[0];
-            if (next === "conversations" || next === "agents") setTrashKind(next);
+            if (
+              next === "conversations" ||
+              next === "agents" ||
+              next === "mcp" ||
+              next === "skills"
+            ) {
+              setTrashKind(next);
+            }
           }}
+          className="max-w-full flex-wrap"
         >
           <ToggleButton id="conversations">{t("trash.tab.conversations")}</ToggleButton>
-          <ToggleButton id="agents">
-            <ToggleButtonGroup.Separator />
-            {t("trash.tab.agents")}
-          </ToggleButton>
+          <ToggleButton id="agents">{t("trash.tab.agents")}</ToggleButton>
+          <ToggleButton id="mcp">{t("trash.tab.mcp")}</ToggleButton>
+          <ToggleButton id="skills">{t("trash.tab.skills")}</ToggleButton>
         </ToggleButtonGroup>
       </div>
 
       {trashKind === "agents" ? (
         agentItems.length === 0 ? (
           <div className="rounded-md border border-foreground/10 px-4 py-8 text-center text-sm text-foreground/45">
-            {agentLoading ? t("chat.loadingHistory") : t("trash.agents.empty")}
+            {loading.agents ? t("chat.loadingHistory") : emptyMessage()}
           </div>
         ) : (
           <div className="space-y-2">
             {agentItems.map((agent) => (
               <div key={agent.id} className="rounded-md border border-foreground/10 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-foreground/10 bg-foreground/[0.03] text-lg">
                       {agent.avatar || "A"}
@@ -3352,7 +3517,12 @@ function TrashTab(): React.JSX.Element {
                       </div>
                     </div>
                   </div>
-                  <Button variant="secondary" size="sm" onPress={() => handleAgentRestore(agent)}>
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="secondary"
+                    size="sm"
+                    onPress={() => handleAgentRestore(agent)}
+                  >
                     {t("common.restore")}
                   </Button>
                 </div>
@@ -3360,15 +3530,14 @@ function TrashTab(): React.JSX.Element {
             ))}
           </div>
         )
-      ) : items.length === 0 ? (
+      ) : activeRows.length === 0 ? (
         <div className="rounded-md border border-foreground/10 px-4 py-8 text-center text-sm text-foreground/45">
-          {loading ? t("chat.loadingHistory") : t("trash.empty")}
+          {loading[trashKind] ? t("chat.loadingHistory") : emptyMessage()}
         </div>
       ) : (
         <>
-          {/* 鎵归噺鎿嶄綔宸ュ叿鏍忥細鍏ㄩ€?+ 璁℃暟 + 鎵归噺鍒犻櫎 */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-foreground/10 bg-foreground/[0.02] px-3 py-2">
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
               <Checkbox
                 id="trash-select-all"
                 isSelected={selectionState.allSelected}
@@ -3379,7 +3548,9 @@ function TrashTab(): React.JSX.Element {
                   <Checkbox.Control>
                     <Checkbox.Indicator />
                   </Checkbox.Control>
-                  {selectionState.allSelected ? t("trash.deselectAll") : t("trash.selectAll")}
+                  <span className="truncate">
+                    {selectionState.allSelected ? t("trash.deselectAll") : t("trash.selectAll")}
+                  </span>
                 </Checkbox.Content>
               </Checkbox>
               {selectedIds.size > 0 && (
@@ -3389,64 +3560,99 @@ function TrashTab(): React.JSX.Element {
               )}
             </div>
             <Button
+              className="max-w-full"
               variant="danger"
               size="sm"
               isDisabled={selectedIds.size === 0}
-              onPress={() => setPendingBatchDelete(selectedIds.size)}
+              onPress={() =>
+                setPendingBatchDelete({
+                  kind: activeRows[0]?.kind ?? "conversations",
+                  count: selectedIds.size,
+                })
+              }
             >
-              {t("trash.batchPermanent.button", { count: selectedIds.size })}
+              <span className="truncate">
+                {t("trash.batchPermanent.button", { count: selectedIds.size })}
+              </span>
             </Button>
           </div>
 
           <div className="space-y-2">
-            {items.map((conversation) => {
-              const checked = selectedIds.has(conversation.id);
+            {activeRows.map((row) => {
+              const checked = selectedIds.has(row.id);
               return (
-                <div key={conversation.id} className="rounded-md border border-foreground/10 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                <div key={row.id} className="rounded-md border border-foreground/10 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
                       <Checkbox
-                        id={`trash-item-${conversation.id}`}
+                        id={`trash-item-${row.id}`}
                         isSelected={checked}
-                        onChange={(next: boolean) => toggleOne(conversation.id, next)}
+                        onChange={(next: boolean) => toggleOne(row.id, next)}
                         className="pt-0.5"
                       >
                         <Checkbox.Content>
                           <Checkbox.Control>
                             <Checkbox.Indicator />
                           </Checkbox.Control>
-                          {/* 绾瑙夊崰浣嶏細鍙闂悕閫氳繃 aria-label 鎻愪緵 */}
-                          <span className="sr-only">{conversation.title}</span>
+                          <span className="sr-only">{row.title}</span>
                         </Checkbox.Content>
                       </Checkbox>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{conversation.title}</p>
-                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/50">
+                        <p className="truncate text-sm font-medium">{row.title}</p>
+                        {row.description && (
+                          <p className="mt-1 line-clamp-2 text-xs text-foreground/55">
+                            {row.description}
+                          </p>
+                        )}
+                        {row.detail && (
+                          <p className="mt-1 line-clamp-2 break-all font-mono text-[11px] text-foreground/45">
+                            {row.detail}
+                          </p>
+                        )}
+                        {row.error && (
+                          <p className="mt-1 line-clamp-2 break-all text-xs text-danger">
+                            {t("trash.error")}: {row.error}
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/50">
+                          {row.meta.map((item) => (
+                            <span key={item} className="max-w-full truncate">
+                              {item}
+                            </span>
+                          ))}
                           <span>
                             {t("trash.deletedAt")}:{" "}
-                            {conversation.deleted_at ? f.dateTime(conversation.deleted_at) : "-"}
+                            {row.deletedAt ? f.dateTime(row.deletedAt) : "-"}
                           </span>
                           <span>
                             {t("trash.purgeIn")}:{" "}
-                            {conversation.purge_after_at
-                              ? f.relativeDuration(conversation.purge_after_at, t("trash.expired"))
+                            {row.purgeAfter
+                              ? f.relativeDuration(row.purgeAfter, t("trash.expired"))
                               : "-"}
                           </span>
                         </div>
                       </div>
                     </div>
-                    <div className="flex shrink-0 gap-2">
+                    <div className="flex w-full shrink-0 flex-wrap gap-2 sm:w-auto sm:justify-end">
                       <Button
+                        className="min-w-24 flex-1 sm:flex-none"
                         variant="secondary"
                         size="sm"
-                        onPress={() => handleRestore(conversation)}
+                        onPress={() => restoreTrashItem(row)}
                       >
                         {t("common.restore")}
                       </Button>
                       <Button
+                        className="min-w-24 flex-1 sm:flex-none"
                         variant="danger"
                         size="sm"
-                        onPress={() => setPendingPermanentDelete(conversation)}
+                        onPress={() =>
+                          setPendingPermanentDelete({
+                            kind: row.kind,
+                            id: row.id,
+                            title: row.title,
+                          })
+                        }
                       >
                         {t("common.permanentDelete")}
                       </Button>
@@ -3472,7 +3678,7 @@ function TrashTab(): React.JSX.Element {
       <ConfirmDialog
         open={pendingBatchDelete !== null}
         title={t("trash.batchPermanent.title")}
-        message={t("trash.batchPermanent.confirm", { count: pendingBatchDelete ?? 0 })}
+        message={t("trash.batchPermanent.confirm", { count: pendingBatchDelete?.count ?? 0 })}
         danger
         confirmLabel={t("common.permanentDelete")}
         onConfirm={handleBatchDelete}
@@ -3480,6 +3686,39 @@ function TrashTab(): React.JSX.Element {
       />
     </section>
   );
+}
+
+function mcpEndpointSummary(server: ToolServer): string {
+  if (server.transport !== "stdio") return server.url || "";
+  const args = safeJsonArray(server.args_json).join(" ");
+  return [server.command, args].filter(Boolean).join(" ").trim();
+}
+
+function skillSourceSummary(skill: ToolSkill): string {
+  const config = safeJsonRecord(skill.config_json);
+  const source = typeof config.source === "string" ? config.source : "skill";
+  return `source=${source}`;
+}
+
+function safeJsonArray(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeJsonRecord(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Ignore malformed config for trash previews.
+  }
+  return {};
 }
 
 function DiagnosticsTab(): React.JSX.Element {

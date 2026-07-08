@@ -223,15 +223,20 @@ export const toolServers = sqliteTable(
     headers_json: text("headers_json").notNull().default("{}"),
     env_json: text("env_json").notNull().default("{}"),
     cwd: text("cwd"),
+    timeout_seconds: integer("timeout_seconds").notNull().default(60),
     last_error: text("last_error"),
     last_connected_at: integer("last_connected_at"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
+    deleted_at: integer("deleted_at"),
+    purge_after_at: integer("purge_after_at"),
   },
   (table) => [
     index("idx_tool_servers_kind").on(table.kind),
     index("idx_tool_servers_enabled").on(table.enabled),
     index("idx_tool_servers_status").on(table.status),
+    index("idx_tool_servers_deleted_at").on(table.deleted_at),
+    index("idx_tool_servers_purge_after_at").on(table.purge_after_at),
   ],
 );
 
@@ -259,12 +264,16 @@ export const tools = sqliteTable(
     discovered_at: integer("discovered_at").notNull(),
     last_run_at: integer("last_run_at"),
     updated_at: integer("updated_at").notNull(),
+    deleted_at: integer("deleted_at"),
+    purge_after_at: integer("purge_after_at"),
   },
   (table) => [
     index("idx_tools_server").on(table.server_id),
     index("idx_tools_kind").on(table.kind),
     index("idx_tools_reference").on(table.reference),
     index("idx_tools_enabled").on(table.enabled),
+    index("idx_tools_deleted_at").on(table.deleted_at),
+    index("idx_tools_purge_after_at").on(table.purge_after_at),
   ],
 );
 

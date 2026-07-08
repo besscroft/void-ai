@@ -7,6 +7,8 @@
   CustomProviderInput,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
+  SkillDraftRequest,
+  SkillDraftResult,
   ToolSecretInput,
   ToolSecretPublic,
   ToolSkill,
@@ -156,6 +158,13 @@ export const api = {
       update: (id: string, input: Partial<ToolServerInput>): Promise<ToolServer> =>
         assertApi().tools.mcp.update(id, input),
       delete: (id: string): Promise<boolean> => assertApi().tools.mcp.delete(id),
+      listDeleted: (): Promise<ToolServer[]> => assertApi().tools.mcp.listDeleted(),
+      restore: (id: string): Promise<ToolServer> => assertApi().tools.mcp.restore(id),
+      permanentDelete: (id: string): Promise<boolean> =>
+        assertApi().tools.mcp.permanentDelete(id),
+      permanentDeleteBatch: (ids: string[]): Promise<number> =>
+        assertApi().tools.mcp.permanentDeleteBatch(ids),
+      purgeExpired: (): Promise<number> => assertApi().tools.mcp.purgeExpired(),
       setEnabled: (id: string, enabled: boolean): Promise<ToolServer> =>
         assertApi().tools.mcp.setEnabled(id, enabled),
       test: (id: string): Promise<ToolDiscoveryResult> => assertApi().tools.mcp.test(id),
@@ -170,9 +179,18 @@ export const api = {
     },
     skills: {
       create: (input: ToolSkillInput): Promise<ToolSkill> => assertApi().tools.skills.create(input),
+      generateDraft: (input: SkillDraftRequest): Promise<SkillDraftResult> =>
+        assertApi().tools.skills.generateDraft(input),
       update: (id: string, input: Partial<ToolSkillInput>): Promise<ToolSkill> =>
         assertApi().tools.skills.update(id, input),
       delete: (id: string): Promise<boolean> => assertApi().tools.skills.delete(id),
+      listDeleted: (): Promise<ToolSkill[]> => assertApi().tools.skills.listDeleted(),
+      restore: (id: string): Promise<ToolSkill> => assertApi().tools.skills.restore(id),
+      permanentDelete: (id: string): Promise<boolean> =>
+        assertApi().tools.skills.permanentDelete(id),
+      permanentDeleteBatch: (ids: string[]): Promise<number> =>
+        assertApi().tools.skills.permanentDeleteBatch(ids),
+      purgeExpired: (): Promise<number> => assertApi().tools.skills.purgeExpired(),
       setEnabled: (id: string, enabled: boolean): Promise<ToolSkill> =>
         assertApi().tools.skills.setEnabled(id, enabled),
       run: (skillId: string, input?: unknown): Promise<unknown> =>

@@ -13,12 +13,14 @@ export interface McpFormState {
   enabled: boolean;
   auto_use: boolean;
   requires_approval: boolean;
+  commandLine?: string;
   command: string;
   args: string;
   url: string;
   headers: string;
   env: string;
   cwd: string;
+  timeoutSeconds?: string;
 }
 
 export interface SkillFormState {
@@ -35,25 +37,39 @@ export interface SkillFormState {
   steps: string;
 }
 
+export interface SkillPackageDraft {
+  name: string;
+  description: string;
+  instructions: string;
+  markdown: string;
+  source: "upload" | "ai";
+}
+
 export function buildMcpInput(form: McpFormState): ToolServerInput {
   const name = form.name.trim();
   if (!name) throw new Error("Name is required.");
-  if (form.transport === "stdio" && !form.command.trim()) throw new Error("Command is required.");
+  const commandLine = form.commandLine?.trim() ?? "";
+  if (form.transport === "stdio" && !commandLine && !form.command.trim()) {
+    throw new Error("Command is required.");
+  }
   if (form.transport !== "stdio" && !form.url.trim()) throw new Error("URL is required.");
-  parseArray(form.args, "args");
-  parseObject(form.headers, "headers");
-  parseObject(form.env, "env");
+  const stdio = commandLine
+    ? parseCommandLine(commandLine)
+    : { command: form.command.trim(), args: parseArray(form.args, "args").map(String) };
+  const headers = normalizeObjectText(form.headers, "headers");
+  const env = normalizeObjectText(form.env, "env");
   return {
-    args: form.args,
+    args: JSON.stringify(stdio.args),
     auto_use: form.auto_use,
-    command: form.command.trim() || null,
+    command: form.transport === "stdio" ? stdio.command : null,
     cwd: form.cwd.trim() || null,
     description: form.description.trim(),
     enabled: form.enabled,
-    env: form.env,
-    headers: form.headers,
+    env,
+    headers,
     name,
     requires_approval: form.requires_approval,
+    timeout_seconds: normalizeTimeoutSeconds(form.timeoutSeconds ?? 60),
     transport: form.transport,
     url: form.url.trim() || null,
   };
@@ -86,6 +102,61 @@ export function normalizeToolSkillSteps(raw: string): ToolSkillStep[] {
   return readArray(raw).map(normalizeToolSkillStep);
 }
 
+export function parseSkillMarkdown(markdown: string, source: "upload" | "ai"): SkillPackageDraft {
+  const normalized = markdown.replace(/^\uFEFF/, "").trim();
+  const match = normalized.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) throw new Error("SKILL.md must start with YAML frontmatter.");
+  const meta = parseSkillFrontmatter(match[1] ?? "");
+  const instructions = (match[2] ?? "").trim();
+  if (!meta.name) throw new Error("SKILL.md frontmatter must include name.");
+  if (!meta.description) throw new Error("SKILL.md frontmatter must include description.");
+  if (!instructions) throw new Error("SKILL.md body cannot be empty.");
+  return {
+    name: meta.name,
+    description: meta.description,
+    instructions,
+    markdown: normalized,
+    source,
+  };
+}
+
+export function buildSkillInputFromMarkdown(
+  markdown: string,
+  source: "upload" | "ai",
+): ToolSkillInput {
+  const draft = parseSkillMarkdown(markdown, source);
+  return {
+    auto_use: false,
+    category: "skill",
+    config: {
+      source: draft.source,
+      instructions: draft.instructions,
+      markdown: draft.markdown,
+    },
+    configSchema: {
+      type: "object",
+      properties: {
+        request: { type: "string", description: "What the skill should accomplish." },
+      },
+      additionalProperties: true,
+    },
+    description: draft.description,
+    enabled: true,
+    name: draft.name,
+    requires_approval: true,
+    steps: [
+      {
+        id: "follow-skill",
+        type: "prompt",
+        title: "Follow skill instructions",
+        detail: draft.instructions.slice(0, 4_000),
+      },
+    ],
+    tags: ["skill", draft.source],
+    triggerKeywords: [draft.name],
+  };
+}
+
 function normalizeToolSkillStep(item: unknown, index: number): ToolSkillStep {
   const record =
     item && typeof item === "object" && !Array.isArray(item)
@@ -104,6 +175,88 @@ function normalizeStepType(value: unknown): ToolSkillStepType {
   return value === "tool" || value === "approval" || value === "memory" || value === "handoff"
     ? value
     : "prompt";
+}
+
+function parseCommandLine(commandLine: string): { command: string; args: string[] } {
+  const parts: string[] = [];
+  let current = "";
+  let quote: "\"" | "'" | null = null;
+  for (let index = 0; index < commandLine.length; index += 1) {
+    const char = commandLine[index] ?? "";
+    if (quote) {
+      if (char === quote) quote = null;
+      else current += char;
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        parts.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (quote) throw new Error("Command has an unclosed quote.");
+  if (current) parts.push(current);
+  if (parts.length === 0) throw new Error("Command is required.");
+  return { command: parts[0] ?? "", args: parts.slice(1) };
+}
+
+function normalizeObjectText(raw: string, label: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "{}";
+  if (trimmed.startsWith("{")) return JSON.stringify(parseObject(trimmed, label));
+  const entries: Record<string, string> = {};
+  for (const line of trimmed.split(/\r?\n/)) {
+    const clean = line.trim();
+    if (!clean) continue;
+    const separator = clean.indexOf("=");
+    if (separator <= 0) throw new Error(label + " lines must use KEY=value format.");
+    const key = clean.slice(0, separator).trim();
+    const value = clean.slice(separator + 1).trim();
+    if (!key) throw new Error(label + " keys cannot be empty.");
+    entries[key] = value;
+  }
+  return JSON.stringify(entries);
+}
+
+function normalizeTimeoutSeconds(raw: unknown): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) throw new Error("Timeout must be a number.");
+  if (parsed < 1 || parsed > 600) throw new Error("Timeout must be between 1 and 600 seconds.");
+  return Math.round(parsed);
+}
+
+function parseSkillFrontmatter(raw: string): { name: string; description: string } {
+  const values: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf(":");
+    if (separator <= 0) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim();
+    if (key === "name" || key === "description") values[key] = unquoteYamlString(value);
+  }
+  return {
+    name: values.name?.trim() ?? "",
+    description: values.description?.trim() ?? "",
+  };
+}
+
+function unquoteYamlString(value: string): string {
+  if (
+    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1).trim();
+  }
+  return value.trim();
 }
 
 function readArray(raw: string): unknown[] {

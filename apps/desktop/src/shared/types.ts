@@ -306,10 +306,13 @@ export interface ToolServer {
   headers_json: string;
   env_json: string;
   cwd: string | null;
+  timeout_seconds: number;
   last_error: string | null;
   last_connected_at: number | null;
   created_at: number;
   updated_at: number;
+  deleted_at: number | null;
+  purge_after_at: number | null;
 }
 
 export interface ToolServerInput {
@@ -325,6 +328,7 @@ export interface ToolServerInput {
   headers?: Record<string, string> | string;
   env?: Record<string, string> | string;
   cwd?: string | null;
+  timeout_seconds?: number | string | null;
 }
 
 export interface ToolRecord {
@@ -349,6 +353,8 @@ export interface ToolRecord {
   discovered_at: number;
   last_run_at: number | null;
   updated_at: number;
+  deleted_at: number | null;
+  purge_after_at: number | null;
 }
 
 export interface ToolDiscoveryResult {
@@ -386,6 +392,8 @@ export interface ToolSkill {
   last_run_at: number | null;
   created_at: number;
   updated_at: number;
+  deleted_at: number | null;
+  purge_after_at: number | null;
 }
 
 export interface ToolSkillInput {
@@ -401,6 +409,14 @@ export interface ToolSkillInput {
   config?: JsonObject | string;
   steps?: ToolSkillStep[] | string;
   workflow_id?: string | null;
+}
+
+export interface SkillDraftRequest {
+  prompt: string;
+}
+
+export interface SkillDraftResult {
+  markdown: string;
 }
 
 export interface ToolSecret {

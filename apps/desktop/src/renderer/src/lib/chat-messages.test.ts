@@ -13,6 +13,7 @@ import {
   updateMessageReaction,
 } from "./chat-messages";
 import { hasMeaningfulConversationTitle } from "./conversation-title";
+import { translate } from "./i18n";
 
 void describe("chat message helpers", () => {
   void it("builds text-only user UI messages", () => {
@@ -223,7 +224,11 @@ void describe("conversation title helpers", () => {
   void it("treats built-in placeholder titles as not yet summarized", () => {
     assert.equal(hasMeaningfulConversationTitle("新会话"), false);
     assert.equal(hasMeaningfulConversationTitle("新建会话"), false);
+    assert.equal(hasMeaningfulConversationTitle("新建对话"), false);
     assert.equal(hasMeaningfulConversationTitle("New chat"), false);
+    assert.equal(hasMeaningfulConversationTitle("New conversation"), false);
+    assert.equal(hasMeaningfulConversationTitle(translate("zh-CN", "shell.newConversation")), false);
+    assert.equal(hasMeaningfulConversationTitle(translate("en", "shell.newConversation")), false);
   });
 
   void it("accepts real generated titles", () => {

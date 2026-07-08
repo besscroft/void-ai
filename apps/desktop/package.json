@@ -43,6 +43,7 @@
     "better-sqlite3": "catalog:",
     "drizzle-orm": "catalog:",
     "electron-updater": "^6.3.9",
+    "fflate": "^0.8.2",
     "hono": "^4.6.12",
     "motion": "catalog:",
     "sonner": "catalog:",

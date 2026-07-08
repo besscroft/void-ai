@@ -107,8 +107,12 @@ export async function discoverMcpServer(serverId: string): Promise<ToolDiscovery
   let client: MCPClient | null = null;
   try {
     await closeMcpClient(serverId);
-    client = await createClient(server);
-    const toolsResult = await client.listTools();
+    client = await withServerTimeout(createClient(server), server, "MCP connection timed out.");
+    const toolsResult = await withServerTimeout(
+      client.listTools(),
+      server,
+      "MCP tool discovery timed out.",
+    );
     const definitions = toolsResult.tools.map((definition) => ({
       name: definition.name,
       title: getOptionalString(definition, "title"),
@@ -205,11 +209,16 @@ async function executeMcpTool({
   }
   const started = Date.now();
   try {
-    const client = await getOrCreateClient(server);
-    const output = await client.callTool({
-      name: mcpTool.name,
-      arguments: normalizeToolInput(input),
-    });
+    const output = await withServerTimeout(
+      getOrCreateClient(server).then((client) =>
+        client.callTool({
+          name: mcpTool.name,
+          arguments: normalizeToolInput(input),
+        }),
+      ),
+      server,
+      "MCP tool call timed out.",
+    );
     insertRuntimeEvent({
       kind: "tool",
       title: "MCP tool: " + mcpTool.name,
@@ -291,6 +300,17 @@ async function createClient(server: ToolServer): Promise<MCPClient> {
     onUncaughtError: (error) => {
       console.warn("[mcp] uncaught error:", error);
     },
+  });
+}
+
+function withServerTimeout<T>(promise: Promise<T>, server: ToolServer, message: string): Promise<T> {
+  const timeoutMs = Math.max(1, server.timeout_seconds || 60) * 1_000;
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
   });
 }
 

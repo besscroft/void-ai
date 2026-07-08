@@ -99,6 +99,12 @@ const api = {
       create: (input: unknown) => ipcRenderer.invoke("tools:mcp:create", input),
       update: (id: string, input: unknown) => ipcRenderer.invoke("tools:mcp:update", id, input),
       delete: (id: string) => ipcRenderer.invoke("tools:mcp:delete", id),
+      listDeleted: () => ipcRenderer.invoke("tools:mcp:listDeleted"),
+      restore: (id: string) => ipcRenderer.invoke("tools:mcp:restore", id),
+      permanentDelete: (id: string) => ipcRenderer.invoke("tools:mcp:permanentDelete", id),
+      permanentDeleteBatch: (ids: string[]) =>
+        ipcRenderer.invoke("tools:mcp:permanentDeleteBatch", ids),
+      purgeExpired: () => ipcRenderer.invoke("tools:mcp:purgeExpired"),
       setEnabled: (id: string, enabled: boolean) =>
         ipcRenderer.invoke("tools:mcp:setEnabled", id, enabled),
       test: (id: string) => ipcRenderer.invoke("tools:mcp:test", id),
@@ -110,8 +116,15 @@ const api = {
     },
     skills: {
       create: (input: unknown) => ipcRenderer.invoke("tools:skills:create", input),
+      generateDraft: (input: unknown) => ipcRenderer.invoke("tools:skills:generateDraft", input),
       update: (id: string, input: unknown) => ipcRenderer.invoke("tools:skills:update", id, input),
       delete: (id: string) => ipcRenderer.invoke("tools:skills:delete", id),
+      listDeleted: () => ipcRenderer.invoke("tools:skills:listDeleted"),
+      restore: (id: string) => ipcRenderer.invoke("tools:skills:restore", id),
+      permanentDelete: (id: string) => ipcRenderer.invoke("tools:skills:permanentDelete", id),
+      permanentDeleteBatch: (ids: string[]) =>
+        ipcRenderer.invoke("tools:skills:permanentDeleteBatch", ids),
+      purgeExpired: () => ipcRenderer.invoke("tools:skills:purgeExpired"),
       setEnabled: (id: string, enabled: boolean) =>
         ipcRenderer.invoke("tools:skills:setEnabled", id, enabled),
       run: (skillId: string, input?: unknown) =>

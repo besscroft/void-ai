@@ -8,6 +8,8 @@ import type {
   CustomProviderInput,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
+  SkillDraftRequest,
+  SkillDraftResult,
   ToolSecretInput,
   ToolSecretPublic,
   ToolSkill,
@@ -139,6 +141,11 @@ export interface VoidAIApi {
       create: (input: ToolServerInput) => Promise<ToolServer>;
       update: (id: string, input: Partial<ToolServerInput>) => Promise<ToolServer>;
       delete: (id: string) => Promise<boolean>;
+      listDeleted: () => Promise<ToolServer[]>;
+      restore: (id: string) => Promise<ToolServer>;
+      permanentDelete: (id: string) => Promise<boolean>;
+      permanentDeleteBatch: (ids: string[]) => Promise<number>;
+      purgeExpired: () => Promise<number>;
       setEnabled: (id: string, enabled: boolean) => Promise<ToolServer>;
       test: (id: string) => Promise<ToolDiscoveryResult>;
       discover: (id: string) => Promise<ToolDiscoveryResult>;
@@ -151,8 +158,14 @@ export interface VoidAIApi {
     };
     skills: {
       create: (input: ToolSkillInput) => Promise<ToolSkill>;
+      generateDraft: (input: SkillDraftRequest) => Promise<SkillDraftResult>;
       update: (id: string, input: Partial<ToolSkillInput>) => Promise<ToolSkill>;
       delete: (id: string) => Promise<boolean>;
+      listDeleted: () => Promise<ToolSkill[]>;
+      restore: (id: string) => Promise<ToolSkill>;
+      permanentDelete: (id: string) => Promise<boolean>;
+      permanentDeleteBatch: (ids: string[]) => Promise<number>;
+      purgeExpired: () => Promise<number>;
       setEnabled: (id: string, enabled: boolean) => Promise<ToolSkill>;
       run: (skillId: string, input?: unknown) => Promise<unknown>;
       setSecret: (input: ToolSecretInput) => Promise<ToolSecretPublic>;

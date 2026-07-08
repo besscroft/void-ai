@@ -999,9 +999,10 @@ export function updateWorkflowRun(
 }
 
 export function listToolServers(kind?: "mcp" | "local" | "sandbox"): ToolServer[] {
-  const rows = kind
-    ? getDb().select().from(toolServers).where(eq(toolServers.kind, kind)).all()
-    : getDb().select().from(toolServers).all();
+  const where = kind
+    ? and(eq(toolServers.kind, kind), isNull(toolServers.deleted_at))
+    : isNull(toolServers.deleted_at);
+  const rows = getDb().select().from(toolServers).where(where).all();
   return rows.map(toToolServer);
 }
 
@@ -1010,7 +1011,11 @@ export function listMcpServers(): ToolServer[] {
 }
 
 export function getToolServer(id: string): ToolServer | null {
-  const row = getDb().select().from(toolServers).where(eq(toolServers.id, id)).get();
+  const row = getDb()
+    .select()
+    .from(toolServers)
+    .where(and(eq(toolServers.id, id), isNull(toolServers.deleted_at)))
+    .get();
   return row ? toToolServer(row) : null;
 }
 
@@ -1044,11 +1049,71 @@ export function updateToolServer(id: string, input: Partial<ToolServerInput>): T
 export const updateMcpServer = updateToolServer;
 
 export function deleteToolServer(id: string): void {
+  const now = Date.now();
+  getDb()
+    .update(toolServers)
+    .set({
+      enabled: 0,
+      status: "disabled",
+      deleted_at: now,
+      purge_after_at: now + TRASH_RETENTION_MS,
+      updated_at: now,
+    })
+    .where(eq(toolServers.id, id))
+    .run();
+}
+
+export const deleteMcpServer = deleteToolServer;
+
+export function listDeletedToolServers(kind?: "mcp" | "local" | "sandbox"): ToolServer[] {
+  const where = kind
+    ? and(eq(toolServers.kind, kind), isNotNull(toolServers.deleted_at))
+    : isNotNull(toolServers.deleted_at);
+  return getDb()
+    .select()
+    .from(toolServers)
+    .where(where)
+    .orderBy(desc(toolServers.deleted_at))
+    .all()
+    .map(toToolServer);
+}
+
+export function restoreToolServer(id: string): ToolServer {
+  getDb()
+    .update(toolServers)
+    .set({
+      deleted_at: null,
+      purge_after_at: null,
+      updated_at: Date.now(),
+    })
+    .where(eq(toolServers.id, id))
+    .run();
+  return getRequiredToolServer(id);
+}
+
+export function permanentlyDeleteToolServer(id: string): void {
   getDb().delete(toolServers).where(eq(toolServers.id, id)).run();
   deleteToolSecretsForOwner("server", id);
 }
 
-export const deleteMcpServer = deleteToolServer;
+export function permanentlyDeleteToolServers(ids: string[]): number {
+  let deleted = 0;
+  for (const id of ids) {
+    const result = getDb().delete(toolServers).where(eq(toolServers.id, id)).run();
+    deleteToolSecretsForOwner("server", id);
+    deleted += result.changes;
+  }
+  return deleted;
+}
+
+export function purgeExpiredDeletedToolServers(now = Date.now()): number {
+  const expired = getDb()
+    .select()
+    .from(toolServers)
+    .where(and(isNotNull(toolServers.deleted_at), lt(toolServers.purge_after_at, now)))
+    .all();
+  return permanentlyDeleteToolServers(expired.map((server) => server.id));
+}
 
 export function setToolServerEnabled(id: string, enabled: boolean): ToolServer {
   getDb()
@@ -1090,26 +1155,41 @@ export function updateToolServerStatus(
 export const updateMcpServerStatus = updateToolServerStatus;
 
 export function listToolRecords(kind?: "builtin" | "mcp" | "skill" | "sandbox"): ToolRecord[] {
-  const rows = kind
-    ? getDb().select().from(tools).where(eq(tools.kind, kind)).all()
-    : getDb().select().from(tools).all();
-  return rows.map(toToolRecord);
+  const where = kind ? and(eq(tools.kind, kind), isNull(tools.deleted_at)) : isNull(tools.deleted_at);
+  const rows = getDb().select().from(tools).where(where).all();
+  const activeServerIds = new Set(listToolServers().map((server) => server.id));
+  return rows
+    .filter((row) => row.kind !== "mcp" || (row.server_id ? activeServerIds.has(row.server_id) : false))
+    .map(toToolRecord);
 }
 
 export function listMcpTools(serverId?: string): ToolRecord[] {
+  if (serverId && !getToolServer(serverId)) return [];
   const rows = serverId
     ? getDb()
         .select()
         .from(tools)
-        .where(and(eq(tools.kind, "mcp"), eq(tools.server_id, serverId)))
+        .where(and(eq(tools.kind, "mcp"), eq(tools.server_id, serverId), isNull(tools.deleted_at)))
         .all()
-    : getDb().select().from(tools).where(eq(tools.kind, "mcp")).all();
-  return rows.map(toToolRecord);
+    : getDb()
+        .select()
+        .from(tools)
+        .where(and(eq(tools.kind, "mcp"), isNull(tools.deleted_at)))
+        .all();
+  const activeServerIds = new Set(listMcpServers().map((server) => server.id));
+  return rows
+    .filter((row) => row.server_id && activeServerIds.has(row.server_id))
+    .map(toToolRecord);
 }
 
 export function getMcpToolByReference(serverId: string, toolName: string): ToolRecord | null {
+  if (!getToolServer(serverId)) return null;
   const reference = `mcp:${serverId}:${toolName}`;
-  const row = getDb().select().from(tools).where(eq(tools.reference, reference)).get();
+  const row = getDb()
+    .select()
+    .from(tools)
+    .where(and(eq(tools.reference, reference), isNull(tools.deleted_at)))
+    .get();
   return row ? toToolRecord(row) : null;
 }
 
@@ -1151,6 +1231,8 @@ export function upsertMcpToolDefinitions(
       discovered_at: existing?.discovered_at ?? now,
       last_run_at: existing?.last_run_at ?? null,
       updated_at: now,
+      deleted_at: null,
+      purge_after_at: null,
     };
     getDb()
       .insert(tools)
@@ -1196,7 +1278,7 @@ export function listSkillTools(): ToolSkill[] {
   return getDb()
     .select()
     .from(tools)
-    .where(eq(tools.kind, "skill"))
+    .where(and(eq(tools.kind, "skill"), isNull(tools.deleted_at)))
     .orderBy(desc(tools.updated_at))
     .all()
     .map(toToolSkill);
@@ -1206,7 +1288,7 @@ export function getSkillTool(id: string): ToolSkill | null {
   const row = getDb()
     .select()
     .from(tools)
-    .where(and(eq(tools.id, id), eq(tools.kind, "skill")))
+    .where(and(eq(tools.id, id), eq(tools.kind, "skill"), isNull(tools.deleted_at)))
     .get();
   return row ? toToolSkill(row) : null;
 }
@@ -1237,8 +1319,62 @@ export function updateSkillTool(id: string, input: Partial<ToolSkillInput>): Too
 }
 
 export function deleteSkillTool(id: string): void {
-  getDb().delete(tools).where(eq(tools.id, id)).run();
+  const now = Date.now();
+  getDb()
+    .update(tools)
+    .set({
+      enabled: 0,
+      deleted_at: now,
+      purge_after_at: now + TRASH_RETENTION_MS,
+      updated_at: now,
+    })
+    .where(and(eq(tools.id, id), eq(tools.kind, "skill")))
+    .run();
+}
+
+export function listDeletedSkillTools(): ToolSkill[] {
+  return getDb()
+    .select()
+    .from(tools)
+    .where(and(eq(tools.kind, "skill"), isNotNull(tools.deleted_at)))
+    .orderBy(desc(tools.deleted_at))
+    .all()
+    .map(toToolSkill);
+}
+
+export function restoreSkillTool(id: string): ToolSkill {
+  getDb()
+    .update(tools)
+    .set({ deleted_at: null, purge_after_at: null, updated_at: Date.now() })
+    .where(and(eq(tools.id, id), eq(tools.kind, "skill")))
+    .run();
+  return toToolSkill(getRequiredToolRecord(id));
+}
+
+export function permanentlyDeleteSkillTool(id: string): void {
+  getDb().delete(tools).where(and(eq(tools.id, id), eq(tools.kind, "skill"))).run();
   deleteToolSecretsForOwner("tool", id);
+}
+
+export function permanentlyDeleteSkillTools(ids: string[]): number {
+  let deleted = 0;
+  for (const id of ids) {
+    const result = getDb().delete(tools).where(and(eq(tools.id, id), eq(tools.kind, "skill"))).run();
+    deleteToolSecretsForOwner("tool", id);
+    deleted += result.changes;
+  }
+  return deleted;
+}
+
+export function purgeExpiredDeletedSkillTools(now = Date.now()): number {
+  const expired = getDb()
+    .select()
+    .from(tools)
+    .where(
+      and(eq(tools.kind, "skill"), isNotNull(tools.deleted_at), lt(tools.purge_after_at, now)),
+    )
+    .all();
+  return permanentlyDeleteSkillTools(expired.map((skill) => skill.id));
 }
 
 export function setSkillToolEnabled(id: string, enabled: boolean): ToolSkill {
@@ -1633,6 +1769,8 @@ function seedBuiltinTools(now: number): void {
         discovered_at: now,
         last_run_at: null,
         updated_at: now,
+        deleted_at: null,
+        purge_after_at: null,
       })
       .run();
   }
@@ -1836,6 +1974,8 @@ function toToolSkill(row: DbToolRecord): ToolSkill {
     last_run_at: row.last_run_at,
     created_at: row.discovered_at,
     updated_at: row.updated_at,
+    deleted_at: row.deleted_at,
+    purge_after_at: row.purge_after_at,
   };
 }
 
@@ -1864,10 +2004,13 @@ function normalizeToolServerInput(
     headers_json: normalizeStringRecordJson(input.headers ?? existing?.headers_json ?? {}),
     env_json: normalizeStringRecordJson(input.env ?? existing?.env_json ?? {}),
     cwd: normalizeNullableText(input.cwd ?? existing?.cwd ?? null, 1_000),
+    timeout_seconds: normalizeTimeoutSeconds(input.timeout_seconds ?? existing?.timeout_seconds ?? 60),
     last_error: existing?.last_error ?? null,
     last_connected_at: existing?.last_connected_at ?? null,
     created_at: existing?.created_at ?? now,
     updated_at: now,
+    deleted_at: null,
+    purge_after_at: null,
   };
 }
 
@@ -1916,6 +2059,8 @@ function normalizeSkillToolInput(
     discovered_at: existing?.discovered_at ?? now,
     last_run_at: existing?.last_run_at ?? null,
     updated_at: now,
+    deleted_at: null,
+    purge_after_at: null,
   };
 }
 
@@ -2076,6 +2221,12 @@ function stringifyInput(raw: unknown): string {
 
 function normalizeBooleanNumber(raw: unknown): number {
   return raw === true || raw === 1 || raw === "1" ? 1 : 0;
+}
+
+function normalizeTimeoutSeconds(raw: unknown): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 60;
+  return Math.min(600, Math.max(1, Math.round(parsed)));
 }
 
 function normalizeJsonObjectString(raw: unknown): string {

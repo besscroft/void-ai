@@ -111,6 +111,7 @@ export async function runToolSkill({
         id: skill.id,
         name: skill.name,
         category: skill.category,
+        instructions: readSkillInstructions(skill),
       },
       runId: run.id,
       workflowId,
@@ -211,13 +212,22 @@ function createToolDescription(skill: ToolSkill): string {
   const steps = readSteps(skill)
     .map((step, index) => `${index + 1}. ${step.title}`)
     .join("; ");
+  const instructions = readSkillInstructions(skill);
   return [
     skill.description,
+    instructions ? "Instructions:\n" + instructions : "",
     triggers ? "Triggers: " + triggers : "",
     steps ? "Steps: " + steps : "",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function readSkillInstructions(skill: ToolSkill): string {
+  const config = safeJson(skill.config_json, {});
+  if (!config || typeof config !== "object" || Array.isArray(config)) return "";
+  const instructions = (config as Record<string, unknown>).instructions;
+  return typeof instructions === "string" ? instructions.trim().slice(0, 8_000) : "";
 }
 
 function readSteps(skill: ToolSkill): ToolSkillStep[] {

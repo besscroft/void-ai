@@ -41,11 +41,21 @@ import {
   createToolServer,
   updateToolServer,
   deleteToolServer,
+  listDeletedToolServers,
+  restoreToolServer,
+  permanentlyDeleteToolServer,
+  permanentlyDeleteToolServers,
+  purgeExpiredDeletedToolServers,
   setToolServerEnabled,
   updateToolRecord,
   createSkillTool,
   updateSkillTool,
   deleteSkillTool,
+  listDeletedSkillTools,
+  restoreSkillTool,
+  permanentlyDeleteSkillTool,
+  permanentlyDeleteSkillTools,
+  purgeExpiredDeletedSkillTools,
   setSkillToolEnabled,
   setToolSecret,
   deleteToolSecret,
@@ -72,6 +82,7 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  SkillDraftRequest,
   ToolSecretInput,
   ToolSkillInput,
   MemoryRecord,
@@ -81,6 +92,7 @@ import type {
 import { queueAgentLearning } from "../lib/agent-learning";
 import { closeMcpClient, discoverMcpServer, testMcpServer } from "../lib/mcp-manager";
 import { runToolSkill } from "../lib/skill-runtime";
+import { generateSkillDraft } from "../lib/skill-drafts";
 
 /**
  * IPC handlers 娉ㄥ唽
@@ -233,6 +245,18 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     deleteToolServer(id);
     return true;
   });
+  ipcMain.handle("tools:mcp:listDeleted", () => listDeletedToolServers("mcp"));
+  ipcMain.handle("tools:mcp:restore", (_e, id: string) => restoreToolServer(id));
+  ipcMain.handle("tools:mcp:permanentDelete", async (_e, id: string) => {
+    await closeMcpClient(id);
+    permanentlyDeleteToolServer(id);
+    return true;
+  });
+  ipcMain.handle("tools:mcp:permanentDeleteBatch", async (_e, ids: string[]) => {
+    await Promise.all(ids.map((id) => closeMcpClient(id)));
+    return permanentlyDeleteToolServers(ids);
+  });
+  ipcMain.handle("tools:mcp:purgeExpired", () => purgeExpiredDeletedToolServers());
   ipcMain.handle("tools:mcp:setEnabled", async (_e, id: string, enabled: boolean) => {
     const server = setToolServerEnabled(id, enabled);
     if (!enabled) await closeMcpClient(id);
@@ -261,6 +285,9 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   });
 
   ipcMain.handle("tools:skills:create", (_e, input: ToolSkillInput) => createSkillTool(input));
+  ipcMain.handle("tools:skills:generateDraft", (_e, input: SkillDraftRequest) =>
+    generateSkillDraft(input),
+  );
   ipcMain.handle("tools:skills:update", (_e, id: string, input: Partial<ToolSkillInput>) =>
     updateSkillTool(id, input),
   );
@@ -268,6 +295,16 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     deleteSkillTool(id);
     return true;
   });
+  ipcMain.handle("tools:skills:listDeleted", () => listDeletedSkillTools());
+  ipcMain.handle("tools:skills:restore", (_e, id: string) => restoreSkillTool(id));
+  ipcMain.handle("tools:skills:permanentDelete", (_e, id: string) => {
+    permanentlyDeleteSkillTool(id);
+    return true;
+  });
+  ipcMain.handle("tools:skills:permanentDeleteBatch", (_e, ids: string[]) =>
+    permanentlyDeleteSkillTools(ids),
+  );
+  ipcMain.handle("tools:skills:purgeExpired", () => purgeExpiredDeletedSkillTools());
   ipcMain.handle("tools:skills:setEnabled", (_e, id: string, enabled: boolean) =>
     setSkillToolEnabled(id, enabled),
   );

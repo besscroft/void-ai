@@ -2,7 +2,12 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ToolRecord } from "@shared/types";
 import { filterToolRecords } from "../lib/tools-filter";
-import { buildMcpInput, buildSkillInput } from "../lib/tools-form";
+import {
+  buildMcpInput,
+  buildSkillInput,
+  buildSkillInputFromMarkdown,
+  parseSkillMarkdown,
+} from "../lib/tools-form";
 
 void describe("ToolsPanel data helpers", () => {
   void it("filters tools by kind, approval state, enabled state, and search query", () => {
@@ -66,6 +71,33 @@ void describe("ToolsPanel data helpers", () => {
     assert.equal(remote.command, null);
     assert.equal(remote.url, "https://example.test/mcp");
     assert.equal(remote.headers, '{"Authorization":"Bearer ${API_KEY}"}');
+  });
+
+  void it("parses MCP command lines, KEY=value maps, and timeout values", () => {
+    const input = buildMcpInput({
+      name: "Filesystem with long root",
+      description: "",
+      transport: "stdio",
+      enabled: true,
+      auto_use: false,
+      requires_approval: true,
+      commandLine: 'npx -y "@modelcontextprotocol/server-filesystem" "C:/Long Path"',
+      command: "",
+      args: "[]",
+      url: "",
+      headers: "",
+      env: "ROOT=C:/Long Path\nTOKEN=${MCP_TOKEN}",
+      cwd: "",
+      timeoutSeconds: "45",
+    });
+
+    assert.equal(input.command, "npx");
+    assert.equal(
+      input.args,
+      '["-y","@modelcontextprotocol/server-filesystem","C:/Long Path"]',
+    );
+    assert.equal(input.env, '{"ROOT":"C:/Long Path","TOKEN":"${MCP_TOKEN}"}');
+    assert.equal(input.timeout_seconds, 45);
   });
 
   void it("builds Skill input with normalized steps", () => {
@@ -132,6 +164,66 @@ void describe("ToolsPanel data helpers", () => {
         }),
       /steps must be a JSON array/,
     );
+
+    assert.throws(
+      () =>
+        buildMcpInput({
+          name: "Slow",
+          description: "",
+          transport: "stdio",
+          enabled: true,
+          auto_use: true,
+          requires_approval: true,
+          commandLine: "npx server",
+          command: "",
+          args: "[]",
+          url: "",
+          headers: "{}",
+          env: "{}",
+          cwd: "",
+          timeoutSeconds: "0",
+        }),
+      /Timeout must be between 1 and 600 seconds/,
+    );
+  });
+
+  void it("parses SKILL.md packages and converts them to install input", () => {
+    const markdown = [
+      "---",
+      "name: research-brief",
+      'description: "Use when a user needs a grounded research brief."',
+      "---",
+      "# Research Brief",
+      "Collect sources and summarize the key tradeoffs.",
+    ].join("\n");
+
+    const draft = parseSkillMarkdown(markdown, "upload");
+    assert.equal(draft.name, "research-brief");
+    assert.equal(draft.description, "Use when a user needs a grounded research brief.");
+    assert.match(draft.instructions, /Collect sources/);
+
+    const input = buildSkillInputFromMarkdown(markdown, "upload");
+    assert.equal(input.name, "research-brief");
+    assert.equal(input.category, "skill");
+    assert.deepEqual(input.tags, ["skill", "upload"]);
+    assert.deepEqual(input.triggerKeywords, ["research-brief"]);
+    assert.equal((input.config as Record<string, unknown>).source, "upload");
+    assert.match(String((input.config as Record<string, unknown>).instructions), /tradeoffs/);
+  });
+
+  void it("rejects invalid SKILL.md packages", () => {
+    assert.throws(
+      () => parseSkillMarkdown("# Missing frontmatter\nBody", "upload"),
+      /YAML frontmatter/,
+    );
+    assert.throws(
+      () => parseSkillMarkdown("---\nname: missing-description\n---\nBody", "upload"),
+      /description/,
+    );
+    assert.throws(
+      () => parseSkillMarkdown("---\nname: empty\ndescription: Empty\n---\n", "ai"),
+      /body cannot be empty/,
+    );
   });
 });
 
@@ -166,5 +258,7 @@ function toolRecord(
     discovered_at: now,
     last_run_at: null,
     updated_at: now,
+    deleted_at: null,
+    purge_after_at: null,
   };
 }
