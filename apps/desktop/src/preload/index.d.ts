@@ -97,6 +97,7 @@ export interface VoidAIApi {
         | "sandboxSessions"
         | "sandboxSnapshots"
         | "sandboxArtifacts"
+        | "runtimeEvents"
       >
     >;
     save: (agent: AgentProfile) => Promise<boolean>;
@@ -130,6 +131,10 @@ export interface VoidAIApi {
   // Provider 鍏冧俊鎭?
   tools: {
     snapshot: () => Promise<ToolsSnapshot>;
+    updateTool: (
+      id: string,
+      patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
+    ) => Promise<ToolRecord>;
     mcp: {
       create: (input: ToolServerInput) => Promise<ToolServer>;
       update: (id: string, input: Partial<ToolServerInput>) => Promise<ToolServer>;

@@ -11,6 +11,7 @@ import {
 import { createApp } from "./index";
 import {
   CHAT_SESSION_HEADER,
+  type MediaGenerationErrorResponse,
   type MediaGenerationKind,
   type ModelCapabilities,
   type ModelProviderKind,
@@ -330,6 +331,8 @@ void describe("local chat server /api/media/generate", () => {
     });
 
     assert.equal(response.status, 401);
+    const body = (await response.json()) as MediaGenerationErrorResponse;
+    assert.equal(body.code, "unauthorized");
   });
 
   void it("rejects missing media request parameters", async () => {
@@ -345,8 +348,47 @@ void describe("local chat server /api/media/generate", () => {
     });
 
     assert.equal(response.status, 400);
-    const body = (await response.json()) as { error: string };
+    const body = (await response.json()) as MediaGenerationErrorResponse;
+    assert.equal(body.code, "invalid_request");
     assert.match(body.error, /prompt is required/);
+  });
+
+  void it("returns structured permission errors for disabled image generation groups", async () => {
+    const imageModel = new MockImageModelV4({
+      doGenerate: async () => {
+        throw new Error("Image generation is not enabled for this group");
+      },
+    });
+    const app = createApp({
+      sessionToken: token,
+      resolveMediaModel: ((modelRef: string, kind: MediaGenerationKind) => {
+        assert.equal(modelRef, "mock/image");
+        assert.equal(kind, "image");
+        return {
+          kind,
+          model: imageModel,
+          providerId: "mock",
+          providerKind: "openai-compatible",
+          modelId: "image",
+          capabilities: mediaCapabilities,
+          providerOptions: {},
+        };
+      }) as typeof import("../lib/providers").resolveMediaModel,
+      writeMediaAsset: ({ data, mediaType, kind, filename }) => ({
+        type: "file" as const,
+        mediaType,
+        filename: `${filename ?? kind}.bin`,
+        url: `void-media://asset/${kind}.bin`,
+        size: data.byteLength,
+      }),
+    });
+
+    const response = await postMedia(app, { kind: "image", model: "mock/image", prompt: "draw" });
+
+    assert.equal(response.status, 403);
+    const body = (await response.json()) as MediaGenerationErrorResponse;
+    assert.equal(body.code, "permission_denied");
+    assert.match(body.error, /not enabled for this group/);
   });
 
   void it("generates image, speech, transcription, and video responses", async () => {

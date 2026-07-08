@@ -183,7 +183,10 @@ export function buildMediaGenerationRequest({
   modelRef?: string | null;
   options?: MediaGenerationOptions;
 }): MediaGenerationRequest {
-  const resolvedModel = modelRef || selectMediaModelRef(providers, settings, kind);
+  const resolvedModel =
+    modelRef && mediaModelRefExists(providers, modelRef, kind)
+      ? modelRef
+      : selectMediaModelRef(providers, settings, kind);
   if (!resolvedModel) throw new Error(`No ${mediaKindLabel(kind)} model is available.`);
   const mergedOptions = compactMediaOptions(kind, {
     ...settings.defaults[kind]?.options,

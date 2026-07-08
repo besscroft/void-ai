@@ -1,0 +1,1335 @@
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Button, Card, Chip, Input, Label, Switch, Tabs, TextArea } from "@heroui/react";
+import {
+  CHAT_REASONING_LEVELS,
+  DEFAULT_AGENT_HANDOFF_CONFIG,
+  DEFAULT_AGENT_ID,
+  DEFAULT_AGENT_RUNTIME_CONFIG,
+  DEFAULT_AGENT_TOOL_POLICY,
+  normalizeAgentHandoffConfig,
+  normalizeAgentRuntimeConfig,
+  normalizeAgentToolPolicy,
+  type AgentHandoffConfig,
+  type AgentInput,
+  type AgentProfile,
+  type AgentRuntimeConfig,
+  type AgentRuntimeState,
+  type AgentToolPolicy,
+  type ChatReasoningLevel,
+  type ChatToolDescriptor,
+  type ChatToolReference,
+  type ManagedModelInfo,
+  type RuntimeEvent,
+  type RuntimeRun,
+  type RuntimeStep,
+} from "@shared/types";
+import { api } from "../lib/api";
+import { createClientChatToolDescriptors } from "../lib/chat-tools";
+import { useT, type TranslationKey } from "../lib/i18n";
+import { notify } from "../lib/toast";
+import { ConfirmDialog } from "./ConfirmDialog";
+import {
+  IconCheck,
+  IconClose,
+  IconCopy,
+  IconCpu,
+  IconEdit,
+  IconPlus,
+  IconRotateCcw,
+  IconTrash,
+} from "./icons";
+
+type AgentPanelTab = "active" | "draft" | "archived";
+type AgentDetailTab = "overview" | "instructions" | "runtime" | "tools";
+type AgentEditorTab = "basics" | "runtime" | "routing" | "tools";
+
+interface AgentsPanelProps {
+  agents: AgentProfile[];
+  events: RuntimeEvent[];
+  onRefresh: () => void;
+  loading?: boolean;
+}
+
+interface RuntimeSnapshotState {
+  runtimeRuns: RuntimeRun[];
+  runtimeSteps: RuntimeStep[];
+  agentRuntimeStates: AgentRuntimeState[];
+  runtimeEvents: RuntimeEvent[];
+}
+
+interface AgentFormState {
+  name: string;
+  role: string;
+  description: string;
+  avatar: string;
+  status: AgentProfile["status"];
+  enabled: boolean;
+  model_ref: string;
+  voice: string;
+  persona: string;
+  instructions: string;
+  runtimeConfig: AgentRuntimeConfig;
+  handoffConfig: AgentHandoffConfig;
+  toolPolicy: AgentToolPolicy;
+}
+
+interface AgentValidation {
+  name?: string;
+  role?: string;
+}
+
+const STATUS_KEYS: Record<string, TranslationKey> = {
+  active: "status.agent.active",
+  archived: "status.agent.archived",
+  draft: "status.agent.draft",
+};
+
+const RUNTIME_STATUS_KEYS: Record<string, TranslationKey> = {
+  failed: "status.run.failed",
+  handoff: "status.agentRuntime.handoff",
+  idle: "status.sync.idle",
+  learning: "status.agentRuntime.learning",
+  queued: "status.run.queued",
+  reviewing: "status.agentRuntime.reviewing",
+  running: "status.run.running",
+  sandbox: "status.agentRuntime.sandbox",
+  tool_calling: "status.agentRuntime.toolCalling",
+};
+
+const REVIEW_POLICY_KEYS: Record<
+  NonNullable<AgentRuntimeConfig["reviewPolicy"]>,
+  TranslationKey
+> = {
+  auto: "agents.option.review.auto",
+  inherit: "agents.option.review.inherit",
+  review_all: "agents.option.review.all",
+  review_sensitive: "agents.option.review.sensitive",
+};
+
+const SANDBOX_POLICY_KEYS: Record<
+  NonNullable<AgentRuntimeConfig["sandboxPolicy"]>,
+  TranslationKey
+> = {
+  disabled: "agents.option.sandbox.disabled",
+  docker: "agents.option.sandbox.docker",
+  inherit: "agents.option.sandbox.inherit",
+  local: "agents.option.sandbox.local",
+};
+
+const HANDOFF_MODE_KEYS: Record<AgentHandoffConfig["mode"], TranslationKey> = {
+  both: "agents.option.handoff.both",
+  consult: "agents.option.handoff.consult",
+  handoff: "agents.option.handoff.handoff",
+};
+
+const PRIORITY_KEYS: Record<AgentHandoffConfig["priority"], TranslationKey> = {
+  high: "agents.option.priority.high",
+  low: "agents.option.priority.low",
+  normal: "agents.option.priority.normal",
+};
+
+export function AgentsPanel({
+  agents,
+  events,
+  onRefresh,
+  loading = false,
+}: AgentsPanelProps): React.JSX.Element {
+  const { t, locale } = useT();
+  const [tab, setTab] = useState<AgentPanelTab>("active");
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<AgentDetailTab>("overview");
+  const [editorTab, setEditorTab] = useState<AgentEditorTab>("basics");
+  const [editing, setEditing] = useState<AgentProfile | null | "new">(null);
+  const [form, setForm] = useState<AgentFormState>(() => createAgentForm());
+  const [validation, setValidation] = useState<AgentValidation>({});
+  const [busy, setBusy] = useState(false);
+  const [pendingArchive, setPendingArchive] = useState<AgentProfile | null>(null);
+  const [managedModels, setManagedModels] = useState<ManagedModelInfo[]>([]);
+  const [tools, setTools] = useState<ChatToolDescriptor[]>([]);
+  const [runtime, setRuntime] = useState<RuntimeSnapshotState>({
+    runtimeRuns: [],
+    runtimeSteps: [],
+    agentRuntimeStates: [],
+    runtimeEvents: [],
+  });
+
+  const refreshRuntime = (): void => {
+    void api.agents.runtimeSnapshot().then((snapshot) =>
+      setRuntime({
+        runtimeRuns: snapshot.runtimeRuns,
+        runtimeSteps: snapshot.runtimeSteps,
+        agentRuntimeStates: snapshot.agentRuntimeStates,
+        runtimeEvents: snapshot.runtimeEvents,
+      }),
+    );
+  };
+
+  useEffect(() => {
+    refreshRuntime();
+    void api.providers
+      .listManagedModels()
+      .then((models) =>
+        setManagedModels(
+          models.filter((model) => model.enabled && model.capabilities.textGeneration),
+        ),
+      )
+      .catch(() => setManagedModels([]));
+    void Promise.all([api.tools.snapshot(), api.providers.list()])
+      .then(([snapshot, providers]) =>
+        setTools(
+          createClientChatToolDescriptors({
+            selectedModel: firstToolCallingModelRef(providers),
+            providers,
+            tools: snapshot,
+          }),
+        ),
+      )
+      .catch(() => setTools([]));
+  }, []);
+
+  useEffect(() => {
+    if (selectedId && !agents.some((agent) => agent.id === selectedId)) setSelectedId(null);
+  }, [agents, selectedId]);
+
+  const runtimeByAgent = useMemo(
+    () => new Map(runtime.agentRuntimeStates.map((state) => [state.agent_id, state])),
+    [runtime.agentRuntimeStates],
+  );
+  const selected =
+    agents.find((agent) => agent.id === selectedId) ??
+    agents.find((agent) => agent.id === DEFAULT_AGENT_ID) ??
+    agents[0] ??
+    null;
+  const activeChildren = agents.filter(
+    (agent) => agent.kind === "child" && agent.status === "active" && agent.enabled !== 0,
+  );
+  const visibleAgents = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return agents
+      .filter((agent) => {
+        if (tab !== "archived" && agent.status === "archived") return false;
+        if (tab === "archived" && agent.status !== "archived") return false;
+        if (tab === "draft" && agent.status !== "draft") return false;
+        if (tab === "active" && agent.status === "draft") return false;
+        if (!normalizedQuery) return true;
+        return [agent.name, agent.role, agent.description, agent.model_ref ?? ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
+      .sort((a, b) => {
+        if (a.id === DEFAULT_AGENT_ID) return -1;
+        if (b.id === DEFAULT_AGENT_ID) return 1;
+        return b.updated_at - a.updated_at;
+      });
+  }, [agents, query, tab]);
+
+  const runAction = async (action: () => Promise<unknown>, success: string): Promise<void> => {
+    setBusy(true);
+    try {
+      await action();
+      notify.success(success);
+      onRefresh();
+      refreshRuntime();
+    } catch (error) {
+      notify.error(t("agents.toast.failed"), error, locale);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openCreate = (): void => {
+    setEditing("new");
+    setForm(createAgentForm());
+    setValidation({});
+    setEditorTab("basics");
+  };
+
+  const openEdit = (agent: AgentProfile): void => {
+    setEditing(agent);
+    setForm(createAgentForm(agent));
+    setValidation({});
+    setEditorTab("basics");
+  };
+
+  const saveAgent = async (): Promise<void> => {
+    const nextValidation = validateAgentForm(form, t);
+    setValidation(nextValidation);
+    if (Object.keys(nextValidation).length > 0) return;
+    const input = formToAgentInput(form);
+    await runAction(
+      () =>
+        editing === "new"
+          ? api.agents.create(input)
+          : editing
+            ? api.agents.update(editing.id, input)
+            : Promise.resolve(),
+      editing === "new" ? t("agents.toast.created") : t("agents.toast.updated"),
+    );
+    setEditing(null);
+  };
+
+  const restoreAgent = (agent: AgentProfile): void => {
+    void runAction(() => api.agents.restore(agent.id), t("agents.toast.restored"));
+  };
+
+  const duplicateAgent = (agent: AgentProfile): void => {
+    void runAction(() => api.agents.duplicate(agent.id), t("agents.toast.duplicated"));
+  };
+
+  const archiveAgent = (): void => {
+    if (!pendingArchive) return;
+    const agent = pendingArchive;
+    setPendingArchive(null);
+    void runAction(() => api.agents.archive(agent.id), t("agents.toast.archived"));
+  };
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <MetricCard label={t("agents.metric.total")} value={agents.length} />
+          <MetricCard label={t("agents.metric.active")} value={activeChildren.length} />
+          <MetricCard label={t("agents.metric.running")} value={runningCount(runtime)} />
+        </div>
+
+        <Card>
+          <Card.Content className="space-y-4 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentTabKey(key))}>
+                <Tabs.List aria-label={t("agents.tabs.label")}>
+                  <Tabs.Tab id="active">{t("agents.tab.active")}</Tabs.Tab>
+                  <Tabs.Tab id="draft">{t("agents.tab.draft")}</Tabs.Tab>
+                  <Tabs.Tab id="archived">{t("agents.tab.archived")}</Tabs.Tab>
+                </Tabs.List>
+              </Tabs>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t("agents.search.placeholder")}
+                  className="w-64"
+                />
+                <Button variant="secondary" size="sm" onPress={onRefresh} isPending={loading}>
+                  <IconRotateCcw className="size-4" />
+                  {t("main.refresh")}
+                </Button>
+                <Button variant="primary" size="sm" onPress={openCreate}>
+                  <IconPlus className="size-4" />
+                  {t("agents.action.new")}
+                </Button>
+              </div>
+            </div>
+
+            {visibleAgents.length === 0 ? (
+              <EmptyState title={t("agents.empty")} />
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {visibleAgents.map((agent) => (
+                  <AgentCard
+                    key={agent.id}
+                    agent={agent}
+                    selected={agent.id === selected?.id}
+                    runtime={runtimeByAgent.get(agent.id)}
+                    onSelect={() => {
+                      setSelectedId(agent.id);
+                      setDetailTab("overview");
+                    }}
+                    onEdit={() => openEdit(agent)}
+                    onDuplicate={() => duplicateAgent(agent)}
+                    onArchive={() => setPendingArchive(agent)}
+                    onRestore={() => restoreAgent(agent)}
+                    busy={busy}
+                  />
+                ))}
+              </div>
+            )}
+          </Card.Content>
+        </Card>
+      </div>
+
+      <AgentDetail
+        agent={selected}
+        tab={detailTab}
+        setTab={setDetailTab}
+        runtime={selected ? runtimeByAgent.get(selected.id) : undefined}
+        runs={selected ? runsForAgent(runtime.runtimeRuns, selected.id) : []}
+        steps={selected ? stepsForAgent(runtime.runtimeSteps, selected.id) : []}
+        events={selected ? eventsForAgent([...runtime.runtimeEvents, ...events], selected.id) : []}
+        onEdit={() => selected && openEdit(selected)}
+      />
+
+      <AgentEditorModal
+        open={!!editing}
+        mode={editing === "new" ? "create" : "edit"}
+        form={form}
+        setForm={setForm}
+        validation={validation}
+        tab={editorTab}
+        setTab={setEditorTab}
+        managedModels={managedModels}
+        tools={tools}
+        busy={busy}
+        onSave={() => void saveAgent()}
+        onClose={() => setEditing(null)}
+      />
+
+      <ConfirmDialog
+        open={!!pendingArchive}
+        danger
+        title={t("agents.archive.title")}
+        message={t("agents.archive.message", { name: pendingArchive?.name ?? "" })}
+        confirmLabel={t("agents.action.archive")}
+        onConfirm={archiveAgent}
+        onClose={() => setPendingArchive(null)}
+      />
+    </div>
+  );
+}
+
+function AgentCard({
+  agent,
+  selected,
+  runtime,
+  onSelect,
+  onEdit,
+  onDuplicate,
+  onArchive,
+  onRestore,
+  busy,
+}: {
+  agent: AgentProfile;
+  selected: boolean;
+  runtime?: AgentRuntimeState;
+  onSelect: () => void;
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  busy: boolean;
+}): React.JSX.Element {
+  const { t, f } = useT();
+  const locked = agent.locked !== 0;
+  return (
+    <Card className={selected ? "border-accent/45 bg-accent/[0.035]" : ""}>
+      <Card.Header>
+        <div className="flex items-start justify-between gap-3">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-start gap-3 text-left"
+            onClick={onSelect}
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
+              {agent.avatar || agent.name.slice(0, 1)}
+            </span>
+            <span className="min-w-0">
+              <Card.Title className="truncate">{agent.name}</Card.Title>
+              <Card.Description className="truncate">{agent.role}</Card.Description>
+            </span>
+          </button>
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {locked ? (
+              <Chip size="sm" variant="soft">
+                {t("agents.locked")}
+              </Chip>
+            ) : null}
+            <StatusChip status={runtime?.status ?? agent.status} />
+          </div>
+        </div>
+      </Card.Header>
+      <Card.Content className="space-y-3">
+        <p className="line-clamp-3 min-h-12 text-sm text-foreground/60">
+          {agent.description || t("agents.noDescription")}
+        </p>
+        <div className="grid grid-cols-2 gap-2 text-xs text-foreground/50">
+          <Info label={t("agents.field.model")} value={agent.model_ref || t("agents.inherit")} />
+          <Info
+            label={t("agents.field.updated")}
+            value={agent.updated_at ? f.dateTime(agent.updated_at) : "-"}
+          />
+        </div>
+      </Card.Content>
+      <Card.Footer>
+        <div className="flex w-full flex-wrap justify-between gap-2">
+          <Button size="sm" variant="secondary" onPress={onSelect}>
+            <IconCpu className="size-4" />
+            {t("agents.action.details")}
+          </Button>
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" variant="secondary" onPress={onEdit} isDisabled={locked || busy}>
+              <IconEdit className="size-4" />
+              {t("common.edit")}
+            </Button>
+            <Button
+              size="sm"
+              variant="tertiary"
+              onPress={onDuplicate}
+              isDisabled={agent.status === "archived" || busy}
+            >
+              <IconCopy className="size-4" />
+              {t("agents.action.duplicate")}
+            </Button>
+            {agent.status === "archived" ? (
+              <Button size="sm" variant="secondary" onPress={onRestore} isDisabled={busy}>
+                <IconRotateCcw className="size-4" />
+                {t("agents.action.restore")}
+              </Button>
+            ) : (
+              <Button size="sm" variant="danger" onPress={onArchive} isDisabled={locked || busy}>
+                <IconTrash className="size-4" />
+                {t("agents.action.archive")}
+              </Button>
+            )}
+          </div>
+        </div>
+      </Card.Footer>
+    </Card>
+  );
+}
+
+function AgentDetail({
+  agent,
+  tab,
+  setTab,
+  runtime,
+  runs,
+  steps,
+  events,
+  onEdit,
+}: {
+  agent: AgentProfile | null;
+  tab: AgentDetailTab;
+  setTab: (tab: AgentDetailTab) => void;
+  runtime?: AgentRuntimeState;
+  runs: RuntimeRun[];
+  steps: RuntimeStep[];
+  events: RuntimeEvent[];
+  onEdit: () => void;
+}): React.JSX.Element {
+  const { t, f } = useT();
+  if (!agent) {
+    return (
+      <Card>
+        <Card.Content className="flex min-h-96 items-center justify-center p-4 text-sm text-foreground/45">
+          {t("agents.empty")}
+        </Card.Content>
+      </Card>
+    );
+  }
+  const runtimeConfig = normalizeAgentRuntimeConfig(agent.runtime_config_json);
+  const handoffConfig = normalizeAgentHandoffConfig(agent.handoff_config_json);
+  const toolPolicy = normalizeAgentToolPolicy(agent.tool_policy_json);
+  return (
+    <Card className="xl:sticky xl:top-0">
+      <Card.Header>
+        <div className="flex w-full items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="flex size-9 items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
+                {agent.avatar || agent.name.slice(0, 1)}
+              </span>
+              <div className="min-w-0">
+                <Card.Title className="truncate">{agent.name}</Card.Title>
+                <Card.Description className="truncate">{agent.role}</Card.Description>
+              </div>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onPress={onEdit}
+            isDisabled={agent.locked !== 0 || agent.status === "archived"}
+          >
+            <IconEdit className="size-4" />
+            {t("common.edit")}
+          </Button>
+        </div>
+      </Card.Header>
+      <Card.Content className="space-y-4 p-4">
+        <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentDetailTabKey(key))}>
+          <Tabs.List aria-label={t("agents.detail.tabs")}>
+            <Tabs.Tab id="overview">{t("agents.tab.overview")}</Tabs.Tab>
+            <Tabs.Tab id="instructions">{t("agents.tab.instructions")}</Tabs.Tab>
+            <Tabs.Tab id="runtime">{t("agents.tab.runtime")}</Tabs.Tab>
+            <Tabs.Tab id="tools">{t("agents.tab.tools")}</Tabs.Tab>
+          </Tabs.List>
+        </Tabs>
+
+        {tab === "overview" ? (
+          <div className="space-y-3">
+            <p className="text-sm leading-6 text-foreground/65">
+              {agent.description || t("agents.noDescription")}
+            </p>
+            <DetailGrid
+              rows={[
+                [t("agents.field.status"), labelFor(t, STATUS_KEYS, agent.status)],
+                [
+                  t("agents.field.enabled"),
+                  agent.enabled ? t("main.value.enabled") : t("main.value.disabled"),
+                ],
+                [t("agents.field.model"), agent.model_ref || t("agents.inherit")],
+                [t("agents.field.voice"), agent.voice || t("common.none")],
+                [t("agents.field.updated"), f.dateTime(agent.updated_at)],
+              ]}
+            />
+          </div>
+        ) : null}
+
+        {tab === "instructions" ? (
+          <div className="space-y-3">
+            <ReadBlock title={t("agents.field.persona")}>{agent.personality}</ReadBlock>
+            <ReadBlock title={t("agents.field.instructions")}>{agent.soul_prompt}</ReadBlock>
+          </div>
+        ) : null}
+
+        {tab === "runtime" ? (
+          <div className="space-y-4">
+            <DetailGrid
+              rows={[
+                [
+                  t("agents.field.runtimeStatus"),
+                  labelFor(t, RUNTIME_STATUS_KEYS, runtime?.status ?? "idle"),
+                ],
+                [t("agents.field.maxTurns"), String(runtimeConfig.maxTurns)],
+                [
+                  t("agents.field.reviewPolicy"),
+                  labelFor(t, REVIEW_POLICY_KEYS, runtimeConfig.reviewPolicy ?? "review_sensitive"),
+                ],
+                [
+                  t("agents.field.sandboxPolicy"),
+                  labelFor(t, SANDBOX_POLICY_KEYS, runtimeConfig.sandboxPolicy ?? "local"),
+                ],
+                [
+                  t("agents.field.handoff"),
+                  `${labelFor(t, HANDOFF_MODE_KEYS, handoffConfig.mode)} / ${labelFor(
+                    t,
+                    PRIORITY_KEYS,
+                    handoffConfig.priority,
+                  )}`,
+                ],
+              ]}
+            />
+            <MiniList
+              title={t("agents.section.runs")}
+              empty={t("agents.noRuns")}
+              items={runs.slice(0, 5).map((run) => ({
+                id: run.id,
+                title: run.input_summary || run.output_summary || run.id,
+                detail: `${labelFor(t, RUNTIME_STATUS_KEYS, run.status)} / ${f.dateTime(run.started_at)}`,
+              }))}
+            />
+            <MiniList
+              title={t("agents.section.steps")}
+              empty={t("agents.noSteps")}
+              items={steps.slice(0, 5).map((step) => ({
+                id: step.id,
+                title: step.title,
+                detail: `${step.kind} / ${labelFor(t, RUNTIME_STATUS_KEYS, step.status)}`,
+              }))}
+            />
+          </div>
+        ) : null}
+
+        {tab === "tools" ? (
+          <div className="space-y-4">
+            <DetailGrid
+              rows={[
+                [
+                  t("agents.field.toolMode"),
+                  toolPolicy.mode === "custom"
+                    ? t("agents.option.toolPolicy.custom")
+                    : t("agents.option.toolPolicy.inherit"),
+                ],
+                [
+                  t("agents.field.allowedTools"),
+                  toolPolicy.allowedToolIds.length
+                    ? String(toolPolicy.allowedToolIds.length)
+                    : t("agents.inherit"),
+                ],
+                [t("agents.field.approvalTools"), String(toolPolicy.requireApprovalToolIds.length)],
+              ]}
+            />
+            <MiniList
+              title={t("agents.section.activity")}
+              empty={t("agents.noActivity")}
+              items={events.slice(0, 8).map((event) => ({
+                id: event.id,
+                title: event.title,
+                detail: `${event.kind} / ${labelFor(t, RUNTIME_STATUS_KEYS, event.status)} / ${f.dateTime(
+                  event.created_at,
+                )}`,
+              }))}
+            />
+          </div>
+        ) : null}
+      </Card.Content>
+    </Card>
+  );
+}
+
+function AgentEditorModal({
+  open,
+  mode,
+  form,
+  setForm,
+  validation,
+  tab,
+  setTab,
+  managedModels,
+  tools,
+  busy,
+  onSave,
+  onClose,
+}: {
+  open: boolean;
+  mode: "create" | "edit";
+  form: AgentFormState;
+  setForm: (form: AgentFormState) => void;
+  validation: AgentValidation;
+  tab: AgentEditorTab;
+  setTab: (tab: AgentEditorTab) => void;
+  managedModels: ManagedModelInfo[];
+  tools: ChatToolDescriptor[];
+  busy: boolean;
+  onSave: () => void;
+  onClose: () => void;
+}): React.JSX.Element | null {
+  const { t } = useT();
+  if (!open) return null;
+  const patch = (value: Partial<AgentFormState>): void => setForm({ ...form, ...value });
+  const patchRuntime = (value: Partial<AgentRuntimeConfig>): void =>
+    patch({ runtimeConfig: { ...form.runtimeConfig, ...value } });
+  const patchHandoff = (value: Partial<AgentHandoffConfig>): void =>
+    patch({ handoffConfig: { ...form.handoffConfig, ...value } });
+  const patchTools = (value: Partial<AgentToolPolicy>): void =>
+    patch({ toolPolicy: { ...form.toolPolicy, ...value } });
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="agent-editor-title"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-foreground/10 px-5 py-4">
+          <div>
+            <h2 id="agent-editor-title" className="text-base font-semibold">
+              {mode === "create" ? t("agents.editor.create") : t("agents.editor.edit")}
+            </h2>
+            <p className="mt-1 text-sm text-foreground/50">{t("agents.editor.subtitle")}</p>
+          </div>
+          <Button
+            isIconOnly
+            size="sm"
+            variant="tertiary"
+            onPress={onClose}
+            aria-label={t("common.close")}
+          >
+            <IconClose className="size-4" />
+          </Button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <div className="space-y-5">
+            <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentEditorTabKey(key))}>
+              <Tabs.List aria-label={t("agents.editor.tabs")}>
+                <Tabs.Tab id="basics">{t("agents.tab.basics")}</Tabs.Tab>
+                <Tabs.Tab id="runtime">{t("agents.tab.runtime")}</Tabs.Tab>
+                <Tabs.Tab id="routing">{t("agents.tab.routing")}</Tabs.Tab>
+                <Tabs.Tab id="tools">{t("agents.tab.tools")}</Tabs.Tab>
+              </Tabs.List>
+            </Tabs>
+
+            {tab === "basics" ? (
+              <div className="grid gap-4">
+                <div className="grid gap-3 md:grid-cols-[1fr_120px]">
+                  <Field label={t("agents.field.name")} error={validation.name}>
+                    <Input
+                      value={form.name}
+                      onChange={(event) => patch({ name: event.target.value })}
+                    />
+                  </Field>
+                  <Field label={t("agents.field.avatar")}>
+                    <Input
+                      value={form.avatar}
+                      onChange={(event) => patch({ avatar: event.target.value })}
+                      maxLength={4}
+                    />
+                  </Field>
+                </div>
+                <Field label={t("agents.field.role")} error={validation.role}>
+                  <Input
+                    value={form.role}
+                    onChange={(event) => patch({ role: event.target.value })}
+                  />
+                </Field>
+                <Field label={t("agents.field.description")}>
+                  <TextArea
+                    rows={3}
+                    value={form.description}
+                    onChange={(event) => patch({ description: event.target.value })}
+                  />
+                </Field>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label={t("agents.field.model")}>
+                    <select
+                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      value={form.model_ref}
+                      onChange={(event) => patch({ model_ref: event.target.value })}
+                    >
+                      <option value="">{t("agents.inherit")}</option>
+                      {managedModels.map((model) => (
+                        <option key={model.ref} value={model.ref}>
+                          {model.providerLabel} / {model.modelLabel ?? model.modelId}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label={t("agents.field.voice")}>
+                    <Input
+                      value={form.voice}
+                      onChange={(event) => patch({ voice: event.target.value })}
+                    />
+                  </Field>
+                </div>
+                <Field label={t("agents.field.persona")}>
+                  <TextArea
+                    rows={4}
+                    value={form.persona}
+                    onChange={(event) => patch({ persona: event.target.value })}
+                  />
+                </Field>
+                <Field label={t("agents.field.instructions")}>
+                  <TextArea
+                    rows={7}
+                    value={form.instructions}
+                    onChange={(event) => patch({ instructions: event.target.value })}
+                  />
+                </Field>
+              </div>
+            ) : null}
+
+            {tab === "runtime" ? (
+              <div className="grid gap-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Field label={t("agents.field.status")}>
+                    <select
+                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      value={form.status}
+                      onChange={(event) =>
+                        patch({ status: event.target.value as AgentProfile["status"] })
+                      }
+                    >
+                      <option value="active">{t("status.agent.active")}</option>
+                      <option value="draft">{t("status.agent.draft")}</option>
+                      <option value="archived">{t("status.agent.archived")}</option>
+                    </select>
+                  </Field>
+                  <Field label={t("agents.field.maxTurns")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.maxTurns)}
+                      onChange={(event) =>
+                        patchRuntime({ maxTurns: clampInteger(event.target.value, 1, 20, 8) })
+                      }
+                    />
+                  </Field>
+                  <Field label={t("agents.field.reasoning")}>
+                    <select
+                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      value={form.runtimeConfig.reasoning ?? "provider-default"}
+                      onChange={(event) =>
+                        patchRuntime({ reasoning: event.target.value as ChatReasoningLevel })
+                      }
+                    >
+                      {CHAT_REASONING_LEVELS.map((level) => (
+                        <option key={level} value={level}>
+                          {level}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Field label={t("agents.field.temperature")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.temperature ?? "")}
+                      onChange={(event) =>
+                        patchRuntime({ temperature: optionalNumber(event.target.value, 0, 2) })
+                      }
+                    />
+                  </Field>
+                  <Field label={t("agents.field.topP")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.topP ?? "")}
+                      onChange={(event) =>
+                        patchRuntime({ topP: optionalNumber(event.target.value, 0, 1) })
+                      }
+                    />
+                  </Field>
+                  <Field label={t("agents.field.maxOutputTokens")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.maxOutputTokens ?? "")}
+                      onChange={(event) =>
+                        patchRuntime({
+                          maxOutputTokens: optionalNumber(event.target.value, 1, 32768),
+                        })
+                      }
+                    />
+                  </Field>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label={t("agents.field.reviewPolicy")}>
+                    <select
+                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      value={form.runtimeConfig.reviewPolicy ?? "review_sensitive"}
+                      onChange={(event) =>
+                        patchRuntime({
+                          reviewPolicy: event.target.value as NonNullable<
+                            AgentRuntimeConfig["reviewPolicy"]
+                          >,
+                        })
+                      }
+                    >
+                      {Object.entries(REVIEW_POLICY_KEYS).map(([value, key]) => (
+                        <option key={value} value={value}>
+                          {t(key)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label={t("agents.field.sandboxPolicy")}>
+                    <select
+                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      value={form.runtimeConfig.sandboxPolicy ?? "local"}
+                      onChange={(event) =>
+                        patchRuntime({
+                          sandboxPolicy: event.target.value as NonNullable<
+                            AgentRuntimeConfig["sandboxPolicy"]
+                          >,
+                        })
+                      }
+                    >
+                      {Object.entries(SANDBOX_POLICY_KEYS).map(([value, key]) => (
+                        <option key={value} value={value}>
+                          {t(key)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                <Switch isSelected={form.enabled} onChange={(enabled) => patch({ enabled })}>
+                  <Switch.Content>
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                    {t("agents.enabled")}
+                  </Switch.Content>
+                </Switch>
+              </div>
+            ) : null}
+
+            {tab === "routing" ? (
+              <div className="grid gap-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label={t("agents.field.handoff")}>
+                    <select
+                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      value={form.handoffConfig.mode}
+                      onChange={(event) =>
+                        patchHandoff({ mode: event.target.value as AgentHandoffConfig["mode"] })
+                      }
+                    >
+                      {Object.entries(HANDOFF_MODE_KEYS).map(([value, key]) => (
+                        <option key={value} value={value}>
+                          {t(key)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label={t("agents.field.priority")}>
+                    <select
+                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      value={form.handoffConfig.priority}
+                      onChange={(event) =>
+                        patchHandoff({
+                          priority: event.target.value as AgentHandoffConfig["priority"],
+                        })
+                      }
+                    >
+                      {Object.entries(PRIORITY_KEYS).map(([value, key]) => (
+                        <option key={value} value={value}>
+                          {t(key)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                <Field label={t("agents.field.accepts")}>
+                  <TextArea
+                    rows={3}
+                    value={form.handoffConfig.accepts.join(", ")}
+                    onChange={(event) =>
+                      patchHandoff({ accepts: splitList(event.target.value).slice(0, 12) })
+                    }
+                  />
+                </Field>
+                <Field label={t("agents.field.expectedOutput")}>
+                  <TextArea
+                    rows={4}
+                    value={form.handoffConfig.expectedOutput}
+                    onChange={(event) => patchHandoff({ expectedOutput: event.target.value })}
+                  />
+                </Field>
+              </div>
+            ) : null}
+
+            {tab === "tools" ? (
+              <div className="space-y-4">
+                <Field label={t("agents.field.toolMode")}>
+                  <select
+                    className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                    value={form.toolPolicy.mode}
+                    onChange={(event) =>
+                      patchTools({ mode: event.target.value === "custom" ? "custom" : "inherit" })
+                    }
+                  >
+                    <option value="inherit">{t("agents.option.toolPolicy.inherit")}</option>
+                    <option value="custom">{t("agents.option.toolPolicy.custom")}</option>
+                  </select>
+                </Field>
+                <ToolChecklist
+                  title={t("agents.field.allowedTools")}
+                  tools={tools}
+                  disabled={form.toolPolicy.mode !== "custom"}
+                  selected={form.toolPolicy.allowedToolIds}
+                  onChange={(allowedToolIds) => patchTools({ allowedToolIds })}
+                />
+                <ToolChecklist
+                  title={t("agents.field.approvalTools")}
+                  tools={tools}
+                  selected={form.toolPolicy.requireApprovalToolIds}
+                  onChange={(requireApprovalToolIds) => patchTools({ requireApprovalToolIds })}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <footer className="flex justify-end gap-2 border-t border-foreground/10 px-5 py-4">
+          <Button variant="tertiary" onPress={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button variant="primary" isPending={busy} onPress={onSave}>
+            <IconCheck className="size-4" />
+            {t("agents.action.save")}
+          </Button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function ToolChecklist({
+  title,
+  tools,
+  selected,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  tools: ChatToolDescriptor[];
+  selected: ChatToolReference[];
+  disabled?: boolean;
+  onChange: (ids: ChatToolReference[]) => void;
+}): React.JSX.Element {
+  const { t } = useT();
+  const selectedSet = new Set(selected);
+  const toggle = (id: ChatToolReference, enabled: boolean): void => {
+    onChange(enabled ? [...selectedSet, id] : selected.filter((item) => item !== id));
+  };
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-medium">{title}</h3>
+      <div className="max-h-64 overflow-y-auto rounded-md border border-foreground/10">
+        {tools.length === 0 ? (
+          <p className="px-3 py-4 text-sm text-foreground/45">{t("agents.noTools")}</p>
+        ) : (
+          tools.map((tool) => (
+            <label
+              key={tool.id}
+              className="flex items-start gap-3 border-b border-foreground/10 px-3 py-2 text-sm last:border-b-0"
+            >
+              <input
+                type="checkbox"
+                className="mt-1"
+                disabled={disabled}
+                checked={selectedSet.has(tool.id)}
+                onChange={(event) => toggle(tool.id, event.currentTarget.checked)}
+              />
+              <span className="min-w-0">
+                <span className="block font-medium">{tool.label}</span>
+                <span className="line-clamp-2 text-xs text-foreground/50">{tool.description}</span>
+              </span>
+            </label>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function createAgentForm(agent?: AgentProfile): AgentFormState {
+  const runtimeConfig = normalizeAgentRuntimeConfig(
+    agent?.runtime_config_json,
+    DEFAULT_AGENT_RUNTIME_CONFIG,
+  );
+  return {
+    name: agent?.name ?? "",
+    role: agent?.role ?? "",
+    description: agent?.description ?? "",
+    avatar: agent?.avatar ?? "",
+    status: agent?.status ?? "draft",
+    enabled: agent?.enabled !== 0,
+    model_ref: agent?.model_ref ?? "",
+    voice: agent?.voice ?? "",
+    persona: agent?.personality ?? "",
+    instructions: agent?.soul_prompt ?? "",
+    runtimeConfig,
+    handoffConfig: normalizeAgentHandoffConfig(
+      agent?.handoff_config_json,
+      DEFAULT_AGENT_HANDOFF_CONFIG,
+    ),
+    toolPolicy: normalizeAgentToolPolicy(agent?.tool_policy_json, DEFAULT_AGENT_TOOL_POLICY),
+  };
+}
+
+function formToAgentInput(form: AgentFormState): AgentInput {
+  return {
+    avatar: form.avatar.trim() || form.name.trim().slice(0, 1).toUpperCase(),
+    description: form.description.trim(),
+    enabled: form.enabled,
+    handoff_config_json: JSON.stringify(form.handoffConfig),
+    model_ref: form.model_ref || null,
+    name: form.name.trim(),
+    personality: form.persona.trim(),
+    role: form.role.trim(),
+    runtime_config_json: JSON.stringify(form.runtimeConfig),
+    soul_prompt: form.instructions.trim(),
+    status: form.status,
+    tool_policy_json: JSON.stringify(form.toolPolicy),
+    voice: form.voice.trim() || null,
+  };
+}
+
+function validateAgentForm(form: AgentFormState, t: (key: string) => string): AgentValidation {
+  return {
+    ...(form.name.trim() ? {} : { name: t("agents.validation.required") }),
+    ...(form.role.trim() ? {} : { role: t("agents.validation.required") }),
+  };
+}
+
+function MetricCard({ label, value }: { label: string; value: ReactNode }): React.JSX.Element {
+  return (
+    <Card>
+      <Card.Content className="p-4">
+        <p className="text-xs text-foreground/45">{label}</p>
+        <p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
+      </Card.Content>
+    </Card>
+  );
+}
+
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string;
+  children: ReactNode;
+}): React.JSX.Element {
+  return (
+    <label className="grid gap-1.5">
+      <Label className="text-xs font-medium text-foreground/50">{label}</Label>
+      {children}
+      {error ? <span className="text-xs text-danger">{error}</span> : null}
+    </label>
+  );
+}
+
+function Info({ label, value }: { label: string; value: ReactNode }): React.JSX.Element {
+  return (
+    <div>
+      <p>{label}</p>
+      <p className="mt-1 truncate text-foreground/70">{value}</p>
+    </div>
+  );
+}
+
+function StatusChip({ status }: { status: string }): React.JSX.Element {
+  const { t } = useT();
+  const color =
+    status === "active" || status === "succeeded"
+      ? "success"
+      : status === "failed" || status === "archived"
+        ? "danger"
+        : status === "running" || status === "queued" || status === "tool_calling"
+          ? "accent"
+          : "default";
+  return (
+    <Chip size="sm" color={color} variant="soft">
+      {labelFor(t, { ...STATUS_KEYS, ...RUNTIME_STATUS_KEYS }, status)}
+    </Chip>
+  );
+}
+
+function DetailGrid({ rows }: { rows: Array<[string, ReactNode]> }): React.JSX.Element {
+  return (
+    <div className="grid gap-2 rounded-md border border-foreground/10 px-3 py-3 text-sm">
+      {rows.map(([label, value]) => (
+        <div key={label} className="grid gap-1 sm:grid-cols-[112px_minmax(0,1fr)]">
+          <span className="text-foreground/40">{label}</span>
+          <span className="min-w-0 break-words text-foreground/70">{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReadBlock({ title, children }: { title: string; children: ReactNode }): React.JSX.Element {
+  const { t } = useT();
+  return (
+    <section>
+      <h3 className="text-sm font-medium">{title}</h3>
+      <div className="mt-2 rounded-md border border-foreground/10 bg-foreground/[0.025] p-3 text-sm leading-6 text-foreground/65">
+        {children || t("agents.emptyField")}
+      </div>
+    </section>
+  );
+}
+
+function MiniList({
+  title,
+  empty,
+  items,
+}: {
+  title: string;
+  empty: string;
+  items: Array<{ id: string; title: string; detail: string }>;
+}): React.JSX.Element {
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-medium">{title}</h3>
+      {items.length === 0 ? (
+        <p className="rounded-md border border-dashed border-foreground/15 px-3 py-4 text-sm text-foreground/45">
+          {empty}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <div key={item.id} className="rounded-md border border-foreground/10 px-3 py-2">
+              <p className="truncate text-sm font-medium">{item.title}</p>
+              <p className="mt-1 truncate text-xs text-foreground/45">{item.detail}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EmptyState({ title }: { title: string }): React.JSX.Element {
+  return (
+    <div className="rounded-md border border-dashed border-foreground/15 px-4 py-10 text-center text-sm text-foreground/45">
+      {title}
+    </div>
+  );
+}
+
+function runningCount(runtime: RuntimeSnapshotState): number {
+  return runtime.agentRuntimeStates.filter((state) =>
+    ["queued", "running", "reviewing", "handoff", "tool_calling", "sandbox", "learning"].includes(
+      state.status,
+    ),
+  ).length;
+}
+
+function runsForAgent(runs: RuntimeRun[], agentId: string): RuntimeRun[] {
+  return runs.filter((run) => run.root_agent_id === agentId || run.final_agent_id === agentId);
+}
+
+function stepsForAgent(steps: RuntimeStep[], agentId: string): RuntimeStep[] {
+  return steps.filter((step) => step.agent_id === agentId);
+}
+
+function eventsForAgent(events: RuntimeEvent[], agentId: string): RuntimeEvent[] {
+  const seen = new Set<string>();
+  return events.filter((event) => {
+    if (seen.has(event.id)) return false;
+    const match = event.agent_id === agentId || event.detail_json.includes(agentId);
+    if (match) seen.add(event.id);
+    return match;
+  });
+}
+
+function firstToolCallingModelRef(
+  providers: Array<{
+    id: string;
+    models: Array<{ id: string; capabilities: { toolCalling: boolean } }>;
+  }>,
+): string | null {
+  for (const provider of providers) {
+    const model = provider.models.find((item) => item.capabilities.toolCalling);
+    if (model) return `${provider.id}/${model.id}`;
+  }
+  return null;
+}
+
+function labelFor(
+  t: (key: string) => string,
+  keys: Record<string, TranslationKey>,
+  value: string,
+): string {
+  const key = keys[value];
+  return key ? t(key) : value;
+}
+
+function agentTabKey(key: unknown): AgentPanelTab {
+  return key === "draft" || key === "archived" ? key : "active";
+}
+
+function agentDetailTabKey(key: unknown): AgentDetailTab {
+  return key === "instructions" || key === "runtime" || key === "tools" ? key : "overview";
+}
+
+function agentEditorTabKey(key: unknown): AgentEditorTab {
+  return key === "runtime" || key === "routing" || key === "tools" ? key : "basics";
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function clampInteger(value: string, min: number, max: number, fallback: number): number {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function optionalNumber(value: string, min: number, max: number): number | undefined {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.min(max, Math.max(min, parsed));
+}

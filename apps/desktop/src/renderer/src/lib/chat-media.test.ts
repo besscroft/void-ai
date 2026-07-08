@@ -39,6 +39,7 @@ const mediaCapabilities: ModelCapabilities = {
 void describe("chat media helpers", () => {
   void it("detects only high-confidence explicit media intents", () => {
     assert.equal(detectMediaIntent("generate an image of a glass city")?.kind, "image");
+    assert.equal(detectMediaIntent("帮我画一张海边日落的图片")?.kind, "image");
     assert.equal(detectMediaIntent("请生成视频：海边日落")?.kind, "video");
     assert.equal(detectMediaIntent("text to speech: hello")?.kind, "speech");
     assert.equal(
@@ -93,6 +94,21 @@ void describe("chat media helpers", () => {
       audio: { url: "data:audio/wav;base64,AA==", mediaType: "audio/wav", filename: "clip.wav" },
       options: {},
     });
+  });
+
+  void it("falls back when an explicit media model lacks the requested capability", () => {
+    const providers = [provider()];
+    const settings = parseMediaGenerationSettings(null);
+    const image = buildMediaGenerationRequest({
+      kind: "image",
+      text: "draw a quiet dashboard",
+      files: [],
+      providers,
+      settings,
+      modelRef: "mock/chat",
+    });
+
+    assert.equal(image.model, "mock/media");
   });
 
   void it("builds assistant pending and result messages with file parts", () => {

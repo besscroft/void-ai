@@ -1151,6 +1151,21 @@ export interface MediaGenerationResponse {
   metadata?: JsonObject;
 }
 
+export type MediaGenerationErrorCode =
+  | "unauthorized"
+  | "invalid_request"
+  | "no_model"
+  | "unsupported_model"
+  | "permission_denied"
+  | "upstream_error";
+
+export interface MediaGenerationErrorResponse {
+  error: string;
+  code: MediaGenerationErrorCode;
+  kind?: MediaGenerationKind;
+  model?: string;
+}
+
 export interface MediaGenerationKindSettings {
   modelRef: string | null;
   options: MediaGenerationOptions;

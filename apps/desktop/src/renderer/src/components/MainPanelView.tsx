@@ -8,6 +8,7 @@ import {
   type WorkflowDefinition,
 } from "../lib/api";
 import { useT } from "../lib/i18n";
+import { AgentsPanel } from "./AgentsPanel";
 import { ToolsPanel } from "./ToolsPanel";
 import { IconDatabase, IconRotateCcw, IconSliders } from "./icons";
 
@@ -72,76 +73,18 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
           </Button>
         </div>
 
-        {section === "agents" && <AgentsPanel agents={data.agents} events={data.runtimeEvents} />}
+        {section === "agents" && (
+          <AgentsPanel
+            agents={data.agents}
+            events={data.runtimeEvents}
+            onRefresh={refresh}
+            loading={loading}
+          />
+        )}
         {section === "workflows" && <WorkflowsPanel workflows={data.workflows} />}
         {section === "memory" && <MemoryPanel memories={data.memories} />}
       </div>
     </main>
-  );
-}
-
-function AgentsPanel({
-  agents,
-  events,
-}: {
-  agents: AgentProfile[];
-  events: RuntimeEvent[];
-}): React.JSX.Element {
-  const { t } = useT();
-  const activeAgents = agents.filter((agent) => agent.status === "active");
-  return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-      <div className="grid gap-3 md:grid-cols-2">
-        {agents.map((agent) => (
-          <Card key={agent.id}>
-            <Card.Header>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <Card.Title>{agent.name}</Card.Title>
-                  <Card.Description>{agent.role}</Card.Description>
-                </div>
-                <Chip
-                  size="sm"
-                  variant="soft"
-                  color={agent.status === "active" ? "success" : "default"}
-                >
-                  {agent.status}
-                </Chip>
-              </div>
-            </Card.Header>
-            <Card.Content className="space-y-3">
-              <p className="line-clamp-3 text-sm text-foreground/60">{agent.description}</p>
-              <div className="grid grid-cols-2 gap-2 text-xs text-foreground/45">
-                <Info
-                  label={t("main.agent.field.model")}
-                  value={agent.model_ref ?? t("main.agent.inherit")}
-                />
-                <Info
-                  label={t("main.agent.field.enabled")}
-                  value={agent.enabled ? t("main.value.enabled") : t("main.value.disabled")}
-                />
-              </div>
-            </Card.Content>
-          </Card>
-        ))}
-      </div>
-      <Card>
-        <Card.Header>
-          <Card.Title>{t("main.section.recentRuntime")}</Card.Title>
-          <Card.Description>
-            {t("main.metric.activeAgents", { count: activeAgents.length })}
-          </Card.Description>
-        </Card.Header>
-        <Card.Content className="space-y-2">
-          {events.slice(0, 8).map((event) => (
-            <RuntimeEventRow key={event.id} event={event} />
-          ))}
-          {events.length === 0 && (
-            <p className="text-sm text-foreground/45">{t("tools.audit.empty")}</p>
-          )}
-        </Card.Content>
-      </Card>
-    </div>
   );
 }
 
@@ -212,26 +155,6 @@ function MemoryPanel({ memories }: { memories: MemoryRecord[] }): React.JSX.Elem
           <EmptyState icon={<IconDatabase />} title={t("main.title.memory")} />
         )}
       </div>
-    </div>
-  );
-}
-
-function RuntimeEventRow({ event }: { event: RuntimeEvent }): React.JSX.Element {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-foreground/10 px-3 py-2 text-sm">
-      <span className="min-w-0 truncate">{event.title}</span>
-      <Chip size="sm" variant="soft" color={event.status === "failed" ? "danger" : "default"}>
-        {event.kind}
-      </Chip>
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }): React.JSX.Element {
-  return (
-    <div>
-      <p>{label}</p>
-      <p className="mt-1 truncate text-foreground/70">{value}</p>
     </div>
   );
 }

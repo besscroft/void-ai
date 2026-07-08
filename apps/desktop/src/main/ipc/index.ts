@@ -210,6 +210,18 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
 
   // ---------- tools: MCP + Workflow Skills ----------
   ipcMain.handle("tools:snapshot", () => getToolsSnapshot());
+  ipcMain.handle(
+    "tools:updateTool",
+    (
+      _e,
+      id: string,
+      patch: {
+        enabled?: boolean | number;
+        auto_use?: boolean | number;
+        requires_approval?: boolean | number;
+      },
+    ) => updateToolRecord(id, patch),
+  );
   ipcMain.handle("tools:mcp:create", (_e, input: ToolServerInput) => createToolServer(input));
   ipcMain.handle("tools:mcp:update", async (_e, id: string, input: Partial<ToolServerInput>) => {
     const server = updateToolServer(id, input);

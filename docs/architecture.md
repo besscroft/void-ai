@@ -101,7 +101,27 @@ Tools owns:
 - Approval and auto-use indicators.
 - Local secret references.
 
+Tools is a management surface, not a read-only inventory. It supports adding, editing,
+deleting, enabling, testing, and discovering MCP servers across `stdio`, `http`, and `sse`
+transports. Tool records from MCP servers, built-in tools, Skills, and sandbox tools share
+the same enable, auto-use, and approval switches through `tools:updateTool`.
+
+Skills are stored as tool records with trigger keywords, tags, config schema, config JSON,
+workflow steps, secrets, and run history. The Skill runtime records each manual or model-led
+execution into Runtime events so diagnostics remain centralized.
+
 Agents owns identity and policy. Workflows owns reusable process definitions. Runtime owns observed execution facts.
+
+Agents is also a management surface. It supports create, edit, duplicate, archive, restore,
+enable/disable, model override, runtime policy, routing policy, tool policy, and per-agent
+runtime history. Agent routing only considers active, unlocked, enabled child agents.
+
+Media generation is routed by capability instead of by the currently selected chat model.
+Image requests require an `imageOutput` model, speech requests require `speechOutput`,
+transcription requires `transcription`, and video requires `videoOutput`. The local media
+endpoint returns structured error codes for unauthorized sessions, invalid requests, missing
+models, unsupported models, provider permission failures, and upstream failures. Renderer UI
+maps those codes to localized, actionable messages.
 
 ## Seeding
 

@@ -109,6 +109,7 @@ export const api = {
         | "sandboxSessions"
         | "sandboxSnapshots"
         | "sandboxArtifacts"
+        | "runtimeEvents"
       >
     > => assertApi().agents.runtimeSnapshot(),
     save: (agent: AgentProfile): Promise<boolean> => assertApi().agents.save(agent),
@@ -146,6 +147,10 @@ export const api = {
   },
   tools: {
     snapshot: (): Promise<ToolsSnapshot> => assertApi().tools.snapshot(),
+    updateTool: (
+      id: string,
+      patch: Partial<Record<"enabled" | "auto_use" | "requires_approval", boolean | number>>,
+    ): Promise<ToolRecord> => assertApi().tools.updateTool(id, patch),
     mcp: {
       create: (input: ToolServerInput): Promise<ToolServer> => assertApi().tools.mcp.create(input),
       update: (id: string, input: Partial<ToolServerInput>): Promise<ToolServer> =>
