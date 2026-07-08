@@ -3358,7 +3358,7 @@ function TrashTab(): React.JSX.Element {
   };
 
   const restoreTrashItem = (row: TrashRow): void => {
-    const promise =
+    const promise: Promise<unknown> =
       row.kind === "conversations"
         ? api.conversations.restore(row.id)
         : row.kind === "mcp"
@@ -3397,7 +3397,7 @@ function TrashTab(): React.JSX.Element {
   const handlePermanentDelete = (): void => {
     if (!pendingPermanentDelete) return;
     const item = pendingPermanentDelete;
-    const promise =
+    const promise: Promise<unknown> =
       item.kind === "conversations"
         ? api.conversations.permanentDelete(item.id)
         : item.kind === "mcp"

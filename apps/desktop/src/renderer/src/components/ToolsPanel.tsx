@@ -20,7 +20,6 @@ import {
   IconGlobe,
   IconList,
   IconPlus,
-  IconRefresh,
   IconRotateCcw,
   IconSearch,
   IconSparkles,
@@ -89,10 +88,10 @@ export function ToolsPanel(): React.JSX.Element {
     try {
       await action();
       notify.success(success);
-      refresh();
     } catch (error) {
       notify.error(t("tools.toast.failed"), error, locale);
     } finally {
+      refresh();
       setBusy(false);
     }
   };
@@ -203,8 +202,9 @@ export function ToolsPanel(): React.JSX.Element {
         onCreate={(input) =>
           runAction(async () => {
             const server = await api.tools.mcp.create(input);
-            await api.tools.mcp.discover(server.id);
+            const discovery = await api.tools.mcp.discover(server.id);
             setMcpOpen(false);
+            if (discovery.server.status === "error") throw new Error(discovery.message);
           }, t("tools.toast.discovered"))
         }
       />
@@ -305,7 +305,7 @@ function RegistrySection({
                     {tool.kind}
                   </Chip>
                   {tool.enabled ? (
-                    <Chip size="sm" variant="success">
+                    <Chip size="sm" variant="soft">
                       {t("main.value.enabled")}
                     </Chip>
                   ) : (
@@ -555,10 +555,10 @@ function AddMcpModal({
             <Modal.Header>
               <div className="flex w-full items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <Modal.Title className="truncate">{t("tools.mcp.add")}</Modal.Title>
-                  <Modal.Description className="line-clamp-2">
+                  <h3 className="truncate text-base font-semibold">{t("tools.mcp.add")}</h3>
+                  <p className="line-clamp-2 text-sm text-foreground/50">
                     Manual MCP server connection.
-                  </Modal.Description>
+                  </p>
                 </div>
                 <Button isIconOnly size="sm" variant="tertiary" onPress={close} aria-label={t("common.close")}>
                   <IconClose className="size-4" />
@@ -739,10 +739,10 @@ function AddSkillModal({
             <Modal.Header>
               <div className="flex w-full items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <Modal.Title className="truncate">{t("tools.skill.add")}</Modal.Title>
-                  <Modal.Description className="line-clamp-2">
+                  <h3 className="truncate text-base font-semibold">{t("tools.skill.add")}</h3>
+                  <p className="line-clamp-2 text-sm text-foreground/50">
                     Upload a SKILL.md package or create one with AI.
-                  </Modal.Description>
+                  </p>
                 </div>
                 <Button isIconOnly size="sm" variant="tertiary" onPress={close} aria-label={t("common.close")}>
                   <IconClose className="size-4" />
