@@ -31,6 +31,12 @@
       "skillPath": "skills/mastra/SKILL.md",
       "computedHash": "517cfc6261f08fcd16c8f0ee64bf7a5b70d0d69acb723cbec4179678b0462f18"
     },
+    "migrate-radix-to-base": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/migrate-radix-to-base/SKILL.md",
+      "computedHash": "4fdc31bf287f674ba6bf91a648120f7b34cd7ef370f998f2cc116fed067789c5"
+    },
     "minimalist-ui": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
@@ -42,6 +48,12 @@
       "sourceType": "github",
       "skillPath": "skills/redesign-skill/SKILL.md",
       "computedHash": "47eced3e960a2c961d3cbee11fa1216264f589344b586a5cbd03967cd6b9c54b"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "4f78ff7cd3a4f637b6fe30dbbab4a80a19dd63fa62d9352bed461ccfdbcbbf43"
     }
   }
 }
