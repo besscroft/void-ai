@@ -180,7 +180,7 @@ function normalizeStepType(value: unknown): ToolSkillStepType {
 function parseCommandLine(commandLine: string): { command: string; args: string[] } {
   const parts: string[] = [];
   let current = "";
-  let quote: "\"" | "'" | null = null;
+  let quote: '"' | "'" | null = null;
   for (let index = 0; index < commandLine.length; index += 1) {
     const char = commandLine[index] ?? "";
     if (quote) {
@@ -188,7 +188,7 @@ function parseCommandLine(commandLine: string): { command: string; args: string[
       else current += char;
       continue;
     }
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       quote = char;
       continue;
     }
@@ -251,7 +251,7 @@ function parseSkillFrontmatter(raw: string): { name: string; description: string
 
 function unquoteYamlString(value: string): string {
   if (
-    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith('"') && value.endsWith('"')) ||
     (value.startsWith("'") && value.endsWith("'"))
   ) {
     return value.slice(1, -1).trim();

@@ -160,8 +160,7 @@ export const api = {
       delete: (id: string): Promise<boolean> => assertApi().tools.mcp.delete(id),
       listDeleted: (): Promise<ToolServer[]> => assertApi().tools.mcp.listDeleted(),
       restore: (id: string): Promise<ToolServer> => assertApi().tools.mcp.restore(id),
-      permanentDelete: (id: string): Promise<boolean> =>
-        assertApi().tools.mcp.permanentDelete(id),
+      permanentDelete: (id: string): Promise<boolean> => assertApi().tools.mcp.permanentDelete(id),
       permanentDeleteBatch: (ids: string[]): Promise<number> =>
         assertApi().tools.mcp.permanentDeleteBatch(ids),
       purgeExpired: (): Promise<number> => assertApi().tools.mcp.purgeExpired(),

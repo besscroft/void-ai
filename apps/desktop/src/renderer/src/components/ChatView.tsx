@@ -11,7 +11,7 @@
  *  - 鏍囬鑷姩鐢熸垚锛氶娆?user + assistant 瀹屾暣鍑虹幇鍚庤皟鐢?/api/title
  *  - 娑堟伅鍔ㄤ綔锛圗dit / Resend / Delete锛夌敱鏈粍浠跺疄鐜帮紝浼犻€掔粰 MessageList
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -28,7 +28,6 @@ import {
   buildUserMessage,
   hydrateStoredMessage,
   toFileUIParts,
-  updateMessageReaction,
 } from "../lib/chat-messages";
 import { persistMessagesSnapshot } from "../lib/chat-persistence";
 import {
@@ -164,15 +163,33 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     ],
     [t],
   );
-  const followupSuggestions = useMemo(
-    () => [
-      t("chat.followups.nextSteps"),
-      t("chat.followups.summarize"),
-      t("chat.followups.examples"),
-      t("chat.followups.alternatives"),
-    ],
-    [t],
-  );
+  const [followupSuggestions, setFollowupSuggestions] = useState<string[]>([]);
+
+  /** 基于对话上下文异步获取追问建议 */
+  const fetchFollowupSuggestions = useCallback(async (messages: UIMessage[]): Promise<void> => {
+    try {
+      const settings = await api.settings.getAll([SettingKey.SelectedModel]);
+      const model = settings[SettingKey.SelectedModel];
+      if (!model) return;
+      const info = await api.server.info();
+      if (messages.length < 2) return;
+      const res = await fetch(`http://127.0.0.1:${info.port}/api/followups`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [CHAT_SESSION_HEADER]: info.token,
+        },
+        body: JSON.stringify({ model, messages }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { suggestions?: string[] };
+      if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+        setFollowupSuggestions(data.suggestions);
+      }
+    } catch (err) {
+      console.error("[chat] fetch followup suggestions error:", err);
+    }
+  }, []);
 
   useEffect(() => {
     void api.settings.get(SettingKey.SelectedModel).then((model) => {
@@ -288,6 +305,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       void api.conversations.touch(conversationId);
       // 鑷姩鐢熸垚鏍囬锛氭湰杞彂閫佷簡娑堟伅 + assistant 瀹屾暣浜х敓 + 杩樻病鐢熸垚杩?
       tryAutoTitle(conversationId, messages, lastSentCountRef.current, titledRef);
+      // 异步生成追问建议
+      void fetchFollowupSuggestions(messages);
     },
     onError: (err) => {
       const detail = getChatErrorMessage(err, locale);
@@ -474,6 +493,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     files: FilePartLike[];
     media?: MediaGenerationSelection;
   }): Promise<void> => {
+    // 发送新消息时清空旧的追问建议
+    setFollowupSuggestions([]);
     const finalFiles = toFileUIParts(files);
     const detected = media ? null : detectMediaIntent(text, finalFiles);
     const mediaSelection = media ?? (detected ? { kind: detected.kind } : undefined);
@@ -606,18 +627,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       .catch((err) => console.error("[chat] failed to persist tool selection:", err));
   };
 
-  /* ---------- 娑堟伅鍔ㄤ綔锛氱紪杈?---------- */
-  const handleReactMessage = (messageId: string, emoji: string, label: string): void => {
-    const nextMessages = updateMessageReaction({
-      messages: latestMessagesRef.current,
-      messageId,
-      reaction: { emoji, label, createdAt: Date.now() },
-    });
-    chat.setMessages(nextMessages);
-    latestMessagesRef.current = nextMessages;
-    void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
-    void api.conversations.touch(conversationId);
-  };
+  /* ---------- 消息操作：编辑 ---------- */
   const handleEditMessage = async (messageId: string, newText: string): Promise<void> => {
     const idx = chat.messages.findIndex((m) => m.id === messageId);
     if (idx < 0) return;
@@ -748,7 +758,6 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           onResendMessage={handleResendMessage}
           onDeleteMessage={handleDeleteMessage}
           onToolApprovalResponse={chat.addToolApprovalResponse}
-          onReactMessage={handleReactMessage}
           onSuggestion={handleSuggestion}
         />
       )}
@@ -932,7 +941,7 @@ async function fetchTitle(
   }
 }
 
-/* ---------- 绌烘€?---------- */
+/* ---------- 空态 ---------- */
 
 function EmptyState({
   title,

@@ -227,7 +227,10 @@ void describe("conversation title helpers", () => {
     assert.equal(hasMeaningfulConversationTitle("新建对话"), false);
     assert.equal(hasMeaningfulConversationTitle("New chat"), false);
     assert.equal(hasMeaningfulConversationTitle("New conversation"), false);
-    assert.equal(hasMeaningfulConversationTitle(translate("zh-CN", "shell.newConversation")), false);
+    assert.equal(
+      hasMeaningfulConversationTitle(translate("zh-CN", "shell.newConversation")),
+      false,
+    );
     assert.equal(hasMeaningfulConversationTitle(translate("en", "shell.newConversation")), false);
   });
 

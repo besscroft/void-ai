@@ -1155,11 +1155,15 @@ export function updateToolServerStatus(
 export const updateMcpServerStatus = updateToolServerStatus;
 
 export function listToolRecords(kind?: "builtin" | "mcp" | "skill" | "sandbox"): ToolRecord[] {
-  const where = kind ? and(eq(tools.kind, kind), isNull(tools.deleted_at)) : isNull(tools.deleted_at);
+  const where = kind
+    ? and(eq(tools.kind, kind), isNull(tools.deleted_at))
+    : isNull(tools.deleted_at);
   const rows = getDb().select().from(tools).where(where).all();
   const activeServerIds = new Set(listToolServers().map((server) => server.id));
   return rows
-    .filter((row) => row.kind !== "mcp" || (row.server_id ? activeServerIds.has(row.server_id) : false))
+    .filter(
+      (row) => row.kind !== "mcp" || (row.server_id ? activeServerIds.has(row.server_id) : false),
+    )
     .map(toToolRecord);
 }
 
@@ -1352,14 +1356,20 @@ export function restoreSkillTool(id: string): ToolSkill {
 }
 
 export function permanentlyDeleteSkillTool(id: string): void {
-  getDb().delete(tools).where(and(eq(tools.id, id), eq(tools.kind, "skill"))).run();
+  getDb()
+    .delete(tools)
+    .where(and(eq(tools.id, id), eq(tools.kind, "skill")))
+    .run();
   deleteToolSecretsForOwner("tool", id);
 }
 
 export function permanentlyDeleteSkillTools(ids: string[]): number {
   let deleted = 0;
   for (const id of ids) {
-    const result = getDb().delete(tools).where(and(eq(tools.id, id), eq(tools.kind, "skill"))).run();
+    const result = getDb()
+      .delete(tools)
+      .where(and(eq(tools.id, id), eq(tools.kind, "skill")))
+      .run();
     deleteToolSecretsForOwner("tool", id);
     deleted += result.changes;
   }
@@ -1370,9 +1380,7 @@ export function purgeExpiredDeletedSkillTools(now = Date.now()): number {
   const expired = getDb()
     .select()
     .from(tools)
-    .where(
-      and(eq(tools.kind, "skill"), isNotNull(tools.deleted_at), lt(tools.purge_after_at, now)),
-    )
+    .where(and(eq(tools.kind, "skill"), isNotNull(tools.deleted_at), lt(tools.purge_after_at, now)))
     .all();
   return permanentlyDeleteSkillTools(expired.map((skill) => skill.id));
 }
@@ -2004,7 +2012,9 @@ function normalizeToolServerInput(
     headers_json: normalizeStringRecordJson(input.headers ?? existing?.headers_json ?? {}),
     env_json: normalizeStringRecordJson(input.env ?? existing?.env_json ?? {}),
     cwd: normalizeNullableText(input.cwd ?? existing?.cwd ?? null, 1_000),
-    timeout_seconds: normalizeTimeoutSeconds(input.timeout_seconds ?? existing?.timeout_seconds ?? 60),
+    timeout_seconds: normalizeTimeoutSeconds(
+      input.timeout_seconds ?? existing?.timeout_seconds ?? 60,
+    ),
     last_error: existing?.last_error ?? null,
     last_connected_at: existing?.last_connected_at ?? null,
     created_at: existing?.created_at ?? now,

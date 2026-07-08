@@ -154,7 +154,6 @@ export const PromptInputTextarea = forwardRef<HTMLTextAreaElement, PromptInputTe
       textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
     }, [value]);
 
-    const isGenerating = ctx.status === "streaming" || ctx.status === "submitted";
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
       onKeyDown?.(e);
       if (e.defaultPrevented) return;
@@ -179,7 +178,7 @@ export const PromptInputTextarea = forwardRef<HTMLTextAreaElement, PromptInputTe
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        disabled={disabled ?? isGenerating}
+        disabled={disabled}
         rows={1}
         className={cn(
           "block w-full max-h-[152px] min-h-16 resize-none overflow-hidden bg-transparent",

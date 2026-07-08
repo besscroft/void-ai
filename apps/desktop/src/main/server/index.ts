@@ -388,6 +388,93 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     }
   });
 
+  /**
+   * POST /api/followups
+   *
+   * 用 LLM 基于对话上下文生成追问建议（2-4 条）。
+   *  - 入参：{ model, messages: UIMessage[] }
+   *  - 出参：{ suggestions: string[] }
+   *
+   * 取最近几轮对话作为上下文，使用非流式 generateText。
+   */
+  app.post("/api/followups", async (c) => {
+    if (!isAuthorized(c, token)) {
+      return c.json({ error: "Unauthorized chat session" }, 401);
+    }
+
+    const body = (await c.req.json()) as {
+      messages?: UIMessage[];
+      model?: string;
+    };
+
+    if (!body.messages?.length) {
+      return c.json({ error: "messages cannot be empty" }, 400);
+    }
+    if (!body.model) {
+      return c.json({ error: "model is required in provider/model format" }, 400);
+    }
+
+    try {
+      const resolveModel = options.resolveModel ?? (await import("../lib/providers")).resolveModel;
+      const resolved = resolveModel(body.model);
+
+      // 取最近 6 条消息（约 3 轮）作为上下文
+      const excerpt = body.messages.slice(-6);
+      const promptText = excerpt
+        .map((m) => {
+          const text = (m.parts ?? [])
+            .filter((p) => p.type === "text")
+            .map((p) => (p as { text: string }).text)
+            .join(" ")
+            .trim();
+          return `${m.role === "user" ? "用户" : "助手"}：${text}`;
+        })
+        .filter((line) => line.length > 2)
+        .join("\n");
+
+      const result = await generateText({
+        model: resolved.model,
+        system:
+          "你是一名对话助手。根据用户与助手的最近对话，生成 2~4 个用户可能想继续追问的简短问题建议。" +
+          "要求：" +
+          "1) 每个问题简洁有力（不超过 20 字），自然口语化；" +
+          "2) 问题必须与当前对话主题紧密相关、有实际价值；" +
+          "3) 不要泛泛而谈（如「请详细说明」），要具体到对话内容；" +
+          "4) 使用对话所使用的语言；" +
+          '5) 仅输出 JSON 数组，格式：["问题1","问题2","问题3"]，不要输出其他内容。',
+        prompt: promptText,
+        temperature: 0.7,
+        maxOutputTokens: 256,
+        providerOptions: resolved.providerOptions,
+      });
+
+      const raw = result.text.trim();
+      // 尝试从输出中提取 JSON 数组
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        return c.json({ suggestions: [] });
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch {
+        return c.json({ suggestions: [] });
+      }
+      if (!Array.isArray(parsed)) {
+        return c.json({ suggestions: [] });
+      }
+      const suggestions = parsed
+        .filter((s): s is string => typeof s === "string" && s.trim().length > 0 && s.length <= 60)
+        .map((s) => s.trim())
+        .slice(0, 4);
+      return c.json({ suggestions });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[server] /api/followups failed:", message);
+      return c.json({ error: message }, 500);
+    }
+  });
+
   return app;
 }
 

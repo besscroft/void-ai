@@ -34,7 +34,6 @@ import {
   MessageContent,
   MessageResponse,
   PromptSuggestions,
-  QuickReactions,
   Tool,
   ToolContent,
   ToolHeader,
@@ -70,7 +69,6 @@ interface MessageListProps {
   /** 建议被点击时 */
   onSuggestion?: (prompt: string) => void;
   onToolApprovalResponse?: ChatAddToolApproveResponseFunction;
-  onReactMessage?: (messageId: string, emoji: string, label: string) => void;
 }
 
 type MessagePart = UIMessage["parts"][number];
@@ -107,7 +105,6 @@ export function MessageList({
   onDeleteMessage,
   onSuggestion,
   onToolApprovalResponse,
-  onReactMessage,
 }: MessageListProps): React.JSX.Element {
   const { t } = useT();
   const activityStatus = getMessageActivityStatus(messages, isLoading, status);
@@ -164,7 +161,6 @@ export function MessageList({
               onDelete={onDeleteMessage}
               onRetry={onRetryMessage}
               onToolApprovalResponse={onToolApprovalResponse}
-              onReactMessage={onReactMessage}
             />
           </motion.div>
         ))}
@@ -278,7 +274,6 @@ interface MessageItemProps {
   onDelete?: (messageId: string) => void;
   onRetry?: (messageId: string) => Promise<void> | void;
   onToolApprovalResponse?: ChatAddToolApproveResponseFunction;
-  onReactMessage?: (messageId: string, emoji: string, label: string) => void;
 }
 
 /**
@@ -296,7 +291,6 @@ function MessageItem({
   onDelete,
   onRetry,
   onToolApprovalResponse,
-  onReactMessage,
 }: MessageItemProps): React.JSX.Element {
   const { t, f } = useT();
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
@@ -316,7 +310,6 @@ function MessageItem({
   const textParts = parts.filter(isTextPart).map((part) => part.text);
   const fullText = textParts.join("\n\n");
   const metadata = readChatMessageMetadata(message);
-  const reaction = metadata.reaction;
   const executionTime = formatExecutionTime(metadata.execution?.durationMs, f);
   const isUser = message.role === "user";
   const isMediaError = message.role === "assistant" && isMediaGenerationError(message);
@@ -577,13 +570,6 @@ function MessageItem({
           </motion.span>
         ) : null}
       </AnimatePresence>
-
-      {message.role === "assistant" && !messageStreaming && onReactMessage && (
-        <QuickReactions
-          selectedEmoji={reaction?.emoji}
-          onReact={(emoji, label) => onReactMessage(message.id, emoji, label)}
-        />
-      )}
     </Message>
   );
 }

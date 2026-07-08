@@ -3176,8 +3176,9 @@ function TrashTab(): React.JSX.Element {
     mcp: false,
     skills: false,
   });
-  const [pendingPermanentDelete, setPendingPermanentDelete] =
-    useState<PendingTrashDelete | null>(null);
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState<PendingTrashDelete | null>(
+    null,
+  );
   const [pendingBatchDelete, setPendingBatchDelete] = useState<PendingTrashBatchDelete | null>(
     null,
   );

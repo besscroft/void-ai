@@ -45,8 +45,6 @@ export {
 
 export { AttachmentChip, type AttachmentItem } from "./attachment-chip";
 
-export { QuickReactions, DEFAULT_REACTIONS } from "./quick-reactions";
-
 export { MessageAttachments, type FilePartLike } from "./message-attachments";
 
 export { PromptSuggestions } from "./prompt-suggestions";

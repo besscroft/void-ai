@@ -92,10 +92,7 @@ void describe("ToolsPanel data helpers", () => {
     });
 
     assert.equal(input.command, "npx");
-    assert.equal(
-      input.args,
-      '["-y","@modelcontextprotocol/server-filesystem","C:/Long Path"]',
-    );
+    assert.equal(input.args, '["-y","@modelcontextprotocol/server-filesystem","C:/Long Path"]');
     assert.equal(input.env, '{"ROOT":"C:/Long Path","TOKEN":"${MCP_TOKEN}"}');
     assert.equal(input.timeout_seconds, 45);
   });

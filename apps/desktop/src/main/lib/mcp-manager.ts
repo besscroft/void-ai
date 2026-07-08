@@ -303,7 +303,11 @@ async function createClient(server: ToolServer): Promise<MCPClient> {
   });
 }
 
-function withServerTimeout<T>(promise: Promise<T>, server: ToolServer, message: string): Promise<T> {
+function withServerTimeout<T>(
+  promise: Promise<T>,
+  server: ToolServer,
+  message: string,
+): Promise<T> {
   const timeoutMs = Math.max(1, server.timeout_seconds || 60) * 1_000;
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {

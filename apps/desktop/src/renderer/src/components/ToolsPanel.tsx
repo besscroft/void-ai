@@ -114,9 +114,7 @@ export function ToolsPanel(): React.JSX.Element {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold">{t("main.title.tools")}</h2>
-          <p className="mt-1 line-clamp-2 text-sm text-foreground/50">
-            {t("main.subtitle.tools")}
-          </p>
+          <p className="mt-1 line-clamp-2 text-sm text-foreground/50">{t("main.subtitle.tools")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" onPress={refresh} isPending={loading}>
@@ -348,7 +346,9 @@ function McpSection({
 }): React.JSX.Element {
   const { t } = useT();
   if (servers.length === 0) {
-    return <EmptyTools message={t("tools.mcp.empty")} action={t("tools.mcp.add")} onAction={onAdd} />;
+    return (
+      <EmptyTools message={t("tools.mcp.empty")} action={t("tools.mcp.add")} onAction={onAdd} />
+    );
   }
   return (
     <section className="grid gap-3 xl:grid-cols-2">
@@ -398,13 +398,22 @@ function McpCard({
         <div className="grid gap-2 text-xs sm:grid-cols-2">
           <ReadStat label={t("tools.field.transport")} value={server.transport} />
           <ReadStat label={t("tools.field.tools")} value={`${enabledTools} / ${tools.length}`} />
-          <ReadStat label={t("tools.field.status")} value={server.enabled ? server.status : "disabled"} />
+          <ReadStat
+            label={t("tools.field.status")}
+            value={server.enabled ? server.status : "disabled"}
+          />
           <ReadStat label="Timeout" value={`${server.timeout_seconds}s`} />
-          <ReadStat className="sm:col-span-2" label={t("tools.field.endpoint")} value={formatEndpoint(server)} />
+          <ReadStat
+            className="sm:col-span-2"
+            label={t("tools.field.endpoint")}
+            value={formatEndpoint(server)}
+          />
           <ReadStat
             className="sm:col-span-2"
             label={t("tools.field.connected")}
-            value={server.last_connected_at ? f.dateTime(server.last_connected_at) : t("tools.never")}
+            value={
+              server.last_connected_at ? f.dateTime(server.last_connected_at) : t("tools.never")
+            }
           />
         </div>
         {server.last_error ? (
@@ -443,7 +452,9 @@ function SkillsSection({
 }): React.JSX.Element {
   const { t } = useT();
   if (skills.length === 0) {
-    return <EmptyTools message={t("tools.skill.empty")} action={t("tools.skill.add")} onAction={onAdd} />;
+    return (
+      <EmptyTools message={t("tools.skill.empty")} action={t("tools.skill.add")} onAction={onAdd} />
+    );
   }
   return (
     <section className="grid gap-3 xl:grid-cols-2">
@@ -493,7 +504,10 @@ function SkillCard({
             label={t("tools.field.lastRun")}
             value={skill.last_run_at ? f.dateTime(skill.last_run_at) : t("tools.never")}
           />
-          <ReadStat label={t("tools.field.workflow")} value={skill.workflow_id ?? t("tools.none")} />
+          <ReadStat
+            label={t("tools.field.workflow")}
+            value={skill.workflow_id ?? t("tools.none")}
+          />
         </div>
         {instructions ? (
           <p className="line-clamp-4 whitespace-pre-wrap rounded-md bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/55">
@@ -530,7 +544,8 @@ function AddMcpModal({
   const { t } = useT();
   const [form, setForm] = useState<McpFormState>(EMPTY_MCP_FORM);
   const [error, setError] = useState<string | null>(null);
-  const patch = (value: Partial<McpFormState>): void => setForm((current) => ({ ...current, ...value }));
+  const patch = (value: Partial<McpFormState>): void =>
+    setForm((current) => ({ ...current, ...value }));
   const close = (): void => {
     setError(null);
     setForm(EMPTY_MCP_FORM);
@@ -560,7 +575,13 @@ function AddMcpModal({
                     Manual MCP server connection.
                   </p>
                 </div>
-                <Button isIconOnly size="sm" variant="tertiary" onPress={close} aria-label={t("common.close")}>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={close}
+                  aria-label={t("common.close")}
+                >
                   <IconClose className="size-4" />
                 </Button>
               </div>
@@ -577,7 +598,9 @@ function AddMcpModal({
                     <select
                       className="h-10 min-w-0 rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.transport}
-                      onChange={(event) => patch({ transport: event.target.value as McpTransportKind })}
+                      onChange={(event) =>
+                        patch({ transport: event.target.value as McpTransportKind })
+                      }
                     >
                       <option value="stdio">STDIO</option>
                       <option value="http">HTTP</option>
@@ -619,11 +642,17 @@ function AddMcpModal({
                   </Field>
                 )}
                 <div className="grid gap-3 md:grid-cols-2">
-                  <Field label={form.transport === "stdio" ? "环境变量（可选）" : "Headers（可选）"}>
+                  <Field
+                    label={form.transport === "stdio" ? "环境变量（可选）" : "Headers（可选）"}
+                  >
                     <TextArea
                       rows={4}
                       value={form.transport === "stdio" ? form.env : form.headers}
-                      placeholder={form.transport === "stdio" ? "API_KEY=your-api-key" : "Authorization=Bearer token"}
+                      placeholder={
+                        form.transport === "stdio"
+                          ? "API_KEY=your-api-key"
+                          : "Authorization=Bearer token"
+                      }
                       className="font-mono text-sm"
                       onChange={(event) =>
                         form.transport === "stdio"
@@ -634,7 +663,10 @@ function AddMcpModal({
                   </Field>
                   <div className="grid gap-3">
                     <Field label={t("tools.field.cwd")}>
-                      <Input value={form.cwd} onChange={(event) => patch({ cwd: event.target.value })} />
+                      <Input
+                        value={form.cwd}
+                        onChange={(event) => patch({ cwd: event.target.value })}
+                      />
                     </Field>
                     <Field label="超时时间（秒）">
                       <Input
@@ -744,7 +776,13 @@ function AddSkillModal({
                     Upload a SKILL.md package or create one with AI.
                   </p>
                 </div>
-                <Button isIconOnly size="sm" variant="tertiary" onPress={close} aria-label={t("common.close")}>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={close}
+                  aria-label={t("common.close")}
+                >
                   <IconClose className="size-4" />
                 </Button>
               </div>
@@ -868,7 +906,13 @@ function MetricCard({ label, value }: { label: string; value: number }): React.J
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
   return (
     <label className="grid min-w-0 gap-1.5">
       <Label className="text-xs font-medium text-foreground/50">{label}</Label>
@@ -962,7 +1006,9 @@ async function handleSkillZip(
   if (!file) return;
   try {
     const entries = unzipSync(new Uint8Array(await file.arrayBuffer()));
-    const entryName = Object.keys(entries).find((name) => name === "SKILL.md" || name.endsWith("/SKILL.md"));
+    const entryName = Object.keys(entries).find(
+      (name) => name === "SKILL.md" || name.endsWith("/SKILL.md"),
+    );
     if (!entryName) throw new Error("ZIP must contain SKILL.md.");
     onLoad(strFromU8(entries[entryName]!), "upload");
   } catch (err) {
