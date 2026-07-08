@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "./ui";
 import { IconClose } from "./icons";
 import { useT } from "../lib/i18n";
 

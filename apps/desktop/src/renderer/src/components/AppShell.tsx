@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Chip } from "@heroui/react";
+import { Button, Chip } from "./ui";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
 import { useT, type TranslationKey } from "../lib/i18n";

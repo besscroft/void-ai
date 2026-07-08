@@ -1,26 +1,98 @@
-/* Tailwind CSS v4 - 必须在最前（HeroUI v3 强制要求 v4） */
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-/* HeroUI v3 组件样式 - 必须在 Tailwind 之后 */
-@import "@heroui/styles";
-
-/* 启用 Tailwind 的 dark: 变体（基于 class 策略，配合 useTheme 中的 classList） */
 @custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+}
 
 /* ============================================================
    应用全局样式
    ============================================================ */
 
 :root {
-  /* 应用自定义品牌色（可选，覆盖 HeroUI 默认 accent） */
-  /* --color-accent: oklch(0.55 0.22 264); */
-
-  /*
-   * 界面密度基准变量（Tailwind v4 间距单位）。
-   * 默认标准值；紧凑/宽松模式由 lib/theme.ts applyDensity 运行时覆盖。
-   * 此处显式声明默认值，避免在设置加载前出现布局抖动。
-   */
   --spacing: 0.25rem;
+  --radius: 0.5rem;
+  --white: oklch(1 0 0);
+  --snow: oklch(0.985 0.003 247);
+  --eclipse: oklch(0.145 0.01 260);
+
+  --app-font-sans: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --app-font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.145 0 0);
+  --surface: var(--white);
+  --surface-foreground: var(--foreground);
+  --overlay: var(--white);
+  --overlay-foreground: var(--foreground);
+  --field-background: var(--white);
+  --field-foreground: var(--foreground);
+  --border: oklch(0.88 0 0);
+  --separator: oklch(0.92 0 0);
+  --accent: oklch(0.55 0.22 264);
+  --accent-foreground: oklch(0.98 0.01 264);
+  --focus: var(--accent);
+  --link: var(--accent);
+  --success: oklch(0.62 0.17 155);
+  --success-foreground: oklch(0.98 0.01 155);
+  --warning: oklch(0.72 0.18 70);
+  --warning-foreground: oklch(0.2 0.02 70);
+  --danger: oklch(0.58 0.2 25);
+  --danger-foreground: oklch(0.98 0.01 25);
+
+  --card: var(--surface);
+  --card-foreground: var(--surface-foreground);
+  --popover: var(--overlay);
+  --popover-foreground: var(--overlay-foreground);
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-foreground);
+  --secondary: color-mix(in oklch, var(--foreground) 8%, var(--background));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in oklch, var(--foreground) 6%, var(--background));
+  --muted-foreground: color-mix(in oklch, var(--foreground) 60%, transparent);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger-foreground);
+  --input: var(--border);
+  --ring: var(--focus);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
 }
 
 /*
@@ -28,6 +100,28 @@
  * 仅对颜色与字体相关属性生效，不影响布局性能。
  */
 @layer base {
+  [data-theme-preset="default"][data-theme="light"] {
+    color-scheme: light;
+  }
+
+  [data-theme-preset="default"][data-theme="dark"] {
+    color-scheme: dark;
+    --background: oklch(0.145 0 0);
+    --foreground: var(--snow);
+    --surface: oklch(0.205 0 0);
+    --surface-foreground: var(--foreground);
+    --overlay: oklch(0.23 0 0);
+    --overlay-foreground: var(--foreground);
+    --field-background: oklch(0.255 0 0);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.34 0 0);
+    --separator: oklch(0.28 0 0);
+    --accent: oklch(0.72 0.17 264);
+    --accent-foreground: var(--eclipse);
+    --focus: var(--accent);
+    --link: var(--accent);
+  }
+
   [data-theme-preset="ocean"][data-theme="light"] {
     color-scheme: light;
     --background: oklch(0.985 0.015 225);

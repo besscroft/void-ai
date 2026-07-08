@@ -15,7 +15,7 @@ import {
   Tooltip,
   ToggleButton,
   ToggleButtonGroup,
-} from "@heroui/react";
+} from "./ui";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
 import { useSettings, type SettingsResetScope } from "../lib/settings";

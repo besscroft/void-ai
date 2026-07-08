@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
-import { Button, Card, Chip, Input, Label, Modal, Switch, Tabs, TextArea } from "@heroui/react";
+import { Button, Card, Chip, Input, Label, Modal, Switch, Tabs, TextArea } from "./ui";
 import { strFromU8, unzipSync } from "fflate";
 import { api, type ToolsSnapshot } from "../lib/api";
 import { useT } from "../lib/i18n";

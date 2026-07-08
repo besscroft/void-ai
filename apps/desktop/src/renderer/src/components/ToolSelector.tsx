@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type SVGProps } from "react";
-import { Button, Chip, Popover, ToggleButton, ToggleButtonGroup, Tooltip } from "@heroui/react";
+import { Button, Chip, Popover, ToggleButton, ToggleButtonGroup, Tooltip } from "./ui";
 import {
   CHAT_TOOL_IDS,
   isChatToolId,

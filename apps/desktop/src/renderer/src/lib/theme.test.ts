@@ -77,7 +77,7 @@ void describe("applyTheme", () => {
     root = installDom(false);
   });
 
-  void it("syncs HeroUI theme attributes and app appearance settings", () => {
+  void it("syncs app theme attributes and appearance settings", () => {
     const resolved = applyTheme(
       themeSettings({
         theme: "dark",

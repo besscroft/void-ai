@@ -1,6 +1,6 @@
 # Void AI
 
-A local-first AI desktop workspace built with Electron, React, AI SDK, Hono, SQLite, Drizzle and HeroUI.
+A local-first AI desktop workspace built with Electron, React, AI SDK, Hono, SQLite, Drizzle and shadcn/base-ui.
 
 Void AI is being shaped as more than a chat client. The desktop app now has first-class surfaces for Agents, Workflows, Harness, Memory, Server, interaction profiles and sync state. It can run locally without a self-hosted cloud server, while leaving a clear path for optional encrypted sync and a future Web client.
 

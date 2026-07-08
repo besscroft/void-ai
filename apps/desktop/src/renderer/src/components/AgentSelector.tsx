@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Chip } from "@heroui/react";
+import { Button, Chip } from "./ui";
 import { api } from "../lib/api";
 import { useT, type TranslationKey } from "../lib/i18n";
 import { SettingKey, DEFAULT_AGENT_ID, type AgentProfile } from "@shared/types";

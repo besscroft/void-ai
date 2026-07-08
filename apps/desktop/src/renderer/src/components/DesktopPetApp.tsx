@@ -5,7 +5,7 @@ import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
   type UIMessage,
 } from "ai";
-import { Button } from "@heroui/react";
+import { Button } from "./ui";
 import { api } from "../lib/api";
 import { buildUserMessage, hydrateStoredMessage } from "../lib/chat-messages";
 import { persistMessagesSnapshot } from "../lib/chat-persistence";

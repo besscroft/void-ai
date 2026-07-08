@@ -50,7 +50,7 @@
 - **绫诲瀷瀹夊叏** 鈥斺€?鎵€鏈夋柊缁勪欢瀵煎嚭 `Props` 鎺ュ彛锛涗笌 ai-sdk `FileUIPart` 鍗忚鍏煎
 - \*_鍙闂€?_ 鈥斺€?鍏ㄩ儴浜や簰鍏冪礌鍚?`aria-label`銆侀敭鐩樺彲杈俱€乫ocus-visible 鍙
 - \*_鍝嶅簲寮?_ 鈥斺€?妗岄潰绔粠 1024px 璧疯嚜閫傚簲锛沬nput 楂樺害 16px 鈫?152px 鑷姩鎾戦珮
-- **鏆楄壊浼樺厛** 鈥斺€?鍚屾椂鍏煎 HeroUI v3 鐨?`data-theme` 涓?Tailwind v4 鐨?`dark` 鍙樹綋
+- **鏆楄壊浼樺厛** 鈥斺€?鍚屾椂鍏煎 shadcn/base-ui 鐨?`data-theme` 涓?Tailwind v4 鐨?`dark` 鍙樹綋
 
 ### 1.3 鍒涙剰浜や簰浜偣
 
@@ -122,7 +122,7 @@
 
 ## 3. 瑙嗚璁捐瑙勮寖
 
-### 3.1 璁捐浠ょ墝锛堢户鎵胯嚜 HeroUI v3 + Tailwind v4锛?
+### 3.1 璁捐浠ょ墝锛堢户鎵胯嚜 shadcn/base-ui + Tailwind v4锛?
 
 ```css
 /* 棰滆壊锛堝己璋冭壊闅忎富棰樺彉鍖栵級 */
@@ -782,7 +782,7 @@ function CustomMessage({ message, onReact }) {
 
 ### 9.4 涓婚鑹叉墿灞?
 
-鎵€鏈夊己璋冭壊 / 鐒︾偣鐜娇鐢?`accent` token銆備慨鏀?HeroUI v3 鐨勪富棰?bundle 鎴?Tailwind v4 鐨?`@theme` 鍗冲彲鍏ㄥ眬鐢熸晥銆?
+鎵€鏈夊己璋冭壊 / 鐒︾偣鐜娇鐢?`accent` token銆備慨鏀?shadcn/base-ui 鐨勪富棰?bundle 鎴?Tailwind v4 鐨?`@theme` 鍗冲彲鍏ㄥ眬鐢熸晥銆?
 
 ### 9.5 i18n 鎵╁睍
 
@@ -877,5 +877,5 @@ function CustomMessage({ message, onReact }) {
 
 **鐗堟湰**锛歷1.0锛?026-07-04锛?
 **浣滆€?\*锛歏oid AI Team
-**渚濊禆**锛歊eact 19, HeroUI v3, Tailwind v4, Vercel AI SDK, ai-elements
+**渚濊禆**锛歊eact 19, shadcn/base-ui, Tailwind v4, Vercel AI SDK, ai-elements
 **璁稿彲\*\*锛歁IT

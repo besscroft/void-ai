@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Card, Chip } from "@heroui/react";
+import { Button, Card, Chip } from "./ui";
 import {
   api,
   type AgentProfile,

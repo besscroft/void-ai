@@ -37,7 +37,7 @@ export function applyAccent(accent: string): void {
   const root = document.documentElement;
   root.style.removeProperty("--color-accent");
   root.style.removeProperty("--color-accent-foreground");
-  // 兼容历史：HeroUI 早期主题使用 --accent，新主题使用 --color-accent
+  // Keep legacy app tokens and shadcn tokens in sync while settings migrate.
   root.style.removeProperty("--accent");
   root.style.removeProperty("--accent-foreground");
 
@@ -82,13 +82,17 @@ export function applyCustomColors(background: string, foreground: string, contra
 export function applyFonts(family: string, mono: string): void {
   const root = document.documentElement;
   if (family) {
+    root.style.setProperty("--app-font-sans", family);
     root.style.setProperty("--font-sans", family);
   } else {
+    root.style.removeProperty("--app-font-sans");
     root.style.removeProperty("--font-sans");
   }
   if (mono) {
+    root.style.setProperty("--app-font-mono", mono);
     root.style.setProperty("--font-mono", mono);
   } else {
+    root.style.removeProperty("--app-font-mono");
     root.style.removeProperty("--font-mono");
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Card, Chip, Input, Label, Switch, Tabs, TextArea } from "@heroui/react";
+import { Button, Card, Chip, Input, Label, Switch, Tabs, TextArea } from "./ui";
 import {
   CHAT_REASONING_LEVELS,
   DEFAULT_AGENT_HANDOFF_CONFIG,

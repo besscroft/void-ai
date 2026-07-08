@@ -8,7 +8,6 @@ import { SettingsProvider, useSettings } from "./lib/settings";
 import { AppI18nProvider, useT } from "./lib/i18n";
 import { SettingKey, type LocalServerInfo } from "@shared/types";
 import { Toaster } from "sonner";
-import { I18nProvider } from "@heroui/react";
 import { MotionConfig } from "motion/react";
 
 function App(): React.JSX.Element {
@@ -33,9 +32,7 @@ function AppRoot({ children }: { children: ReactNode }): React.JSX.Element {
     settings.reduceMotion === "on" ? "always" : settings.reduceMotion === "off" ? "never" : "user";
   return (
     <AppI18nProvider locale={resolvedLanguage}>
-      <I18nProvider locale={resolvedLanguage}>
-        <MotionConfig reducedMotion={reducedMotion}>{children}</MotionConfig>
-      </I18nProvider>
+      <MotionConfig reducedMotion={reducedMotion}>{children}</MotionConfig>
     </AppI18nProvider>
   );
 }
