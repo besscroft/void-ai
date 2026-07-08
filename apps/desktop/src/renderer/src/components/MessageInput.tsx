@@ -8,7 +8,6 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from "react";
-import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
 import { ReasoningSelector } from "./ReasoningSelector";
 import { ToolSelector } from "./ToolSelector";
@@ -56,11 +55,9 @@ interface MessageInputProps {
   }) => void;
   onStop?: () => void;
   selectedModel: string | null;
-  selectedAgentId: string | null;
   reasoningLevel: ChatReasoningLevel;
   toolSelection: ChatToolSelectionRequest;
   onModelChange: (modelRef: string | null) => void;
-  onAgentChange: (agentId: string) => void;
   onReasoningLevelChange: (level: ChatReasoningLevel) => void;
   onToolSelectionChange: (selection: ChatToolSelectionRequest) => void;
   providers: ProviderInfo[];
@@ -80,11 +77,9 @@ export function MessageInput({
   onSend,
   onStop,
   selectedModel,
-  selectedAgentId,
   reasoningLevel,
   toolSelection,
   onModelChange,
-  onAgentChange,
   onReasoningLevelChange,
   onToolSelectionChange,
   providers,
@@ -397,7 +392,6 @@ export function MessageInput({
                     providers={providers}
                     disabled={isLoading}
                   />
-                  <AgentSelector value={selectedAgentId} onChange={onAgentChange} placement="top" />
                   <ModelSelector value={selectedModel} onChange={onModelChange} placement="top" />
                   <ReasoningSelector
                     value={reasoningLevel}

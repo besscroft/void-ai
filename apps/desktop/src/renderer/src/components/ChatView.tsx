@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ChatView
  *
  * 娓叉煋灞傦細鎶?浼氳瘽"鍜?娑堟伅"涓や欢浜嬩覆璧锋潵
@@ -115,7 +115,6 @@ function getContextWindowForModel(
 export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.JSX.Element {
   const { t, locale } = useT();
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [reasoningLevel, setReasoningLevel] = useState<ChatReasoningLevel>(
     DEFAULT_SETTINGS.chatReasoningLevel,
   );
@@ -148,7 +147,6 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const lastSentCountRef = useRef(0);
   const createdAtRef = useRef<Map<string, number>>(new Map());
   const selectedModelRef = useRef<string | null>(null);
-  const selectedAgentIdRef = useRef<string | null>(null);
   const reasoningLevelRef = useRef<ChatReasoningLevel>(DEFAULT_SETTINGS.chatReasoningLevel);
   const toolSelectionRef = useRef<ChatToolSelectionRequest>(DEFAULT_CHAT_TOOL_SELECTION);
   const mediaSettingsRef = useRef<MediaGenerationSettings>(DEFAULT_MEDIA_GENERATION_SETTINGS);
@@ -195,9 +193,6 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     void api.settings.get(SettingKey.SelectedModel).then((model) => {
       if (model) setSelectedModel(model);
     });
-    void api.settings.get(SettingKey.ActiveAgentId).then((agentId) => {
-      setSelectedAgentId(agentId || DEFAULT_AGENT_ID);
-    });
     void api.settings.get(SettingKey.ChatReasoningLevel).then((level) => {
       if (isChatReasoningLevel(level)) setReasoningLevel(level);
     });
@@ -233,10 +228,6 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   }, [selectedModel]);
 
   useEffect(() => {
-    selectedAgentIdRef.current = selectedAgentId;
-  }, [selectedAgentId]);
-
-  useEffect(() => {
     reasoningLevelRef.current = reasoningLevel;
   }, [reasoningLevel]);
 
@@ -254,7 +245,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         headers: () => ({ [CHAT_SESSION_HEADER]: serverInfo.token }),
         body: () => ({
           model: selectedModelRef.current ?? undefined,
-          agentId: selectedAgentIdRef.current ?? DEFAULT_AGENT_ID,
+          agentId: DEFAULT_AGENT_ID,
           conversationId,
           reasoning: reasoningLevelRef.current,
           toolSelection: toolSelectionRef.current,
@@ -767,10 +758,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         onSend={handleSend}
         onStop={isChatLoading ? handleStop : undefined}
         selectedModel={selectedModel}
-        selectedAgentId={selectedAgentId}
         reasoningLevel={reasoningLevel}
         onModelChange={setSelectedModel}
-        onAgentChange={setSelectedAgentId}
         onReasoningLevelChange={setReasoningLevel}
         toolSelection={toolSelection}
         onToolSelectionChange={handleToolSelectionChange}
