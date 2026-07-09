@@ -27,6 +27,7 @@ import { api } from "../lib/api";
 import { createClientChatToolDescriptors } from "../lib/chat-tools";
 import { useT, type TranslationKey } from "../lib/i18n";
 import { notify } from "../lib/toast";
+import { cn } from "../lib/utils";
 import {
   IconCheck,
   IconClose,
@@ -296,8 +297,8 @@ export function AgentsPanel({
                 placeholder={t("agents.search.placeholder")}
                 className="w-64"
               />
-              <Button variant="secondary" size="sm" onPress={onRefresh} isPending={loading}>
-                <IconRotateCcw className="size-4" />
+              <Button variant="secondary" size="sm" onPress={onRefresh} isDisabled={loading}>
+                <IconRotateCcw className={cn("size-4", loading && "animate-spin")} />
                 {t("main.refresh")}
               </Button>
               <Button variant="primary" size="sm" onPress={openCreate}>

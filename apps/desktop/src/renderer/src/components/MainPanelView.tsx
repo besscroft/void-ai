@@ -11,6 +11,7 @@ import { useT } from "../lib/i18n";
 import { AgentsPanel } from "./AgentsPanel";
 import { ToolsPanel } from "./ToolsPanel";
 import { IconDatabase, IconRotateCcw, IconSliders } from "./icons";
+import { cn } from "../lib/utils";
 
 export type MainSection = "agents" | "workflows" | "tools" | "memory";
 
@@ -34,9 +35,10 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
     runtimeEvents: [],
   });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const refresh = (): void => {
-    setLoading(true);
+    setRefreshing(true);
     void Promise.all([
       api.agents.list(),
       api.workflows.list(),
@@ -46,7 +48,10 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
       .then(([agents, workflows, memories, runtimeEvents]) => {
         setData({ agents, workflows, memories, runtimeEvents });
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
   };
 
   useEffect(refresh, []);
@@ -67,8 +72,8 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
             <h1 className="text-xl font-semibold">{t(`main.title.${section}`)}</h1>
             <p className="mt-1 text-sm text-foreground/50">{t(`main.subtitle.${section}`)}</p>
           </div>
-          <Button variant="secondary" size="sm" onPress={refresh} isPending={loading}>
-            <IconRotateCcw className="size-4" />
+          <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
+            <IconRotateCcw className={cn("size-4", refreshing && "animate-spin")} />
             {t("main.refresh")}
           </Button>
         </div>
@@ -78,7 +83,7 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
             agents={data.agents}
             events={data.runtimeEvents}
             onRefresh={refresh}
-            loading={loading}
+            loading={loading || refreshing}
           />
         )}
         {section === "workflows" && <WorkflowsPanel workflows={data.workflows} />}

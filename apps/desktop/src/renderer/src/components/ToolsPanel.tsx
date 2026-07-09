@@ -12,6 +12,7 @@ import {
   type SkillPackageDraft,
 } from "../lib/tools-form";
 import { filterToolRecords, type ToolKindFilter, type ToolStatusFilter } from "../lib/tools-filter";
+import { cn } from "../lib/utils";
 import type { McpTransportKind, ToolRecord, ToolServer, ToolSkill } from "@shared/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
@@ -50,6 +51,7 @@ export function ToolsPanel(): React.JSX.Element {
   const { t, locale } = useT();
   const [snapshot, setSnapshot] = useState<ToolsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<ToolsTab>("registry");
   const [query, setQuery] = useState("");
@@ -60,12 +62,15 @@ export function ToolsPanel(): React.JSX.Element {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
 
   const refresh = (): void => {
-    setLoading(true);
+    setRefreshing(true);
     void api.tools
       .snapshot()
       .then(setSnapshot)
       .catch((error) => notify.error(t("tools.toast.failed"), error, locale))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
   };
 
   useEffect(refresh, []);
@@ -117,8 +122,8 @@ export function ToolsPanel(): React.JSX.Element {
           <p className="mt-1 line-clamp-2 text-sm text-foreground/50">{t("main.subtitle.tools")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" onPress={refresh} isPending={loading}>
-            <IconRotateCcw className="size-4" />
+          <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
+            <IconRotateCcw className={cn("size-4", refreshing && "animate-spin")} />
             {t("main.refresh")}
           </Button>
           {tab === "mcp" ? (

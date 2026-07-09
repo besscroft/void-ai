@@ -3629,14 +3629,14 @@ function safeJsonRecord(raw: string): Record<string, unknown> {
 function DiagnosticsTab(): React.JSX.Element {
   const { t, f } = useT();
   const [events, setEvents] = useState<RuntimeEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const refresh = (): void => {
-    setLoading(true);
+    setRefreshing(true);
     void api.runtime.events
       .list()
       .then(setEvents)
-      .finally(() => setLoading(false));
+      .finally(() => setRefreshing(false));
   };
 
   useEffect(refresh, []);
@@ -3648,8 +3648,8 @@ function DiagnosticsTab(): React.JSX.Element {
           <h3 className="text-base font-semibold">{t("settings.diagnostics.title")}</h3>
           <p className="mt-1 text-sm text-foreground/50">{t("settings.diagnostics.subtitle")}</p>
         </div>
-        <Button variant="secondary" size="sm" onPress={refresh} isPending={loading}>
-          <IconRotateCcw className="size-4" />
+        <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
+          <IconRotateCcw className={cn("size-4", refreshing && "animate-spin")} />
           {t("main.refresh")}
         </Button>
       </div>
