@@ -82,12 +82,25 @@ const api = {
       ipcRenderer.invoke("desktopPet:moveWindowBy", delta),
     openMain: (conversationId?: string) =>
       ipcRenderer.invoke("desktopPet:openMain", conversationId),
+    showContextMenu: () => ipcRenderer.invoke("desktopPet:showContextMenu"),
+    setFrameRate: (fps: number) => ipcRenderer.invoke("desktopPet:setFrameRate", fps),
+    setWindowSize: (size: { width: number; height: number }) =>
+      ipcRenderer.invoke("desktopPet:setWindowSize", size),
+    setIgnoreMouseEvents: (ignore: boolean) =>
+      ipcRenderer.invoke("desktopPet:setIgnoreMouseEvents", ignore),
     onOpenConversation: (handler: (conversationId?: string) => void) => {
       const listener = (_event: IpcRendererEvent, conversationId?: string): void => {
         handler(conversationId);
       };
       ipcRenderer.on("desktopPet:openConversation", listener);
       return () => ipcRenderer.removeListener("desktopPet:openConversation", listener);
+    },
+    onConfigApplied: (handler: (config: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, config: unknown): void => {
+        handler(config);
+      };
+      ipcRenderer.on("desktopPet:configApplied", listener);
+      return () => ipcRenderer.removeListener("desktopPet:configApplied", listener);
     },
   },
   sync: {
@@ -164,6 +177,16 @@ const api = {
   },
   system: {
     locale: () => ipcRenderer.invoke("system:locale"),
+    onPetOpenSettings: (handler: () => void) => {
+      const listener = (): void => handler();
+      ipcRenderer.on("desktopPet:openSettings", listener);
+      return () => ipcRenderer.removeListener("desktopPet:openSettings", listener);
+    },
+    onPetOpenAbout: (handler: () => void) => {
+      const listener = (): void => handler();
+      ipcRenderer.on("desktopPet:openAbout", listener);
+      return () => ipcRenderer.removeListener("desktopPet:openAbout", listener);
+    },
   },
   cache: {
     stats: () => ipcRenderer.invoke("cache:stats"),

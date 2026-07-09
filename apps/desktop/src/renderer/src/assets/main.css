@@ -261,32 +261,75 @@ body {
   flex-direction: column;
 }
 
-html[data-surface="pet"],
-html[data-surface="pet"] body,
-html[data-surface="pet"] #root {
-  background: transparent;
-}
-
 html[data-surface="pet"] body {
   user-select: none;
 }
 
-.desktop-pet-drag {
-  -webkit-app-region: drag;
+/*
+ * 桌宠是 transparent + focusable 窗口：默认整个 bounds 区域都拦截鼠标事件，
+ * 把下面 app 的可点区域全部吃掉。
+ *
+ * 修复（双管齐下，缺一不可）：
+ * 1) body / #root → pointer-events: none。
+ *    桌宠 BrowserWindow 里那块"啥也没渲染"的透明区域不再拦截鼠标，
+ *    用户的点击直接穿透到底下的浏览器 / IDE 等。
+ * 2) .desktop-pet-root 在 JSX 里是 absolute bottom-0 right-0，
+ *    **不**强制 h-full / w-full，所以它的 layout 盒子大小 = 内容大小
+ *    （球 + 状态条 ≈ 100×100），不占满整个 BrowserWindow。
+ *    再加上 pointer-events: auto（默认继承可被父级 pointer-events: none 关掉），
+ *    让 root 真正接收事件的区域 = 视觉区域 = 桌宠本身。
+ *
+ * 拖动是 window.addEventListener 监听的全局 pointermove/up，
+ * 不依赖 root 元素的 pointer-events，所以跨出 root 边界的拖动仍然能正常。
+ */
+html[data-surface="pet"] body,
+html[data-surface="pet"] #root {
+  /*
+   * 主窗口下 body 有 background-color: var(--color-background)（line 251），
+   * 否则主窗口会全黑。桌宠 entry 必须显式 transparent，
+   * 否则 body 会撑满整个 180×180 BrowserWindow 并显示近白背景，
+   * 在球外面盖一大圈浅色块——视觉上"占位大、挡住其它 app"。
+   * pointer-events: none 让事件穿透，但视觉遮挡必须靠 transparent 消除。
+   */
+  background-color: transparent;
+  pointer-events: none;
+  /* 让 .desktop-pet-root 的 absolute 定位以 #root 为参照 */
+  position: relative;
 }
 
+.desktop-pet-root {
+  pointer-events: auto;
+}
+
+/*
+ * 桌宠窗口的拖动由渲染层 React 端主动控制（onPointerDown/Move/Up + IPC setBounds），
+ * 不使用 -webkit-app-region: drag。
+ *
+ * 原因：-webkit-app-region: drag 会让 Chromium 自己接管窗口拖动，
+ * 与 React 端的 setBounds 冲突（双驱动 → 抖动 / 漂移 / 卡顿），
+ * 而且和 transform: scale 同时使用时会因为 layout box 与视觉位置错位导致
+ * "有透明边界"的错觉。这里只保留 user-select / pointer-events 相关设置。
+ */
+
 .desktop-pet-no-drag {
-  -webkit-app-region: no-drag;
+  /* 保留 no-drag 类的语义占位，但不再依赖 -webkit-app-region，
+     因为根本不开 drag region。pointer-events 仍按默认由 React 控制。 */
+}
+
+/* 桌宠根容器：使用 CSS 变量 --pet-scale 控制整体缩放（来自 config.window.scale） */
+.desktop-pet-root {
+  transform: scale(var(--pet-scale, 1));
+  transform-origin: bottom center;
 }
 
 .desktop-pet-orb {
   position: relative;
   display: flex;
-  width: 112px;
-  height: 112px;
+  width: 80px;
+  height: 80px;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid color-mix(in oklch, var(--color-accent) 38%, transparent);
   border-radius: 999px;
   color: var(--color-accent);
@@ -306,14 +349,16 @@ html[data-surface="pet"] body {
     0 18px 60px -30px color-mix(in oklch, var(--color-accent) 62%, transparent),
     inset 0 0 28px color-mix(in oklch, var(--color-accent) 16%, transparent);
   animation: desktop-pet-float 4.8s ease-in-out infinite;
+  transition: transform 200ms ease;
 }
 
 .desktop-pet-orb-glow {
   position: absolute;
-  inset: 12px;
+  inset: 8px;
   border-radius: inherit;
   background: color-mix(in oklch, var(--color-accent) 12%, transparent);
-  filter: blur(14px);
+  filter: blur(10px);
+  pointer-events: none;
 }
 
 .desktop-pet-mood-thinking,
@@ -323,6 +368,13 @@ html[data-surface="pet"] body {
     desktop-pet-pulse 1.35s ease-in-out infinite;
 }
 
+.desktop-pet-mood-happy {
+  border-color: color-mix(in oklch, var(--color-success, var(--color-accent)) 50%, transparent);
+  animation:
+    desktop-pet-float 4.8s ease-in-out infinite,
+    desktop-pet-bounce 0.6s ease-in-out 3;
+}
+
 .desktop-pet-mood-learning {
   border-color: color-mix(in oklch, var(--color-success, var(--color-accent)) 42%, transparent);
 }
@@ -330,6 +382,56 @@ html[data-surface="pet"] body {
 .desktop-pet-mood-error {
   border-color: color-mix(in oklch, var(--color-danger, red) 48%, transparent);
   color: var(--color-danger, red);
+}
+
+/* 活动状态：hover 注视（轻微放大 + 注视光斑） */
+.desktop-pet-activity-hover .desktop-pet-orb {
+  transform: scale(1.06);
+}
+
+/* 活动状态：drag 摇摆（拖动时轻微摆动） */
+.desktop-pet-activity-drag .desktop-pet-orb {
+  animation: desktop-pet-wobble 0.4s ease-in-out infinite;
+  cursor: grabbing;
+}
+
+/* 活动状态：interact 双击开心（弹跳） */
+.desktop-pet-activity-interact .desktop-pet-orb {
+  animation: desktop-pet-bounce 0.55s ease-in-out 2;
+}
+
+/* 活动状态：sleep 缓慢呼吸 + 闭眼（淡化） */
+.desktop-pet-activity-sleep .desktop-pet-orb {
+  animation: desktop-pet-breathe 3.6s ease-in-out infinite;
+  filter: saturate(0.65) brightness(0.92);
+}
+
+/* interact 时显示的彩花 */
+.desktop-pet-burst {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  pointer-events: none;
+  animation: desktop-pet-burst 1.2s ease-out forwards;
+}
+
+/* sleep 时显示的 Zzz */
+.desktop-pet-zzz {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-foreground);
+  background: color-mix(in oklch, var(--color-background) 80%, transparent);
+  border-radius: 6px;
+  padding: 1px 4px;
+  pointer-events: none;
+  animation: desktop-pet-zzz-float 2.4s ease-in-out infinite;
 }
 
 @keyframes desktop-pet-float {
@@ -353,6 +455,81 @@ html[data-surface="pet"] body {
     box-shadow:
       0 18px 70px -22px color-mix(in oklch, var(--color-accent) 78%, transparent),
       inset 0 0 36px color-mix(in oklch, var(--color-accent) 24%, transparent);
+  }
+}
+
+@keyframes desktop-pet-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-18px) scale(1.08);
+  }
+}
+
+@keyframes desktop-pet-wobble {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes desktop-pet-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.96);
+  }
+}
+
+@keyframes desktop-pet-burst {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  20% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-pet-zzz-float {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translate(6px, -8px);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(0, 0);
+    opacity: 0.6;
+  }
+}
+
+/* 尊重系统的 reduce-motion 偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .desktop-pet-orb,
+  .desktop-pet-mood-thinking,
+  .desktop-pet-mood-working,
+  .desktop-pet-mood-happy,
+  .desktop-pet-activity-drag .desktop-pet-orb,
+  .desktop-pet-activity-interact .desktop-pet-orb,
+  .desktop-pet-activity-sleep .desktop-pet-orb,
+  .desktop-pet-zzz,
+  .desktop-pet-burst {
+    animation: none !important;
   }
 }
 

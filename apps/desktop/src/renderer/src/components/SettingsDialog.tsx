@@ -758,7 +758,193 @@ function AppearanceTab({
           }
         />
       </SettingSection>
+
+      <DesktopPetSection />
     </section>
+  );
+}
+
+// ============================================================
+// 桌宠设置小节
+// ============================================================
+
+/**
+ * 桌宠设置（嵌入到 Appearance Tab 末尾）。
+ *
+ * 直接从后端读 snapshot，避免把所有桌宠配置都拉到 AppSettings。
+ * 用户修改后通过 api.desktopPet.updateConfig 持久化，
+ * 主进程会通过 desktopPet:configApplied 事件下发给渲染层。
+ */
+function DesktopPetSection(): React.JSX.Element {
+  const { t } = useT();
+  const [snapshot, setSnapshot] = useState<import("@shared/types").DesktopPetSnapshot | null>(null);
+  const [autoSleepInput, setAutoSleepInput] = useState<string>("60");
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = (): void => {
+      void api.desktopPet.getSnapshot().then((next) => {
+        if (cancelled) return;
+        setSnapshot(next);
+        setAutoSleepInput(String(Math.round(next.config.interaction.autoSleepMs / 1000)));
+      });
+    };
+    load();
+    const id = window.setInterval(load, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const updateConfig = (patch: import("@shared/types").DesktopPetConfigPatch): void => {
+    void api.desktopPet.updateConfig(patch).then((next) => {
+      setSnapshot(next);
+    });
+  };
+
+  if (!snapshot) {
+    return (
+      <SettingSection
+        title={t("desktopPet.settings.title")}
+        icon={<IconSparkles className="size-3.5" />}
+      >
+        <div className="text-xs text-foreground/50">{t("common.loading")}</div>
+      </SettingSection>
+    );
+  }
+
+  const cfg = snapshot.config;
+  const enabled = snapshot.profile.enabled === 1;
+
+  return (
+    <SettingSection
+      title={t("desktopPet.settings.title")}
+      desc={t("desktopPet.toggle")}
+      icon={<IconSparkles className="size-3.5" />}
+    >
+      <SettingItem
+        title={t("desktopPet.settings.enable")}
+        desc={t("desktopPet.toggle")}
+        control={
+          <Switch
+            isSelected={enabled}
+            onChange={(v) => {
+              void api.desktopPet.setEnabled(v);
+              // 立即从后端拉一次最新 snapshot 反映状态
+              window.setTimeout(() => {
+                void api.desktopPet.getSnapshot().then((next) => setSnapshot(next));
+              }, 200);
+            }}
+            aria-label={t("desktopPet.settings.enable")}
+          />
+        }
+      />
+      <SettingItem
+        title={t("desktopPet.settings.alwaysOnTop")}
+        control={
+          <Switch
+            isSelected={cfg.window.alwaysOnTop}
+            onChange={(v) => updateConfig({ window: { alwaysOnTop: v } })}
+            aria-label={t("desktopPet.settings.alwaysOnTop")}
+          />
+        }
+      />
+      <SettingItem
+        title={t("desktopPet.settings.scale")}
+        control={
+          <div className="flex w-56 items-center gap-2">
+            <input
+              type="range"
+              min={0.5}
+              max={1.5}
+              step={0.05}
+              value={cfg.window.scale}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) updateConfig({ window: { scale: v } });
+              }}
+              className="flex-1 accent-current"
+              aria-label={t("desktopPet.settings.scale")}
+            />
+            <span className="w-10 text-right text-xs tabular-nums text-foreground/60">
+              {Math.round(cfg.window.scale * 100)}%
+            </span>
+          </div>
+        }
+      />
+      <SettingItem
+        title={t("desktopPet.settings.opacity")}
+        control={
+          <div className="flex w-56 items-center gap-2">
+            <input
+              type="range"
+              min={0.3}
+              max={1}
+              step={0.05}
+              value={cfg.window.opacity}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) updateConfig({ window: { opacity: v } });
+              }}
+              className="flex-1 accent-current"
+              aria-label={t("desktopPet.settings.opacity")}
+            />
+            <span className="w-10 text-right text-xs tabular-nums text-foreground/60">
+              {Math.round(cfg.window.opacity * 100)}%
+            </span>
+          </div>
+        }
+      />
+      <SettingItem
+        title={t("desktopPet.settings.sound")}
+        control={
+          <Switch
+            isSelected={cfg.interaction.soundEnabled}
+            onChange={(v) => updateConfig({ interaction: { soundEnabled: v } })}
+            aria-label={t("desktopPet.settings.sound")}
+          />
+        }
+      />
+      <SettingItem
+        title={t("desktopPet.settings.autoSleep")}
+        control={
+          <Input
+            type="number"
+            min={0}
+            value={autoSleepInput}
+            onChange={(e) => setAutoSleepInput(e.target.value)}
+            onBlur={() => {
+              const seconds = Number(autoSleepInput);
+              if (!Number.isFinite(seconds) || seconds < 0) {
+                setAutoSleepInput("0");
+                updateConfig({ interaction: { autoSleepMs: 0 } });
+                return;
+              }
+              updateConfig({ interaction: { autoSleepMs: Math.round(seconds * 1000) } });
+            }}
+            className="w-20 text-right tabular-nums"
+            aria-label={t("desktopPet.settings.autoSleep")}
+          />
+        }
+      />
+      <SettingItem
+        title={t("desktopPet.settings.resetPosition")}
+        control={
+          <Button
+            size="sm"
+            variant="secondary"
+            onPress={() => {
+              void api.desktopPet.resetPosition().then((next) => setSnapshot(next));
+              notify.success(t("desktopPet.settings.resetPosition"));
+            }}
+          >
+            <IconRotateCcw className="mr-1 size-3.5" />
+            {t("common.reset")}
+          </Button>
+        }
+      />
+    </SettingSection>
   );
 }
 

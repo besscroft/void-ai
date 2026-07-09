@@ -8,6 +8,8 @@ import { migrateProviderApiKeysToModelKeys } from "./lib/providers";
 import { registerVoidMediaProtocol } from "./lib/media-assets";
 import { registerIpcHandlers } from "./ipc";
 import { DesktopPetWindowController } from "./lib/desktop-pet-window";
+import { DesktopPetTrayController } from "./lib/desktop-pet-tray";
+import { showDesktopPetContextMenu } from "./lib/desktop-pet-context-menu";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "void-media",
@@ -22,6 +24,8 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindowRef: BrowserWindow | null = null;
 let desktopPetControllerRef: DesktopPetWindowController | null = null;
+let desktopPetTrayRef: DesktopPetTrayController | null = null;
+let isQuittingFromTray = false;
 
 function getPreloadPath(): string {
   return join(__dirname, "../preload/index.js");
@@ -76,6 +80,41 @@ function getOrCreateMainWindow(): BrowserWindow {
   return mainWindowRef;
 }
 
+/** 通过主窗口 IPC 通知渲染层打开设置面板（settingsDialog 已经在 App.tsx 管理） */
+function openMainSettings(): void {
+  const main = getOrCreateMainWindow();
+  if (main.isMinimized()) main.restore();
+  main.show();
+  main.focus();
+  // 触发主窗口的 openSettings：复用已有的 desktopPet:openSettings channel 风格
+  if (!main.webContents.isLoading()) {
+    main.webContents.send("desktopPet:openSettings");
+  } else {
+    main.webContents.once("did-finish-load", () => {
+      main.webContents.send("desktopPet:openSettings");
+    });
+  }
+}
+
+function openAbout(): void {
+  const main = getOrCreateMainWindow();
+  if (main.isMinimized()) main.restore();
+  main.show();
+  main.focus();
+  if (!main.webContents.isLoading()) {
+    main.webContents.send("desktopPet:openAbout");
+  } else {
+    main.webContents.once("did-finish-load", () => {
+      main.webContents.send("desktopPet:openAbout");
+    });
+  }
+}
+
+function quitApp(): void {
+  isQuittingFromTray = true;
+  app.quit();
+}
+
 // 应用就绪后初始化所有子系统
 void app.whenReady().then(async () => {
   electronApp.setAppUserModelId("com.void-ai");
@@ -118,12 +157,34 @@ void app.whenReady().then(async () => {
       is.dev && process.env["ELECTRON_RENDERER_URL"]
         ? process.env["ELECTRON_RENDERER_URL"]
         : undefined,
+    onContextMenu: (win) => {
+      showDesktopPetContextMenu(win, {
+        onOpenSettings: openMainSettings,
+        onOpenAbout: openAbout,
+        onHide: () => {
+          void desktopPetController.hide();
+        },
+        onResetPosition: () => {
+          void desktopPetController.resetPosition();
+        },
+        onQuit: quitApp,
+      });
+    },
   });
   desktopPetControllerRef = desktopPetController;
   desktopPetController.registerIpcHandlers();
   void desktopPetController
     .restoreIfEnabled()
     .catch((err) => console.error("[desktop-pet] restore failed:", err));
+
+  // 托盘（系统托盘，跨平台；macOS 表现为菜单栏图标）
+  const desktopPetTray = new DesktopPetTrayController({
+    openMainSettings: openMainSettings,
+    openAbout: openAbout,
+    quitApp: quitApp,
+  });
+  desktopPetTrayRef = desktopPetTray;
+  desktopPetTray.initialize();
 
   // IPC test（保留模板自带的 ping）
   ipcMain.on("ping", () => console.log("pong"));
@@ -137,7 +198,10 @@ void app.whenReady().then(async () => {
 
 // 所有窗口关闭时退出（macOS 除外）
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  // 如果是用户从托盘点击"退出"，直接退出；
+  // 否则在非 macOS 上也退出（桌宠被隐藏时主窗口可能还在，桌宠被关闭时主窗口也应该跟随）
+  if (isQuittingFromTray || process.platform !== "darwin") {
+    desktopPetTrayRef?.dispose();
     app.quit();
   }
 });
@@ -145,6 +209,7 @@ app.on("window-all-closed", () => {
 // 应用退出前清理资源
 app.on("before-quit", () => {
   desktopPetControllerRef?.prepareForAppQuit();
+  desktopPetTrayRef?.dispose();
   stopServer();
   closeDb();
 });

@@ -5,6 +5,7 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  DesktopPetConfig,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
   SkillDraftRequest,
@@ -142,8 +143,37 @@ export const api = {
       assertApi().desktopPet.moveWindowBy(delta),
     openMain: (conversationId?: string): Promise<boolean> =>
       assertApi().desktopPet.openMain(conversationId),
+    showContextMenu: (): Promise<boolean> => assertApi().desktopPet.showContextMenu(),
+    setFrameRate: (fps: number): Promise<boolean> => assertApi().desktopPet.setFrameRate(fps),
+    setWindowSize: (size: { width: number; height: number }): Promise<boolean> => {
+      const raw = (
+        assertApi().desktopPet as unknown as {
+          setWindowSize?: (s: { width: number; height: number }) => Promise<boolean>;
+        }
+      ).setWindowSize;
+      if (!raw) return Promise.resolve(false);
+      return raw(size);
+    },
+    setIgnoreMouseEvents: (ignore: boolean): Promise<boolean> => {
+      const raw = (
+        assertApi().desktopPet as unknown as {
+          setIgnoreMouseEvents?: (ignore: boolean) => Promise<boolean>;
+        }
+      ).setIgnoreMouseEvents;
+      if (!raw) return Promise.resolve(false);
+      return raw(ignore);
+    },
     onOpenConversation: (handler: (conversationId?: string) => void): (() => void) =>
       assertApi().desktopPet.onOpenConversation(handler),
+    onConfigApplied: (handler: (config: DesktopPetConfig) => void): (() => void) => {
+      const raw = (
+        assertApi().desktopPet as unknown as {
+          onConfigApplied?: (cb: (cfg: unknown) => void) => () => void;
+        }
+      ).onConfigApplied;
+      if (!raw) return () => undefined;
+      return raw((cfg) => handler(cfg as DesktopPetConfig));
+    },
   },
   sync: {
     get: (): Promise<SyncState> => assertApi().sync.get(),
@@ -232,6 +262,20 @@ export const api = {
   },
   system: {
     locale: (): Promise<string> => assertApi().system.locale(),
+    onPetOpenSettings: (handler: () => void): (() => void) => {
+      const raw = (
+        assertApi().system as unknown as { onPetOpenSettings?: (cb: () => void) => () => void }
+      ).onPetOpenSettings;
+      if (!raw) return () => undefined;
+      return raw(handler);
+    },
+    onPetOpenAbout: (handler: () => void): (() => void) => {
+      const raw = (
+        assertApi().system as unknown as { onPetOpenAbout?: (cb: () => void) => () => void }
+      ).onPetOpenAbout;
+      if (!raw) return () => undefined;
+      return raw(handler);
+    },
   },
   cache: {
     stats: (): Promise<CacheStats> => assertApi().cache.stats(),

@@ -6,6 +6,7 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
+  DesktopPetConfig,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
   SkillDraftRequest,
@@ -126,7 +127,11 @@ export interface VoidAIApi {
     resetPosition: () => Promise<DesktopPetSnapshot>;
     moveWindowBy: (delta: { dx: number; dy: number }) => Promise<boolean>;
     openMain: (conversationId?: string) => Promise<boolean>;
+    showContextMenu: () => Promise<boolean>;
+    setFrameRate: (fps: number) => Promise<boolean>;
+    setWindowSize: (size: { width: number; height: number }) => Promise<boolean>;
     onOpenConversation: (handler: (conversationId?: string) => void) => () => void;
+    onConfigApplied: (handler: (config: DesktopPetConfig) => void) => () => void;
   };
   sync: {
     get: () => Promise<SyncState>;
@@ -195,6 +200,8 @@ export interface VoidAIApi {
   };
   system: {
     locale: () => Promise<string>;
+    onPetOpenSettings: (handler: () => void) => () => void;
+    onPetOpenAbout: (handler: () => void) => () => void;
   };
   // 缂撳瓨绠＄悊
   cache: {

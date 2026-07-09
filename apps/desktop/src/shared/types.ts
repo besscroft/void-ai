@@ -795,14 +795,53 @@ export interface InteractionProfile {
   updated_at: number;
 }
 
-export type DesktopPetMood = "idle" | "thinking" | "working" | "learning" | "error";
+export type DesktopPetMood =
+  | "idle"
+  | "hover"
+  | "thinking"
+  | "working"
+  | "learning"
+  | "happy"
+  | "sleep"
+  | "error";
+
+/**
+ * 桌宠的"活动状态"，与 mood 不同：
+ * - mood 表示情绪/性格状态（来自后端）
+ * - activity 表示用户交互触发的瞬时状态（前端本地维护）
+ */
+export type DesktopPetActivity = "idle" | "hover" | "drag" | "interact" | "sleep" | "hidden";
 
 export interface DesktopPetWindowConfig {
   x?: number;
   y?: number;
   width: number;
   height: number;
+  /**
+   * 是否"置顶"（永远在其他窗口之上）。
+   * 默认 false：桌宠位于其他窗口下方，贴近桌面。
+   * 用户可在设置中切换。
+   */
   alwaysOnTop: boolean;
+  /**
+   * 缩放比例（0.5 ~ 1.5），影响桌宠整体视觉大小（不影响窗口 bounds）。
+   */
+  scale: number;
+  /**
+   * 窗口整体透明度（0.3 ~ 1.0）。
+   */
+  opacity: number;
+}
+
+export interface DesktopPetInteractionConfig {
+  /**
+   * 是否播放音效（hover/click/drag-drop）。
+   */
+  soundEnabled: boolean;
+  /**
+   * 无操作多少毫秒后进入 sleep 状态；<= 0 表示禁用自动睡眠。
+   */
+  autoSleepMs: number;
 }
 
 export interface DesktopPetConfig {
@@ -810,13 +849,18 @@ export interface DesktopPetConfig {
   agentId: string;
   conversationId?: string;
   window: DesktopPetWindowConfig;
+  interaction: DesktopPetInteractionConfig;
   visual: {
     variant: "void-orb";
   };
 }
 
-export type DesktopPetConfigPatch = Omit<Partial<DesktopPetConfig>, "window" | "visual"> & {
+export type DesktopPetConfigPatch = Omit<
+  Partial<DesktopPetConfig>,
+  "window" | "visual" | "interaction"
+> & {
   window?: Partial<DesktopPetWindowConfig>;
+  interaction?: Partial<DesktopPetInteractionConfig>;
   visual?: Partial<DesktopPetConfig["visual"]>;
 };
 
@@ -831,37 +875,71 @@ export interface DesktopPetSnapshot {
 
 export const DESKTOP_PET_PROFILE_ID = "interaction-pet";
 
+/** 桌宠窗口默认尺寸（CSS px）。只够容纳"宠物球 + 状态文字"，不挡其他软件 */
 export const DEFAULT_DESKTOP_PET_WINDOW: DesktopPetWindowConfig = {
-  width: 320,
-  height: 420,
-  alwaysOnTop: true,
+  width: 180,
+  height: 180,
+  alwaysOnTop: false,
+  scale: 1,
+  opacity: 1,
+};
+
+/**
+ * 桌宠展开对话气泡时的窗口尺寸（用户主动展开时短暂占用，不影响默认占位）
+ */
+export const DESKTOP_PET_WINDOW_EXPANDED_SIZE = { width: 280, height: 360 };
+
+/** 桌宠交互默认配置 */
+export const DEFAULT_DESKTOP_PET_INTERACTION: DesktopPetInteractionConfig = {
+  soundEnabled: false,
+  autoSleepMs: 60_000,
 };
 
 export const DEFAULT_DESKTOP_PET_CONFIG: DesktopPetConfig = {
   version: 1,
   agentId: DEFAULT_AGENT_ID,
   window: DEFAULT_DESKTOP_PET_WINDOW,
+  interaction: DEFAULT_DESKTOP_PET_INTERACTION,
   visual: { variant: "void-orb" },
 };
 
 export function normalizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
   const value = readDesktopPetObject(raw);
   const windowValue = readDesktopPetObject(value?.window);
+  const interactionValue = readDesktopPetObject(value?.interaction);
   const visualValue = readDesktopPetObject(value?.visual);
   const width = clampDesktopPetNumber(
     windowValue?.width,
     DEFAULT_DESKTOP_PET_WINDOW.width,
-    240,
+    128,
     520,
   );
   const height = clampDesktopPetNumber(
     windowValue?.height,
     DEFAULT_DESKTOP_PET_WINDOW.height,
-    260,
+    128,
     680,
   );
   const x = readOptionalDesktopPetNumber(windowValue?.x);
   const y = readOptionalDesktopPetNumber(windowValue?.y);
+  const scale = clampDesktopPetNumber(
+    windowValue?.scale,
+    DEFAULT_DESKTOP_PET_WINDOW.scale,
+    0.5,
+    1.5,
+  );
+  const opacity = clampDesktopPetNumber(
+    windowValue?.opacity,
+    DEFAULT_DESKTOP_PET_WINDOW.opacity,
+    0.3,
+    1,
+  );
+  const autoSleepMs = clampDesktopPetNumber(
+    interactionValue?.autoSleepMs,
+    DEFAULT_DESKTOP_PET_INTERACTION.autoSleepMs,
+    0,
+    24 * 60 * 60_000,
+  );
 
   return {
     version: 1,
@@ -879,6 +957,15 @@ export function normalizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
         typeof windowValue?.alwaysOnTop === "boolean"
           ? windowValue.alwaysOnTop
           : DEFAULT_DESKTOP_PET_WINDOW.alwaysOnTop,
+      scale,
+      opacity,
+    },
+    interaction: {
+      soundEnabled:
+        typeof interactionValue?.soundEnabled === "boolean"
+          ? interactionValue.soundEnabled
+          : DEFAULT_DESKTOP_PET_INTERACTION.soundEnabled,
+      autoSleepMs,
     },
     visual: {
       variant: visualValue?.variant === "void-orb" ? "void-orb" : "void-orb",
@@ -897,6 +984,10 @@ export function mergeDesktopPetConfig(
     window: {
       ...current.window,
       ...patch.window,
+    },
+    interaction: {
+      ...current.interaction,
+      ...patch.interaction,
     },
     visual: {
       ...current.visual,

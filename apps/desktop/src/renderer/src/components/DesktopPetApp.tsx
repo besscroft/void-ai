@@ -1,27 +1,28 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import { useChat } from "@ai-sdk/react";
-import {
-  DefaultChatTransport,
-  lastAssistantMessageIsCompleteWithApprovalResponses,
-  type UIMessage,
-} from "ai";
-import { Button } from "./ui";
-import { api } from "../lib/api";
-import { buildUserMessage, hydrateStoredMessage } from "../lib/chat-messages";
-import { persistMessagesSnapshot } from "../lib/chat-persistence";
-import { getChatErrorMessage } from "../lib/errors";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { useT } from "../lib/i18n";
+import { api } from "../lib/api";
 import {
-  CHAT_SESSION_HEADER,
-  DEFAULT_AGENT_ID,
+  DEFAULT_DESKTOP_PET_WINDOW,
   type DesktopPetMood,
   type DesktopPetSnapshot,
   type LocalServerInfo,
 } from "@shared/types";
-import { IconClose, IconMessage, IconSend, IconSettings, IconSparkles } from "./icons";
+import { useDesktopPetState } from "../lib/useDesktopPetState";
+import { PetSoundPlayer } from "../lib/pet-sound";
 
-const PET_TOOL_SELECTION = { mode: "off" as const, selectedToolIds: [] };
-
+/**
+ * 桌宠根组件。
+ *
+ * 关键设计：
+ *  - BrowserWindow 物理 bounds 永远 = DEFAULT_DESKTOP_PET_WINDOW（128×128），
+ *    不会再被 setWindowBy / setSize 改成 280×360，避免整块大框挡到其它 app。
+ *  - 渲染层只放"球 + 状态文字"两样东西，按内容 size 渲染，hit area = 视觉 area。
+ *  - 历史的"原地展开 chat overlay"功能被移除——它会让 BrowserWindow 临时变
+ *    280×360，与"bounds 永远 = 桌宠大小"冲突。点击球现在改为调
+ *    `openConversation` IPC 打开主窗口（**后续**会换成一个独立 BrowserWindow
+ *    承载 chat 浮层，但那是另一个窗口，不影响桌宠 bounds）。
+ *  - 拖动 / 状态机 / 音效保持不变。
+ */
 export function DesktopPetApp(): React.JSX.Element {
   const { t } = useT();
   const [snapshot, setSnapshot] = useState<DesktopPetSnapshot | null>(null);
@@ -47,317 +48,268 @@ export function DesktopPetApp(): React.JSX.Element {
 
   if (!snapshot || !serverInfo) {
     return (
-      <div className="desktop-pet-drag flex h-full items-center justify-center bg-transparent text-xs text-foreground/55">
+      <div className="flex h-full items-center justify-center bg-transparent text-xs text-foreground/55">
         {t("common.loading")}
       </div>
     );
   }
 
-  return <DesktopPetChat snapshot={snapshot} serverInfo={serverInfo} />;
+  return <DesktopPetView snapshot={snapshot} />;
 }
 
-function DesktopPetChat({
-  snapshot,
-  serverInfo,
-}: {
-  snapshot: DesktopPetSnapshot;
-  serverInfo: LocalServerInfo;
-}): React.JSX.Element {
-  const { t, locale } = useT();
-  const conversationId = snapshot.config.conversationId!;
-  const [expanded, setExpanded] = useState(false);
-  const [input, setInput] = useState("");
-  const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const createdAtRef = useRef<Map<string, number>>(new Map());
-  const hydratedConversationRef = useRef<string | null>(null);
-  const latestMessagesRef = useRef<UIMessage[]>([]);
-  const selectedModelRef = useRef<string | null>(snapshot.selectedModel);
+function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.JSX.Element {
+  const { t } = useT();
+
+  // 状态机 + 音效
+  const state = useDesktopPetState({ snapshot });
+  const soundRef = useRef<PetSoundPlayer | null>(null);
+  if (!soundRef.current) soundRef.current = new PetSoundPlayer();
+  useEffect(() => {
+    soundRef.current?.setMuted(!snapshot.config.interaction.soundEnabled);
+  }, [snapshot.config.interaction.soundEnabled]);
+  useEffect(() => {
+    return () => {
+      soundRef.current?.dispose();
+      soundRef.current = null;
+    };
+  }, []);
+
+  // 拖动状态：用 ref 记录 + 抑制 click
+  // 关键：用 lastScreenX/Y 跟踪鼠标的"上一次物理位置"（不是 movementX/Y），
+  // 原因见 desktop-pet-window.ts 旧实现：贴边时 screenX 不会越界，movementX 会。
   const dragRef = useRef({
     pointerId: -1,
-    lastX: 0,
-    lastY: 0,
+    lastScreenX: 0,
+    lastScreenY: 0,
     totalX: 0,
     totalY: 0,
     moved: false,
+    startTime: 0,
   });
   const suppressClickRef = useRef(false);
+  const lastClickAtRef = useRef(0);
 
-  useEffect(() => {
-    selectedModelRef.current = snapshot.selectedModel;
-  }, [snapshot.selectedModel]);
+  // 点击穿透动态切换：rootRef 用于 hit-test 鼠标是否在球上，
+  // ignoreRef 缓存当前 ignore 状态避免高频 IPC。
+  const rootRef = useRef<HTMLDivElement>(null);
+  const ignoreRef = useRef(true);
 
+  // mount 时强制把 BrowserWindow 收回到 DEFAULT（128×128），
+  // 兜底任何 db 残留或外部写入导致的大尺寸。
   useEffect(() => {
-    setHistoryLoaded(false);
-    hydratedConversationRef.current = null;
-    createdAtRef.current = new Map();
-    void api.messages.list(conversationId).then((rows) => {
-      createdAtRef.current = new Map(rows.map((row) => [row.id, row.created_at]));
-      setInitialMessages(rows.map(hydrateStoredMessage));
-      setHistoryLoaded(true);
+    void api.desktopPet.setWindowSize({
+      width: DEFAULT_DESKTOP_PET_WINDOW.width,
+      height: DEFAULT_DESKTOP_PET_WINDOW.height,
     });
-  }, [conversationId]);
+  }, []);
 
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport({
-        api: `http://127.0.0.1:${serverInfo.port}/api/chat`,
-        headers: () => ({ [CHAT_SESSION_HEADER]: serverInfo.token }),
-        body: () => ({
-          model: selectedModelRef.current ?? undefined,
-          agentId: DEFAULT_AGENT_ID,
-          conversationId,
-          reasoning: "provider-default",
-          toolSelection: PET_TOOL_SELECTION,
-        }),
-      }),
-    [conversationId, serverInfo.port, serverInfo.token],
-  );
-
-  const chat = useChat({
-    id: conversationId,
-    messages: initialMessages,
-    transport,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onFinish: ({ messages, isError }) => {
-      if (!isError) setChatError(null);
-      void persistMessagesSnapshot(conversationId, messages, createdAtRef.current)
-        .then(() => api.agents.queueLearning(conversationId))
-        .catch((err) => console.error("[desktop-pet] failed to persist messages:", err));
-      void api.conversations.touch(conversationId);
-    },
-    onError: (err) => {
-      const detail = getChatErrorMessage(err, locale);
-      setChatError(detail);
-      void persistMessagesSnapshot(conversationId, latestMessagesRef.current, createdAtRef.current);
-      void api.conversations.touch(conversationId);
-    },
-  });
-
-  latestMessagesRef.current = chat.messages;
-
+  // 右键菜单：window 上 contextmenu → 通知 main 弹原生菜单
   useEffect(() => {
-    if (!historyLoaded || hydratedConversationRef.current === conversationId) return;
-    chat.setMessages(initialMessages);
-    hydratedConversationRef.current = conversationId;
-  }, [chat, conversationId, historyLoaded, initialMessages]);
+    const onContext = (e: globalThis.MouseEvent): void => {
+      e.preventDefault();
+      void api.desktopPet.showContextMenu();
+    };
+    window.addEventListener("contextmenu", onContext);
+    return () => window.removeEventListener("contextmenu", onContext);
+  }, []);
 
-  const isLoading = chat.status === "submitted" || chat.status === "streaming";
-  const hasModel = Boolean(snapshot.selectedModel);
-  const mood: DesktopPetMood = chatError ? "error" : isLoading ? "thinking" : snapshot.mood;
-  const assistantText = latestAssistantText(chat.messages) ?? t("desktopPet.emptyReply");
-  const statusText = chatError
-    ? t("desktopPet.status.error")
-    : isLoading
-      ? t("desktopPet.status.thinking")
-      : moodLabel(t, mood);
+  // 点击穿透核心：监听 mousemove（main 端 setIgnoreMouseEvents(true,{forward:true})
+  // 会把 mousemove 转发给渲染层），实时判断鼠标是否落在球的可视区内：
+  //   - 在球上 → setIgnoreMouseEvents(false)，球可拖动/点击/hover
+  //   - 不在球上 → setIgnoreMouseEvents(true)，透明区域点击穿透到底下 app
+  // 拖动期间：强制保持 ignore=false。不在这里 setIgnoreMouseEvents(true)，
+  // 否则异步 IPC 会在拖动进行中把 pointermove 截断，导致窗口不跟手。
+  // 拖动结束后也不主动设 true——交给下一条 mousemove 自动判断鼠标位置。
+  useEffect(() => {
+    const onMouseMove = (e: globalThis.MouseEvent): void => {
+      // 拖动期间：确保 ignore=false，防止竞态导致 pointermove 丢失
+      if (dragRef.current.pointerId !== -1) {
+        if (ignoreRef.current !== false) {
+          ignoreRef.current = false;
+          void api.desktopPet.setIgnoreMouseEvents(false);
+        }
+        return;
+      }
+      const root = rootRef.current;
+      if (!root) return;
+      const rect = root.getBoundingClientRect();
+      const onPet =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      const next = !onPet;
+      if (next === ignoreRef.current) return; // 状态未变，跳过 IPC
+      ignoreRef.current = next;
+      void api.desktopPet.setIgnoreMouseEvents(next);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    return () => window.removeEventListener("mousemove", onMouseMove);
+  }, []);
 
-  const handleSend = (): void => {
-    const text = input.trim();
-    if (!text || !hasModel || isLoading) return;
+  // 全局 window pointer 监听：处理 move / up / cancel
+  useEffect(() => {
+    type NativePointerEvent = globalThis.PointerEvent;
 
-    let userMessage: UIMessage;
-    try {
-      userMessage = buildUserMessage({ id: crypto.randomUUID(), text, files: [] });
-    } catch {
-      return;
-    }
+    const handleMove = (event: NativePointerEvent): void => {
+      const drag = dragRef.current;
+      if (drag.pointerId !== event.pointerId) return;
+      const dx = event.screenX - drag.lastScreenX;
+      const dy = event.screenY - drag.lastScreenY;
+      drag.lastScreenX = event.screenX;
+      drag.lastScreenY = event.screenY;
+      if (dx === 0 && dy === 0) return;
+      drag.totalX += dx;
+      drag.totalY += dy;
+      if (Math.abs(drag.totalX) + Math.abs(drag.totalY) > 4) drag.moved = true;
+      void api.desktopPet.moveWindowBy({ dx, dy });
+    };
 
-    setInput("");
-    setChatError(null);
-    chat.clearError();
+    const finishDrag = (event: NativePointerEvent): void => {
+      const drag = dragRef.current;
+      if (drag.pointerId !== event.pointerId) return;
+      const wasDragging = drag.moved;
+      dragRef.current = {
+        pointerId: -1,
+        lastScreenX: 0,
+        lastScreenY: 0,
+        totalX: 0,
+        totalY: 0,
+        moved: false,
+        startTime: 0,
+      };
+      state.setDragging(false);
+      if (wasDragging) {
+        suppressClickRef.current = true;
+        soundRef.current?.play("drop");
+        window.setTimeout(() => {
+          suppressClickRef.current = false;
+        }, 0);
+      }
+      // 不在这里设 setIgnoreMouseEvents(true)：异步 IPC 可能延迟到达，
+      // 在用户连续拖动时把 ignore 翻回 true，导致 pointermove 丢失、
+      // 窗口不跟手。改由上面 mousemove 监听器自动判断鼠标位置。
+    };
 
-    const pendingMessages = [...latestMessagesRef.current, userMessage];
-    void persistMessagesSnapshot(conversationId, pendingMessages, createdAtRef.current).catch(
-      (err) => console.error("[desktop-pet] failed to pre-save user message:", err),
-    );
-    void api.conversations.touch(conversationId);
-    void chat.sendMessage(userMessage).catch((err) => {
-      setChatError(getChatErrorMessage(err, locale));
-      void persistMessagesSnapshot(conversationId, pendingMessages, createdAtRef.current);
-      void api.conversations.touch(conversationId);
-    });
-  };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", finishDrag);
+    window.addEventListener("pointercancel", finishDrag);
+    return () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", finishDrag);
+      window.removeEventListener("pointercancel", finishDrag);
+    };
+  }, [state]);
 
-  const handleOpenMain = (): void => {
-    void api.desktopPet.openMain(conversationId);
-  };
-
-  const handleClose = (): void => {
-    void api.desktopPet.hide();
-  };
-
-  const handlePetPointerDown = (event: PointerEvent<HTMLButtonElement>): void => {
+  const handleRootPointerDown = (event: PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return;
+    if (dragRef.current.pointerId !== -1) return;
     dragRef.current = {
       pointerId: event.pointerId,
-      lastX: event.screenX,
-      lastY: event.screenY,
+      lastScreenX: event.screenX,
+      lastScreenY: event.screenY,
       totalX: 0,
       totalY: 0,
       moved: false,
+      startTime: Date.now(),
     };
-    setDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
+    state.setDragging(true);
+    state.notifyActivity();
+    // 不在这里调 setIgnoreMouseEvents(false)：用户能点击球说明 ignore
+    // 已经是 false（mousemove 监听器在鼠标进入球时设的）。异步 IPC
+    // 反而可能和 moveWindowBy 交叉，引入竞态。拖动期间 ignore 状态
+    // 由 mousemove 监听器负责保持 false。
   };
 
-  const handlePetPointerMove = (event: PointerEvent<HTMLButtonElement>): void => {
-    const drag = dragRef.current;
-    if (drag.pointerId !== event.pointerId) return;
-    const dx = event.screenX - drag.lastX;
-    const dy = event.screenY - drag.lastY;
-    if (dx === 0 && dy === 0) return;
-
-    drag.lastX = event.screenX;
-    drag.lastY = event.screenY;
-    drag.totalX += dx;
-    drag.totalY += dy;
-    if (Math.abs(drag.totalX) + Math.abs(drag.totalY) > 4) drag.moved = true;
-    void api.desktopPet.moveWindowBy({ dx, dy });
-  };
-
-  const finishPetDrag = (event: PointerEvent<HTMLButtonElement>): void => {
-    const drag = dragRef.current;
-    if (drag.pointerId !== event.pointerId) return;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    suppressClickRef.current = drag.moved;
-    dragRef.current = {
-      pointerId: -1,
-      lastX: 0,
-      lastY: 0,
-      totalX: 0,
-      totalY: 0,
-      moved: false,
-    };
-    setDragging(false);
+  const handlePetClick = (event: MouseEvent<HTMLButtonElement>): void => {
+    event.preventDefault();
     if (suppressClickRef.current) {
-      window.setTimeout(() => {
-        suppressClickRef.current = false;
-      }, 0);
+      event.preventDefault();
+      return;
     }
+    state.notifyActivity();
+    const now = Date.now();
+    const delta = now - lastClickAtRef.current;
+    lastClickAtRef.current = now;
+    // 250ms 内的两次 click 视为双击
+    if (delta > 0 && delta < 280) {
+      lastClickAtRef.current = 0;
+      state.triggerInteract(1_400);
+      soundRef.current?.play("happy");
+      return;
+    }
+    soundRef.current?.play("click");
+    // 单击 → 通知主进程打开主窗口（**临时**方案，后续会替换为独立 chat overlay
+    // BrowserWindow——但那也是另一个窗口，不影响桌宠 bounds）。
+    void api.desktopPet.openMain(snapshot.config.conversationId ?? undefined);
+  };
+
+  const handlePetEnter = (): void => {
+    state.setHover(true);
+    state.notifyActivity();
+    soundRef.current?.play("hover");
+  };
+
+  const handlePetLeave = (): void => {
+    state.setHover(false);
+  };
+
+  // mood：桌宠无 chat overlay 后，mood 只由后端 snapshot.mood / activity 决定
+  const baseMood: DesktopPetMood = snapshot.mood;
+  const statusText = activityStatusLabel(t, baseMood, state.activity);
+
+  const petStyle: React.CSSProperties = {
+    ["--pet-scale" as string]: String(snapshot.config.window.scale),
   };
 
   return (
-    <div className="flex h-full w-full flex-col justify-end bg-transparent p-3 text-foreground">
-      <div className="desktop-pet-no-drag self-end">
-        <Button
-          isIconOnly
-          size="sm"
-          variant="tertiary"
-          className="size-7 rounded-full bg-background/70 shadow-sm backdrop-blur"
-          aria-label={t("common.close")}
-          onPress={handleClose}
-        >
-          <IconClose className="size-3.5" />
-        </Button>
-      </div>
-
+    // 关键：root 容器用 absolute 定位在 BrowserWindow 右下角，**不**强制
+    // h-full / w-full。这样 root 的 layout 盒子大小 = 实际内容大小（球 + 状态条），
+    // 而不是整个 BrowserWindow bounds。结合 main.css 里 body / #root 的
+    // pointer-events: none，hit area = 视觉 area，透明区域不挡其它 app。
+    <div
+      ref={rootRef}
+      className={`desktop-pet-root absolute bottom-0 right-0 flex flex-col items-center gap-1 bg-transparent p-1 text-foreground desktop-pet-activity-${state.activity}`}
+      style={petStyle}
+      onContextMenu={(e) => e.preventDefault()}
+      onPointerDown={handleRootPointerDown}
+    >
       <button
         type="button"
-        className={`desktop-pet-no-drag mx-auto mt-auto flex touch-none select-none flex-col items-center gap-2 outline-none ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
-        onPointerDown={handlePetPointerDown}
-        onPointerMove={handlePetPointerMove}
-        onPointerUp={finishPetDrag}
-        onPointerCancel={finishPetDrag}
-        onClick={(event) => {
-          if (suppressClickRef.current) {
-            event.preventDefault();
-            return;
-          }
-          setExpanded((next) => !next);
-        }}
+        className={`mx-auto flex touch-none select-none flex-col items-center gap-1 outline-none ${
+          state.activity === "drag" ? "cursor-grabbing" : "cursor-grab"
+        }`}
+        onClick={handlePetClick}
+        onPointerEnter={handlePetEnter}
+        onPointerLeave={handlePetLeave}
         aria-label={t("desktopPet.toggle")}
       >
-        <span className={`desktop-pet-orb desktop-pet-mood-${mood}`}>
+        <span className={`desktop-pet-orb desktop-pet-mood-${baseMood}`}>
           <span className="desktop-pet-orb-glow" />
-          <span className="relative z-10 text-4xl font-semibold">
+          <span className="relative z-10 text-2xl font-semibold">
             {snapshot.agent?.avatar ?? "V"}
           </span>
+          {state.activity === "interact" ? <span className="desktop-pet-burst">✨</span> : null}
+          {state.activity === "sleep" ? <span className="desktop-pet-zzz">Zzz</span> : null}
         </span>
-        <span className="rounded-full border border-foreground/10 bg-background/75 px-3 py-1 text-xs font-medium shadow-sm backdrop-blur">
+        <span className="rounded-full border border-foreground/10 bg-background/75 px-2 py-0.5 text-[10px] font-medium shadow-sm backdrop-blur">
           {snapshot.agent?.name ?? "Void"} · {statusText}
         </span>
       </button>
-
-      {expanded ? (
-        <section className="desktop-pet-no-drag mt-3 rounded-lg border border-foreground/10 bg-background/90 p-3 shadow-xl backdrop-blur-xl">
-          <div className="flex items-start gap-2">
-            <IconSparkles className="mt-0.5 size-4 shrink-0 text-accent" />
-            <p className="line-clamp-4 min-h-10 flex-1 text-sm leading-5 text-foreground/80">
-              {chatError ?? assistantText}
-            </p>
-          </div>
-
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              value={input}
-              disabled={!hasModel || isLoading}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder={
-                hasModel ? t("desktopPet.input.placeholder") : t("desktopPet.input.noModel")
-              }
-              className="h-9 min-w-0 flex-1 rounded-md border border-foreground/10 bg-background px-3 text-sm outline-none transition placeholder:text-foreground/35 focus:border-accent/50"
-            />
-            <Button
-              isIconOnly
-              size="sm"
-              variant="primary"
-              aria-label={t("desktopPet.send")}
-              isDisabled={!input.trim() || !hasModel || isLoading}
-              isPending={isLoading}
-              onPress={handleSend}
-            >
-              <IconSend className="size-3.5" />
-            </Button>
-          </div>
-
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <Button size="sm" variant="secondary" onPress={handleOpenMain}>
-              <IconMessage className="size-3.5" />
-              {t("desktopPet.openChat")}
-            </Button>
-            <Button size="sm" variant="tertiary" onPress={() => void api.desktopPet.openMain()}>
-              <IconSettings className="size-3.5" />
-              {t("desktopPet.settings")}
-            </Button>
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }
 
-function latestAssistantText(messages: UIMessage[]): string | null {
-  for (const message of [...messages].reverse()) {
-    if (message.role !== "assistant") continue;
-    const text = messageText(message);
-    if (text) return text;
-  }
-  return null;
-}
-
-function messageText(message: UIMessage): string {
-  return (message.parts ?? [])
-    .filter((part) => part.type === "text")
-    .map((part) => (part as { text: string }).text)
-    .join("")
-    .trim();
-}
-
-function moodLabel(t: ReturnType<typeof useT>["t"], mood: DesktopPetMood): string {
-  if (mood === "thinking") return t("desktopPet.status.thinking");
-  if (mood === "working") return t("desktopPet.status.working");
-  if (mood === "learning") return t("desktopPet.status.learning");
-  if (mood === "error") return t("desktopPet.status.error");
+function activityStatusLabel(
+  t: (key: string) => string,
+  baseMood: DesktopPetMood,
+  activity: string,
+): string {
+  if (activity === "sleep") return t("desktopPet.status.sleep");
+  if (activity === "interact") return t("desktopPet.status.happy");
+  if (baseMood === "thinking") return t("desktopPet.status.thinking");
+  if (baseMood === "working") return t("desktopPet.status.working");
+  if (baseMood === "learning") return t("desktopPet.status.learning");
+  if (baseMood === "error") return t("desktopPet.status.error");
   return t("desktopPet.status.idle");
 }

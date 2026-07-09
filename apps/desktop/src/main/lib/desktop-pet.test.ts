@@ -39,9 +39,23 @@ void describe("desktop pet config", () => {
     assert.equal(config.conversationId, "conv-pet");
     assert.equal(config.window.x, 10);
     assert.equal(config.window.y, 21);
-    assert.equal(config.window.width, 240);
+    // 99 小于下限 128，被夹紧到 128；9999 大于上限 680，被夹紧到 680
+    assert.equal(config.window.width, 128);
     assert.equal(config.window.height, 680);
     assert.equal(config.window.alwaysOnTop, false);
+    assert.equal(config.window.scale, 1);
+    assert.equal(config.window.opacity, 1);
+    assert.equal(config.interaction.soundEnabled, false);
+    assert.equal(config.interaction.autoSleepMs, 60_000);
+  });
+
+  void it("normalizes interaction patches (sound / autoSleep)", () => {
+    const config = normalizeDesktopPetConfig({
+      interaction: { soundEnabled: true, autoSleepMs: -1 },
+    });
+    assert.equal(config.interaction.soundEnabled, true);
+    // 负值被夹紧到 0（禁用自动睡眠）
+    assert.equal(config.interaction.autoSleepMs, 0);
   });
 
   void it("merges nested window patches", () => {
@@ -93,11 +107,16 @@ void describe("desktop pet bounds", () => {
     assert.deepEqual(bounds, { x: 960, y: 0, width: 320, height: 420 });
   });
 
-  void it("moves the current window bounds by a delta and clamps to the active display", () => {
+  void it("moves the current window bounds by a delta", () => {
     const config = normalizeDesktopPetConfig({
       window: { x: 100, y: 120, width: 320, height: 420, alwaysOnTop: true },
     });
     const display = { x: 0, y: 0, width: 1280, height: 720 };
+    // 起点 (960, 220)，拖动 (dx=80, dy=-260)：
+    //   targetX = 960 + 80 = 1040
+    //   targetY = 220 - 260 = -40
+    //   minY = 0 - 420 + 50 = -370，targetY >= minY，所以不 clamp
+    //   newY = -40（pet 顶部在屏幕外 40px，仍有 380px 可见）
     const bounds = moveDesktopPetBounds(
       config,
       { x: 960, y: 220, width: 320, height: 420 },
@@ -106,6 +125,47 @@ void describe("desktop pet bounds", () => {
       display,
     );
 
-    assert.deepEqual(bounds, { x: 960, y: 0, width: 320, height: 420 });
+    assert.deepEqual(bounds, { x: 1040, y: -40, width: 320, height: 420 });
+  });
+
+  void it("allows the pet to be dragged past a screen edge while keeping KEEP_VISIBLE_PX on-screen", () => {
+    // 屏幕 1280x720，pet 宽 320。pet 起点 (100, 100)，
+    // 用户疯狂向右拖 dx=5000，pet 允许越过右边缘（1280-50=1230），
+    // 但要保证 pet 左边至少保留 50px 在屏幕内。
+    const config = normalizeDesktopPetConfig({
+      window: { x: 100, y: 100, width: 320, height: 420, alwaysOnTop: true },
+    });
+    const display = { x: 0, y: 0, width: 1280, height: 720 };
+    const bounds = moveDesktopPetBounds(
+      config,
+      { x: 100, y: 100, width: 320, height: 420 },
+      { dx: 5000, dy: 0 },
+      [display],
+      display,
+    );
+
+    // maxX = 1280 - 50 = 1230（pet 左边到 1230，右边到 1550 越界 270px）
+    assert.equal(bounds.x, 1230);
+    // 至少有 KEEP_VISIBLE_PX(50) px 在屏幕内：
+    // pet 左边 = 1230, 屏幕右 = 1280, 可见宽度 = 50 ✓
+  });
+
+  void it("does not let the pet be pushed completely off-screen", () => {
+    const config = normalizeDesktopPetConfig({
+      window: { x: 100, y: 100, width: 320, height: 420, alwaysOnTop: true },
+    });
+    const display = { x: 0, y: 0, width: 1280, height: 720 };
+    // 不管 dx 多大，pet 永远不会完全跑出屏幕
+    const bounds = moveDesktopPetBounds(
+      config,
+      { x: 100, y: 100, width: 320, height: 420 },
+      { dx: 100000, dy: 100000 },
+      [display],
+      display,
+    );
+
+    // maxX = 1230, maxY = 670
+    assert.equal(bounds.x, 1230);
+    assert.equal(bounds.y, 670);
   });
 });
