@@ -41,10 +41,17 @@
 :root {
   --spacing: 0.25rem;
   /* 视觉风格 token：被 applyStyle(settings.style) 注入；未注入时回退到默认值。
-   * 桥接 --style-radius → --radius，使 Mira/Vega/Nova/Maia/Lyra 的圆角风格
-   * 直接影响 Tailwind 的 rounded-* utility（rounded-md = calc(--radius - 2px) 等）。*/
+   * 桥接 --style-radius → --radius → --radius-{sm,md,lg,xl,2xl}，
+   * 让 Mira/Vega/Nova/Maia/Lyra 的圆角风格真正影响 Tailwind 的 rounded-* utility。
+   * （shadcn tailwind.css 模板只在 @layer theme 内把 --radius-md 等硬编码为固定值，
+   *  在 unlayered 这里重新桥接到 --radius 才能被 inline style 的 --style-radius 驱动。）*/
   --style-radius: 0.5rem;
   --radius: var(--style-radius);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
   --style-font-stack: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --white: oklch(1 0 0);
   --snow: oklch(0.985 0.003 247);

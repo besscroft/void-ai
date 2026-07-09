@@ -1,5 +1,7 @@
 import { beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { DEFAULT_SETTINGS, type AppSettings } from "@shared/types";
 import { applyTheme } from "./theme";
 
@@ -125,5 +127,27 @@ void describe("applyTheme", () => {
     );
     assert.equal(root.style.getPropertyValue("--style-radius"), "12px");
     assert.equal(root.dataset.style, "mira");
+  });
+
+  // 回归测试：Tailwind v4 编译的 rounded-md/lg/xl/2xl 引用的是具名变量 --radius-md/lg/xl/2xl，
+  // 而 shadcn 的 tailwind.css 只在 @layer theme 内把它们硬编码为固定值。
+  // main.css 必须在 unlayered :root 里把这些变量桥接到 var(--radius)，
+  // 否则切换风格时 --style-radius 改了但所有 rounded-* 元素不变。
+  void it("main.css 在 :root 中把 --radius-{sm,md,lg,xl,2xl} 桥接到 var(--radius)", () => {
+    const css = readFileSync(resolve(import.meta.dirname, "../assets/main.css"), "utf8");
+    const rootBlock = css.match(/:root\s*\{[\s\S]*?\n\}/);
+    assert.ok(rootBlock, "未找到 :root 块");
+    const block = rootBlock[0];
+    // sm/md/xl/2xl 形如 calc(var(--radius) ± Npx)，lg 形如 var(--radius)。
+    for (const name of [
+      "--radius-sm",
+      "--radius-md",
+      "--radius-lg",
+      "--radius-xl",
+      "--radius-2xl",
+    ]) {
+      const re = new RegExp(`${name}\\s*:\\s*[^;]*var\\(--radius\\)`);
+      assert.match(block, re, `${name} 必须基于 var(--radius) 派生`);
+    }
   });
 });

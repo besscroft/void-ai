@@ -12,6 +12,8 @@ node_modules
 dist
 dist-ssr
 *.local
+**/dist-rebuild/
+**/dist-v2/
 
 # Editor directories and files
 .vscode/*
