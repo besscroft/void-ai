@@ -16,7 +16,6 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   type PromptInputMessage,
-  EmojiPicker,
   AttachmentChip,
   ContextPopover,
   type AttachmentItem,
@@ -32,7 +31,7 @@ import {
   selectMediaModelRef,
   type MediaGenerationSelection,
 } from "../lib/chat-media";
-import { IconClose, IconPaperclip, IconSmile, IconSparkles } from "./icons";
+import { IconClose, IconPaperclip, IconSparkles } from "./icons";
 import type {
   ChatReasoningLevel,
   ChatToolSelectionRequest,
@@ -92,7 +91,6 @@ export function MessageInput({
   const { t } = useT();
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const [emojiOpen, setEmojiOpen] = useState(false);
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false);
   const [activeMediaKind, setActiveMediaKind] = useState<MediaGenerationKind | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -149,17 +147,6 @@ export function MessageInput({
       console.error("[MessageInput] failed to read attachments:", err);
     }
   };
-
-  const handleEmojiSelect = useCallback((emoji: string) => {
-    const ta = textareaRef.current;
-    setInput((prev) => {
-      if (!ta) return prev + emoji;
-      const start = ta.selectionStart ?? prev.length;
-      const end = ta.selectionEnd ?? prev.length;
-      return prev.slice(0, start) + emoji + prev.slice(end);
-    });
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  }, []);
 
   const ingestFiles = useCallback(
     (files: FileList | File[]) => {
@@ -303,27 +290,6 @@ export function MessageInput({
 
               <div className="relative flex min-h-11 items-start gap-2 px-3 pt-2">
                 <div className="inline-flex min-w-0 w-fit max-w-[calc(100%-2.75rem)] flex-wrap items-center gap-1.5">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setEmojiOpen((v) => !v)}
-                      aria-label={t("input.emoji")}
-                      title={t("input.emoji")}
-                      className={cn(
-                        "flex size-8 shrink-0 items-center justify-center rounded-xl text-foreground/60 transition",
-                        "hover:bg-foreground/10 hover:text-foreground",
-                        emojiOpen && "bg-foreground/10 text-foreground",
-                      )}
-                    >
-                      <IconSmile className="size-4" />
-                    </button>
-                    <EmojiPicker
-                      open={emojiOpen}
-                      onOpenChange={setEmojiOpen}
-                      onSelect={handleEmojiSelect}
-                    />
-                  </div>
-
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}

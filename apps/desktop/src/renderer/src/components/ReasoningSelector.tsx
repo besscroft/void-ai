@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useT, type TranslationKey } from "../lib/i18n";
 import { CHAT_REASONING_LEVELS, SettingKey, type ChatReasoningLevel } from "@shared/types";
-import { IconBrain, IconCheck, IconChevronDown } from "./icons";
+import { IconBrain, IconCheck } from "./icons";
 
 interface ReasoningSelectorProps {
   value: ChatReasoningLevel;
@@ -52,16 +52,14 @@ export function ReasoningSelector({
     <div ref={ref} className="relative min-w-0">
       <button
         type="button"
-        className="flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-foreground/10 bg-foreground/[0.035] px-2.5 text-[13px] shadow-sm transition hover:bg-foreground/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+        className="flex size-8 shrink-0 items-center justify-center rounded-xl text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
         onClick={() => setOpen((next) => !next)}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={t("reasoning.selector.label")}
         title={t("reasoning.selector.label")}
       >
-        <IconBrain className="size-3.5 shrink-0 text-accent" />
-        <span className="max-w-[96px] truncate font-medium">{t(REASONING_LABEL_KEYS[value])}</span>
-        <IconChevronDown className={`size-3 shrink-0 transition ${open ? "rotate-180" : ""}`} />
+        <IconBrain className="size-4" />
       </button>
 
       {open && (
