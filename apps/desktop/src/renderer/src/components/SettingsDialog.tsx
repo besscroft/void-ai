@@ -31,6 +31,7 @@ import {
   IconRefresh,
   IconSliders,
   IconSparkles,
+  IconZap,
   IconTrash,
   IconPlus,
   IconWrench,
@@ -2259,7 +2260,7 @@ function ProviderModelWorkbench({
                         onPress={handleTestProvider}
                         aria-label={t("model.provider.test")}
                       >
-                        <IconSparkles className="size-4" />
+                        <IconZap className="size-4" />
                       </Button>
                     </Tooltip.Trigger>
                     <Tooltip.Content>{t("model.provider.test")}</Tooltip.Content>
