@@ -13,6 +13,7 @@ import {
 } from "../lib/tools-form";
 import { filterToolRecords, type ToolKindFilter, type ToolStatusFilter } from "../lib/tools-filter";
 import { cn } from "../lib/utils";
+import { isChatToolId } from "@shared/types";
 import type { McpTransportKind, ToolRecord, ToolServer, ToolSkill } from "@shared/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
@@ -303,9 +304,11 @@ function RegistrySection({
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="min-w-0 truncate text-sm font-medium">{tool.title ?? tool.name}</p>
+                  <p className="min-w-0 truncate text-sm font-medium">
+                    {localizeToolName(t, tool)}
+                  </p>
                   <Chip size="sm" variant="secondary">
-                    {tool.kind}
+                    {t(`tools.kind.${tool.kind}`)}
                   </Chip>
                   {tool.enabled ? (
                     <Chip size="sm" variant="soft">
@@ -317,7 +320,9 @@ function RegistrySection({
                     </Chip>
                   )}
                 </div>
-                <p className="mt-1 line-clamp-2 text-xs text-foreground/50">{tool.description}</p>
+                <p className="mt-1 line-clamp-2 text-xs text-foreground/50">
+                  {localizeToolDescription(t, tool)}
+                </p>
                 <p className="mt-1 break-all font-mono text-[11px] text-foreground/35">
                   {tool.reference}
                 </p>
@@ -1019,6 +1024,16 @@ async function handleSkillZip(
   } catch (err) {
     onError(err instanceof Error ? err.message : String(err));
   }
+}
+
+function localizeToolName(t: (key: string) => string, tool: ToolRecord): string {
+  if (isChatToolId(tool.name)) return t(`chatTools.${tool.name}.label`);
+  return tool.title ?? tool.name;
+}
+
+function localizeToolDescription(t: (key: string) => string, tool: ToolRecord): string {
+  if (isChatToolId(tool.name)) return t(`chatTools.${tool.name}.description`);
+  return tool.description;
 }
 
 function groupByServer(tools: ToolRecord[]): Map<string, ToolRecord[]> {
