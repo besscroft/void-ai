@@ -18,6 +18,7 @@ import { api } from "../lib/api";
 import { notify } from "../lib/toast";
 import { useSettings, type SettingsResetScope } from "../lib/settings";
 import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
+import { cn } from "../lib/utils";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ToolsPanel } from "./ToolsPanel";
 import {
@@ -27,7 +28,6 @@ import {
   IconPalette,
   IconCpu,
   IconRotateCcw,
-  IconDatabase,
   IconRefresh,
   IconSliders,
   IconSparkles,
@@ -136,15 +136,6 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
     { id: "diagnostics", label: t("settings.tab.diagnostics"), Icon: IconSliders },
     { id: "trash", label: t("settings.tab.trash"), Icon: IconTrash },
   ];
-  const subtitle =
-    tab === "appearance"
-      ? t("appearance.subtitle")
-      : tab === "tools"
-        ? t("settings.tools.subtitle")
-        : tab === "diagnostics"
-          ? t("settings.diagnostics.subtitle")
-          : "";
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
@@ -158,12 +149,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
         onClick={(e) => e.stopPropagation()}
       >
         {/* 澶撮儴 */}
-        <div className="flex items-center justify-between border-b border-foreground/10 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-foreground/10 px-6 py-3.5">
           <div>
             <h2 id="settings-title" className="text-base font-semibold">
               {t("settings.title")}
             </h2>
-            <p className="mt-0.5 text-xs text-foreground/45">{subtitle}</p>
           </div>
           <button
             type="button"
@@ -202,7 +192,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
           </nav>
 
           {/* 鍐呭 */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 flex flex-col">
             {tab === "appearance" && (
               <AppearanceTab
                 settings={settings}
@@ -219,7 +209,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
         </div>
 
         {/* 搴曢儴 */}
-        <div className="flex items-center justify-between border-t border-foreground/10 px-6 py-3">
+        <div className="flex items-center justify-between border-t border-foreground/10 px-6 py-2.5">
           <span aria-hidden="true" />
           <Button variant="secondary" onPress={onClose}>
             {t("common.done")}
@@ -268,27 +258,41 @@ function SettingSection({
   title,
   desc,
   icon,
+  action,
+  className,
+  bodyClassName,
   children,
 }: {
   title: string;
   desc?: string;
   icon?: React.ReactNode;
+  action?: React.ReactNode;
+  className?: string;
+  bodyClassName?: string;
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <section className="rounded-xl border border-foreground/10 bg-foreground/[0.018] p-4">
-      <header className="mb-3 flex items-center gap-2">
-        {icon && (
-          <span className="flex size-6 items-center justify-center rounded-md bg-accent/10 text-accent">
-            {icon}
-          </span>
-        )}
-        <div>
-          <h3 className="text-sm font-medium leading-tight">{title}</h3>
-          {desc && <p className="mt-0.5 text-xs text-foreground/50">{desc}</p>}
+    <section
+      className={cn(
+        "rounded-xl border border-foreground/10 bg-foreground/[0.018] p-3.5",
+        className,
+      )}
+    >
+      <header className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {icon && (
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
+              {icon}
+            </span>
+          )}
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium leading-tight">{title}</h3>
+            {desc && <p className="mt-0.5 text-xs text-foreground/50">{desc}</p>}
+          </div>
         </div>
+        {action}
       </header>
-      <div className="space-y-3">{children}</div>
+      <div className={cn("space-y-3", bodyClassName)}>{children}</div>
     </section>
   );
 }
@@ -304,7 +308,7 @@ function SettingItem({
   control: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5 transition hover:border-foreground/15">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2 transition hover:border-foreground/15">
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{title}</p>
         {desc && <p className="mt-0.5 text-xs text-foreground/50">{desc}</p>}
@@ -1048,11 +1052,6 @@ function LegacyModelTab({
     { mode: "add" } | { mode: "edit"; model: ManagedModelInfo } | null
   >(null);
   const [modelToDelete, setModelToDelete] = useState<ManagedModelInfo | null>(null);
-  const [cacheBytes, setCacheBytes] = useState<number>(0);
-  const [cacheLimit, setCacheLimit] = useState<number>(settings.cacheSizeMb);
-  const [clearing, setClearing] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [cleared, setCleared] = useState(false);
 
   const providerModelRef = (providerId: string, modelId: string): string =>
     providerId + "/" + modelId;
@@ -1067,17 +1066,9 @@ function LegacyModelTab({
     );
   }, []);
 
-  const refreshCache = useCallback((): void => {
-    void api.cache.stats().then((s) => {
-      setCacheBytes(s.bytes);
-      setCacheLimit(s.limitMb);
-    });
-  }, []);
-
   useEffect(() => {
     refreshModels();
-    refreshCache();
-  }, [refreshModels, refreshCache]);
+  }, [refreshModels]);
 
   useEffect(() => {
     if (!modelsLoaded || !settings.selectedModel) return;
@@ -1145,64 +1136,49 @@ function LegacyModelTab({
       .catch(() => undefined);
   };
 
-  const handleClear = (): void => {
-    setClearing(true);
-    void notify
-      .promise(
-        api.cache.clear(),
-        {
-          loading: t("toast.cache.clearing"),
-          success: t("toast.cache.cleared"),
-          error: t("toast.cache.clearFailed"),
-        },
-        locale,
-      )
-      .then((remaining) => {
-        setCacheBytes(remaining);
-        setCleared(true);
-        setTimeout(() => setCleared(false), 2000);
-      })
-      .finally(() => setClearing(false))
-      .catch(() => undefined);
-  };
-
   return (
-    <section className="space-y-4">
-      <h3 className="text-sm font-medium text-foreground/70">{t("settings.tab.model")}</h3>
+    <section className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="shrink-0 space-y-3">
+        <h3 className="text-sm font-medium text-foreground/70">{t("settings.tab.model")}</h3>
 
-      <SettingItem
-        title={t("model.default")}
-        desc={t("model.default.desc")}
-        control={
-          <select
-            className="min-w-56 rounded-md border border-foreground/15 bg-background px-3 py-1.5 text-sm outline-none focus:border-accent/50"
-            value={settings.selectedModel ?? ""}
-            onChange={(e) => void update({ selectedModel: e.target.value || null })}
-          >
-            <option value="">{t("chat.selectModel")}</option>
-            {enabledProviders.map((provider) => (
-              <optgroup key={provider.id} label={provider.label}>
-                {provider.models.map((model) => (
-                  <option key={model.id} value={providerModelRef(provider.id, model.id)}>
-                    {model.label ?? model.id}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        }
-      />
+        <SettingItem
+          title={t("model.default")}
+          desc={t("model.default.desc")}
+          control={
+            <select
+              className="min-w-56 rounded-md border border-foreground/15 bg-background px-3 py-1.5 text-sm outline-none focus:border-accent/50"
+              value={settings.selectedModel ?? ""}
+              onChange={(e) => void update({ selectedModel: e.target.value || null })}
+            >
+              <option value="">{t("chat.selectModel")}</option>
+              {enabledProviders.map((provider) => (
+                <optgroup key={provider.id} label={provider.label}>
+                  {provider.models.map((model) => (
+                    <option key={model.id} value={providerModelRef(provider.id, model.id)}>
+                      {model.label ?? model.id}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          }
+        />
+      </div>
 
-      <SettingSection title={t("model.catalog")} desc={t("model.catalog.desc")}>
-        <div className="flex justify-end">
+      <SettingSection
+        title={t("model.catalog")}
+        desc={t("model.catalog.desc")}
+        className="flex min-h-0 flex-1 flex-col"
+        bodyClassName="min-h-0 flex-1 overflow-y-auto pt-2"
+        action={
           <Button variant="primary" size="sm" onPress={() => setEditorState({ mode: "add" })}>
             <IconPlus className="mr-1 size-3.5" />
             {t("model.addModel")}
           </Button>
-        </div>
-
+        }
+      >
         {models.length === 0 ? (
-          <div className="rounded-md border border-dashed border-foreground/15 px-4 py-8 text-center text-sm text-foreground/50">
+          <div className="rounded-md border border-dashed border-foreground/15 px-4 py-6 text-center text-sm text-foreground/50">
             {t("model.empty")}
           </div>
         ) : (
@@ -1279,72 +1255,6 @@ function LegacyModelTab({
         )}
       </SettingSection>
 
-      <SettingSection title={t("model.cache")} desc={t("model.cache.desc")}>
-        <div className="space-y-3">
-          <div>
-            <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
-              <span>
-                {t("model.cache.limitValue", {
-                  label: t("model.cache.used"),
-                  value: f.bytes(cacheBytes),
-                })}
-              </span>
-              <span>
-                {t("model.cache.limitValue", {
-                  label: t("model.cache.limit"),
-                  value: f.bytes(cacheLimit * 1024 * 1024),
-                })}
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-foreground/10">
-              <div
-                className="h-full rounded-full bg-accent transition-all"
-                style={{
-                  width:
-                    String(Math.min(100, (cacheBytes / (cacheLimit * 1024 * 1024)) * 100)) + "%",
-                }}
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-1 text-xs text-foreground/60">
-              {t("model.cache.sizeValue", {
-                label: t("model.cache.size"),
-                value: f.bytes(settings.cacheSizeMb * 1024 * 1024),
-              })}
-            </div>
-            <input
-              type="range"
-              min={50}
-              max={4096}
-              step={50}
-              value={settings.cacheSizeMb}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setCacheLimit(v);
-                void update({ cacheSizeMb: v });
-              }}
-              className="w-full accent-[var(--color-accent)]"
-              aria-label={t("model.cache.size")}
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              variant="tertiary"
-              size="sm"
-              onPress={() => setConfirmClear(true)}
-              isDisabled={clearing || cacheBytes === 0}
-            >
-              <IconDatabase className="mr-1 size-3.5" />
-              {clearing ? t("model.cache.clearing") : t("model.cache.clear")}
-            </Button>
-            {cleared && <span className="text-xs text-success">{t("model.cache.cleared")}</span>}
-          </div>
-        </div>
-      </SettingSection>
-
       <ModelEditorDialog
         open={!!editorState}
         mode={editorState?.mode ?? "add"}
@@ -1356,18 +1266,6 @@ function LegacyModelTab({
         onClose={() => setEditorState(null)}
       />
 
-      <ConfirmDialog
-        open={confirmClear}
-        title={t("model.cache.clear")}
-        message={t("model.cache.confirm")}
-        danger
-        confirmLabel={t("common.clear")}
-        onConfirm={() => {
-          setConfirmClear(false);
-          handleClear();
-        }}
-        onClose={() => setConfirmClear(false)}
-      />
       <ConfirmDialog
         open={!!modelToDelete}
         title={t("common.delete")}
@@ -1934,11 +1832,6 @@ function ProviderModelWorkbench({
   } | null>(null);
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
   const [syncingProviderId, setSyncingProviderId] = useState<string | null>(null);
-  const [cacheBytes, setCacheBytes] = useState<number>(0);
-  const [cacheLimit, setCacheLimit] = useState<number>(settings.cacheSizeMb);
-  const [clearing, setClearing] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [cleared, setCleared] = useState(false);
 
   const refreshCatalog = useCallback((): void => {
     void api.providers.list().then((providerList) => {
@@ -1951,17 +1844,9 @@ function ProviderModelWorkbench({
     });
   }, []);
 
-  const refreshCache = useCallback((): void => {
-    void api.cache.stats().then((stats) => {
-      setCacheBytes(stats.bytes);
-      setCacheLimit(stats.limitMb);
-    });
-  }, []);
-
   useEffect(() => {
     refreshCatalog();
-    refreshCache();
-  }, [refreshCatalog, refreshCache]);
+  }, [refreshCatalog]);
 
   const enabledModelRefs = useMemo(
     () =>
@@ -2234,36 +2119,10 @@ function ProviderModelWorkbench({
       .catch(() => undefined);
   };
 
-  const handleClearCache = (): void => {
-    setClearing(true);
-    void notify
-      .promise(
-        api.cache.clear(),
-        {
-          loading: t("toast.cache.clearing"),
-          success: t("toast.cache.cleared"),
-          error: t("toast.cache.clearFailed"),
-        },
-        locale,
-      )
-      .then((remaining) => {
-        setCacheBytes(remaining);
-        setCleared(true);
-        setTimeout(() => setCleared(false), 2000);
-      })
-      .finally(() => setClearing(false))
-      .catch(() => undefined);
-  };
-
   return (
-    <section className="flex min-h-[620px] flex-col gap-4">
+    <section className="flex min-h-0 flex-1 flex-col gap-4">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h3 className="text-base font-semibold">{t("settings.tab.model")}</h3>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-foreground/50">
-            {t("model.workbench.desc")}
-          </p>
-        </div>
+        <h3 className="text-base font-semibold">{t("settings.tab.model")}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <select
             className="h-9 min-w-64 rounded-md border border-foreground/15 bg-background px-3 text-sm outline-none focus:border-accent/50"
@@ -2288,8 +2147,8 @@ function ProviderModelWorkbench({
         </div>
       </header>
 
-      <div className="grid min-h-[500px] overflow-hidden rounded-xl border border-foreground/10 bg-foreground/[0.018] lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="min-h-0 border-b border-foreground/10 p-3 lg:border-b-0 lg:border-r">
+      <div className="grid min-h-0 flex-1 overflow-hidden rounded-xl border border-foreground/10 bg-foreground/[0.018] lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="min-h-0 flex flex-col border-b border-foreground/10 p-3 lg:border-b-0 lg:border-r">
           <SearchField
             aria-label={t("model.provider.search")}
             value={providerQuery}
@@ -2303,7 +2162,7 @@ function ProviderModelWorkbench({
             </SearchField.Group>
           </SearchField>
 
-          <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+          <div className="mt-3 flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
             {filteredProviders.length === 0 ? (
               <div className="rounded-md border border-dashed border-foreground/15 px-3 py-8 text-center text-xs text-foreground/50">
                 {t("model.provider.noMatches")}
@@ -2359,13 +2218,13 @@ function ProviderModelWorkbench({
           </div>
         </aside>
 
-        <div className="min-w-0 p-4">
+        <div className="min-w-0 flex flex-col p-4">
           {!selectedProvider ? (
-            <div className="flex h-full min-h-[360px] items-center justify-center rounded-lg border border-dashed border-foreground/15 text-sm text-foreground/50">
+            <div className="flex flex-1 min-h-0 items-center justify-center rounded-lg border border-dashed border-foreground/15 text-sm text-foreground/50">
               {t("model.provider.empty")}
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto">
               <div className="flex flex-col gap-3 border-b border-foreground/10 pb-4 md:flex-row md:items-start md:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -2530,7 +2389,7 @@ function ProviderModelWorkbench({
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-foreground/10">
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-lg border border-foreground/10">
                 <div className="flex flex-col gap-2 border-b border-foreground/10 bg-foreground/[0.025] px-3 py-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h5 className="text-sm font-medium">{t("model.models.available")}</h5>
@@ -2565,11 +2424,11 @@ function ProviderModelWorkbench({
                 </div>
 
                 {selectedModels.length === 0 ? (
-                  <div className="px-4 py-10 text-center text-sm text-foreground/50">
+                  <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-10 text-center text-sm text-foreground/50">
                     {t("model.provider.emptyModels")}
                   </div>
                 ) : (
-                  <div className="divide-y divide-foreground/10">
+                  <div className="flex-1 min-h-0 divide-y divide-foreground/10 overflow-y-auto">
                     {selectedModels.map((model) => {
                       const ref = providerModelRef(selectedProvider.id, model.id);
                       const selected = settings.selectedModel === ref;
@@ -2578,7 +2437,7 @@ function ProviderModelWorkbench({
                         <div
                           key={model.id}
                           className={[
-                            "grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto]",
+                            "grid gap-3 px-3 py-2.5 md:grid-cols-[minmax(0,1fr)_auto]",
                             selected ? "bg-accent/10" : "",
                             model.enabled ? "" : "opacity-70",
                           ].join(" ")}
@@ -2669,62 +2528,6 @@ function ProviderModelWorkbench({
         </div>
       </div>
 
-      <SettingSection title={t("model.cache")} desc={t("model.cache.desc")}>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
-          <div>
-            <div className="mb-1 flex items-center justify-between text-xs text-foreground/60">
-              <span>
-                {t("model.cache.limitValue", {
-                  label: t("model.cache.used"),
-                  value: f.bytes(cacheBytes),
-                })}
-              </span>
-              <span>
-                {t("model.cache.limitValue", {
-                  label: t("model.cache.limit"),
-                  value: f.bytes(cacheLimit * 1024 * 1024),
-                })}
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-foreground/10">
-              <div
-                className="h-full rounded-full bg-accent transition-all"
-                style={{
-                  width:
-                    String(Math.min(100, (cacheBytes / (cacheLimit * 1024 * 1024)) * 100)) + "%",
-                }}
-              />
-            </div>
-            <input
-              type="range"
-              min={50}
-              max={4096}
-              step={50}
-              value={settings.cacheSizeMb}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                setCacheLimit(value);
-                void update({ cacheSizeMb: value });
-              }}
-              className="mt-3 w-full accent-[var(--color-accent)]"
-              aria-label={t("model.cache.size")}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-            <Button
-              variant="tertiary"
-              size="sm"
-              onPress={() => setConfirmClear(true)}
-              isDisabled={clearing || cacheBytes === 0}
-            >
-              <IconDatabase className="mr-1 size-3.5" />
-              {clearing ? t("model.cache.clearing") : t("model.cache.clear")}
-            </Button>
-            {cleared && <span className="text-xs text-success">{t("model.cache.cleared")}</span>}
-          </div>
-        </div>
-      </SettingSection>
-
       <AddProviderDialog
         open={addProviderOpen}
         onClose={() => setAddProviderOpen(false)}
@@ -2743,18 +2546,6 @@ function ProviderModelWorkbench({
         onClose={() => setModelEditorState(null)}
       />
 
-      <ConfirmDialog
-        open={confirmClear}
-        title={t("model.cache.clear")}
-        message={t("model.cache.confirm")}
-        danger
-        confirmLabel={t("common.clear")}
-        onConfirm={() => {
-          setConfirmClear(false);
-          handleClearCache();
-        }}
-        onClose={() => setConfirmClear(false)}
-      />
       <ConfirmDialog
         open={!!providerToDelete}
         title={t("model.provider.delete")}

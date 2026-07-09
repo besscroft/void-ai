@@ -47,7 +47,6 @@ const APP_SETTING_KEYS: string[] = [
   SettingKey.ModelMaxTokens,
   SettingKey.ModelTopP,
   SettingKey.ChatReasoningLevel,
-  SettingKey.CacheSizeMb,
 ];
 
 const ALL_KEYS = [...APP_SETTING_KEYS, SettingKey.ActiveConversationId];
@@ -186,7 +185,6 @@ export function parseSettings(map: Record<string, string | null>): AppSettings {
     ),
     modelTopP: parseNumber(map[SettingKey.ModelTopP], DEFAULT_SETTINGS.modelTopP, 0, 1),
     chatReasoningLevel,
-    cacheSizeMb: parseNumber(map[SettingKey.CacheSizeMb], DEFAULT_SETTINGS.cacheSizeMb, 50, 4096),
   };
 }
 
@@ -288,8 +286,6 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
       writes.push(api.settings.set(SettingKey.ModelTopP, String(patch.modelTopP)));
     if (patch.chatReasoningLevel !== undefined)
       writes.push(api.settings.set(SettingKey.ChatReasoningLevel, patch.chatReasoningLevel));
-    if (patch.cacheSizeMb !== undefined)
-      writes.push(api.settings.set(SettingKey.CacheSizeMb, String(patch.cacheSizeMb)));
     await Promise.all(writes);
   }, []);
 

@@ -137,6 +137,7 @@ export function AgentsPanel({
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<AgentDetailTab>("overview");
+  const [detailOpen, setDetailOpen] = useState(false);
   const [editorTab, setEditorTab] = useState<AgentEditorTab>("basics");
   const [editing, setEditing] = useState<AgentProfile | null | "new">(null);
   const [form, setForm] = useState<AgentFormState>(() => createAgentForm());
@@ -272,67 +273,67 @@ export function AgentsPanel({
   };
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-3">
-          <MetricCard label={t("agents.metric.total")} value={agents.length} />
-          <MetricCard label={t("agents.metric.active")} value={activeChildren.length} />
-          <MetricCard label={t("agents.metric.running")} value={runningCount(runtime)} />
-        </div>
-
-        <Card>
-          <Card.Content className="space-y-4 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentTabKey(key))}>
-                <Tabs.List aria-label={t("agents.tabs.label")}>
-                  <Tabs.Tab id="active">{t("agents.tab.active")}</Tabs.Tab>
-                  <Tabs.Tab id="draft">{t("agents.tab.draft")}</Tabs.Tab>
-                </Tabs.List>
-              </Tabs>
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={t("agents.search.placeholder")}
-                  className="w-64"
-                />
-                <Button variant="secondary" size="sm" onPress={onRefresh} isPending={loading}>
-                  <IconRotateCcw className="size-4" />
-                  {t("main.refresh")}
-                </Button>
-                <Button variant="primary" size="sm" onPress={openCreate}>
-                  <IconPlus className="size-4" />
-                  {t("agents.action.new")}
-                </Button>
-              </div>
-            </div>
-
-            {visibleAgents.length === 0 ? (
-              <EmptyState title={t("agents.empty")} />
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                {visibleAgents.map((agent) => (
-                  <AgentCard
-                    key={agent.id}
-                    agent={agent}
-                    selected={agent.id === selected?.id}
-                    runtime={runtimeByAgent.get(agent.id)}
-                    onSelect={() => {
-                      setSelectedId(agent.id);
-                      setDetailTab("overview");
-                    }}
-                    onEdit={() => openEdit(agent)}
-                    onDuplicate={() => duplicateAgent(agent)}
-                    busy={busy}
-                  />
-                ))}
-              </div>
-            )}
-          </Card.Content>
-        </Card>
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-3">
+        <MetricCard label={t("agents.metric.total")} value={agents.length} />
+        <MetricCard label={t("agents.metric.active")} value={activeChildren.length} />
+        <MetricCard label={t("agents.metric.running")} value={runningCount(runtime)} />
       </div>
 
-      <AgentDetail
+      <Card>
+        <Card.Content className="space-y-4 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentTabKey(key))}>
+              <Tabs.List aria-label={t("agents.tabs.label")}>
+                <Tabs.Tab id="active">{t("agents.tab.active")}</Tabs.Tab>
+                <Tabs.Tab id="draft">{t("agents.tab.draft")}</Tabs.Tab>
+              </Tabs.List>
+            </Tabs>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("agents.search.placeholder")}
+                className="w-64"
+              />
+              <Button variant="secondary" size="sm" onPress={onRefresh} isPending={loading}>
+                <IconRotateCcw className="size-4" />
+                {t("main.refresh")}
+              </Button>
+              <Button variant="primary" size="sm" onPress={openCreate}>
+                <IconPlus className="size-4" />
+                {t("agents.action.new")}
+              </Button>
+            </div>
+          </div>
+
+          {visibleAgents.length === 0 ? (
+            <EmptyState title={t("agents.empty")} />
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {visibleAgents.map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  selected={agent.id === selected?.id}
+                  runtime={runtimeByAgent.get(agent.id)}
+                  onSelect={() => {
+                    setSelectedId(agent.id);
+                    setDetailTab("overview");
+                    setDetailOpen(true);
+                  }}
+                  onEdit={() => openEdit(agent)}
+                  onDuplicate={() => duplicateAgent(agent)}
+                  busy={busy}
+                />
+              ))}
+            </div>
+          )}
+        </Card.Content>
+      </Card>
+
+      <AgentDetailModal
+        open={detailOpen}
         agent={selected}
         tab={detailTab}
         setTab={setDetailTab}
@@ -341,6 +342,7 @@ export function AgentsPanel({
         steps={selected ? stepsForAgent(runtime.runtimeSteps, selected.id) : []}
         events={selected ? eventsForAgent([...runtime.runtimeEvents, ...events], selected.id) : []}
         onEdit={() => selected && openEdit(selected)}
+        onClose={() => setDetailOpen(false)}
       />
 
       <AgentEditorModal
@@ -446,7 +448,8 @@ function AgentCard({
   );
 }
 
-function AgentDetail({
+function AgentDetailModal({
+  open,
   agent,
   tab,
   setTab,
@@ -455,7 +458,9 @@ function AgentDetail({
   steps,
   events,
   onEdit,
+  onClose,
 }: {
+  open: boolean;
   agent: AgentProfile | null;
   tab: AgentDetailTab;
   setTab: (tab: AgentDetailTab) => void;
@@ -464,165 +469,185 @@ function AgentDetail({
   steps: RuntimeStep[];
   events: RuntimeEvent[];
   onEdit: () => void;
-}): React.JSX.Element {
+  onClose: () => void;
+}): React.JSX.Element | null {
   const { t, f } = useT();
-  if (!agent) {
-    return (
-      <Card>
-        <Card.Content className="flex min-h-96 items-center justify-center p-4 text-sm text-foreground/45">
-          {t("agents.empty")}
-        </Card.Content>
-      </Card>
-    );
-  }
+  if (!open || !agent) return null;
   const runtimeConfig = normalizeAgentRuntimeConfig(agent.runtime_config_json);
   const handoffConfig = normalizeAgentHandoffConfig(agent.handoff_config_json);
   const toolPolicy = normalizeAgentToolPolicy(agent.tool_policy_json);
   return (
-    <Card className="min-w-0 xl:sticky xl:top-0">
-      <Card.Header>
-        <div className="flex w-full items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="flex size-9 items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
-                {agent.avatar || agent.name.slice(0, 1)}
-              </span>
-              <div className="min-w-0">
-                <Card.Title className="truncate">{agent.name}</Card.Title>
-                <Card.Description className="truncate">{agent.role}</Card.Description>
-              </div>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="agent-detail-title"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-foreground/10 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
+              {agent.avatar || agent.name.slice(0, 1)}
+            </span>
+            <div className="min-w-0">
+              <h2 id="agent-detail-title" className="truncate text-base font-semibold">
+                {agent.name}
+              </h2>
+              <p className="truncate text-sm text-foreground/50">{agent.role}</p>
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onPress={onEdit}
-            isDisabled={agent.locked !== 0 || agent.status === "archived"}
-          >
-            <IconEdit className="size-4" />
-            {t("common.edit")}
-          </Button>
-        </div>
-      </Card.Header>
-      <Card.Content className="min-w-0 space-y-4 p-4">
-        <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentDetailTabKey(key))}>
-          <Tabs.List aria-label={t("agents.detail.tabs")}>
-            <Tabs.Tab id="overview">{t("agents.tab.overview")}</Tabs.Tab>
-            <Tabs.Tab id="instructions">{t("agents.tab.instructions")}</Tabs.Tab>
-            <Tabs.Tab id="runtime">{t("agents.tab.runtime")}</Tabs.Tab>
-            <Tabs.Tab id="tools">{t("agents.tab.tools")}</Tabs.Tab>
-          </Tabs.List>
-        </Tabs>
-
-        {tab === "overview" ? (
-          <div className="space-y-3">
-            <p className="text-sm leading-6 text-foreground/65">
-              {agent.description || t("agents.noDescription")}
-            </p>
-            <DetailGrid
-              rows={[
-                [t("agents.field.status"), labelFor(t, STATUS_KEYS, agent.status)],
-                [
-                  t("agents.field.enabled"),
-                  agent.enabled ? t("main.value.enabled") : t("main.value.disabled"),
-                ],
-                [t("agents.field.model"), agent.model_ref || t("agents.inherit")],
-                [t("agents.field.voice"), agent.voice || t("common.none")],
-                [t("agents.field.updated"), f.dateTime(agent.updated_at)],
-              ]}
-            />
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onPress={onEdit}
+              isDisabled={agent.locked !== 0 || agent.status === "archived"}
+            >
+              <IconEdit className="size-4" />
+              {t("common.edit")}
+            </Button>
+            <Button
+              isIconOnly
+              size="sm"
+              variant="tertiary"
+              onPress={onClose}
+              aria-label={t("common.close")}
+            >
+              <IconClose className="size-4" />
+            </Button>
           </div>
-        ) : null}
+        </header>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+          <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentDetailTabKey(key))}>
+            <Tabs.List aria-label={t("agents.detail.tabs")}>
+              <Tabs.Tab id="overview">{t("agents.tab.overview")}</Tabs.Tab>
+              <Tabs.Tab id="instructions">{t("agents.tab.instructions")}</Tabs.Tab>
+              <Tabs.Tab id="runtime">{t("agents.tab.runtime")}</Tabs.Tab>
+              <Tabs.Tab id="tools">{t("agents.tab.tools")}</Tabs.Tab>
+            </Tabs.List>
+          </Tabs>
 
-        {tab === "instructions" ? (
-          <div className="space-y-3">
-            <ReadBlock title={t("agents.field.persona")}>{agent.personality}</ReadBlock>
-            <ReadBlock title={t("agents.field.instructions")}>{agent.soul_prompt}</ReadBlock>
-          </div>
-        ) : null}
+          {tab === "overview" ? (
+            <div className="space-y-3">
+              <p className="text-sm leading-6 text-foreground/65">
+                {agent.description || t("agents.noDescription")}
+              </p>
+              <DetailGrid
+                rows={[
+                  [t("agents.field.status"), labelFor(t, STATUS_KEYS, agent.status)],
+                  [
+                    t("agents.field.enabled"),
+                    agent.enabled ? t("main.value.enabled") : t("main.value.disabled"),
+                  ],
+                  [t("agents.field.model"), agent.model_ref || t("agents.inherit")],
+                  [t("agents.field.voice"), agent.voice || t("common.none")],
+                  [t("agents.field.updated"), f.dateTime(agent.updated_at)],
+                ]}
+              />
+            </div>
+          ) : null}
 
-        {tab === "runtime" ? (
-          <div className="space-y-4">
-            <DetailGrid
-              rows={[
-                [
-                  t("agents.field.runtimeStatus"),
-                  labelFor(t, RUNTIME_STATUS_KEYS, runtime?.status ?? "idle"),
-                ],
-                [t("agents.field.maxTurns"), String(runtimeConfig.maxTurns)],
-                [
-                  t("agents.field.reviewPolicy"),
-                  labelFor(t, REVIEW_POLICY_KEYS, runtimeConfig.reviewPolicy ?? "review_sensitive"),
-                ],
-                [
-                  t("agents.field.sandboxPolicy"),
-                  labelFor(t, SANDBOX_POLICY_KEYS, runtimeConfig.sandboxPolicy ?? "local"),
-                ],
-                [
-                  t("agents.field.handoff"),
-                  `${labelFor(t, HANDOFF_MODE_KEYS, handoffConfig.mode)} / ${labelFor(
-                    t,
-                    PRIORITY_KEYS,
-                    handoffConfig.priority,
+          {tab === "instructions" ? (
+            <div className="space-y-3">
+              <ReadBlock title={t("agents.field.persona")}>{agent.personality}</ReadBlock>
+              <ReadBlock title={t("agents.field.instructions")}>{agent.soul_prompt}</ReadBlock>
+            </div>
+          ) : null}
+
+          {tab === "runtime" ? (
+            <div className="space-y-4">
+              <DetailGrid
+                rows={[
+                  [
+                    t("agents.field.runtimeStatus"),
+                    labelFor(t, RUNTIME_STATUS_KEYS, runtime?.status ?? "idle"),
+                  ],
+                  [t("agents.field.maxTurns"), String(runtimeConfig.maxTurns)],
+                  [
+                    t("agents.field.reviewPolicy"),
+                    labelFor(
+                      t,
+                      REVIEW_POLICY_KEYS,
+                      runtimeConfig.reviewPolicy ?? "review_sensitive",
+                    ),
+                  ],
+                  [
+                    t("agents.field.sandboxPolicy"),
+                    labelFor(t, SANDBOX_POLICY_KEYS, runtimeConfig.sandboxPolicy ?? "local"),
+                  ],
+                  [
+                    t("agents.field.handoff"),
+                    `${labelFor(t, HANDOFF_MODE_KEYS, handoffConfig.mode)} / ${labelFor(
+                      t,
+                      PRIORITY_KEYS,
+                      handoffConfig.priority,
+                    )}`,
+                  ],
+                ]}
+              />
+              <MiniList
+                title={t("agents.section.runs")}
+                empty={t("agents.noRuns")}
+                items={runs.slice(0, 5).map((run) => ({
+                  id: run.id,
+                  title: run.input_summary || run.output_summary || run.id,
+                  detail: `${labelFor(t, RUNTIME_STATUS_KEYS, run.status)} / ${f.dateTime(run.started_at)}`,
+                }))}
+              />
+              <MiniList
+                title={t("agents.section.steps")}
+                empty={t("agents.noSteps")}
+                items={steps.slice(0, 5).map((step) => ({
+                  id: step.id,
+                  title: step.title,
+                  detail: `${step.kind} / ${labelFor(t, RUNTIME_STATUS_KEYS, step.status)}`,
+                }))}
+              />
+            </div>
+          ) : null}
+
+          {tab === "tools" ? (
+            <div className="space-y-4">
+              <DetailGrid
+                rows={[
+                  [
+                    t("agents.field.toolMode"),
+                    toolPolicy.mode === "custom"
+                      ? t("agents.option.toolPolicy.custom")
+                      : t("agents.option.toolPolicy.inherit"),
+                  ],
+                  [
+                    t("agents.field.allowedTools"),
+                    toolPolicy.allowedToolIds.length
+                      ? String(toolPolicy.allowedToolIds.length)
+                      : t("agents.inherit"),
+                  ],
+                  [
+                    t("agents.field.approvalTools"),
+                    String(toolPolicy.requireApprovalToolIds.length),
+                  ],
+                ]}
+              />
+              <MiniList
+                title={t("agents.section.activity")}
+                empty={t("agents.noActivity")}
+                items={events.slice(0, 8).map((event) => ({
+                  id: event.id,
+                  title: event.title,
+                  detail: `${event.kind} / ${labelFor(t, RUNTIME_STATUS_KEYS, event.status)} / ${f.dateTime(
+                    event.created_at,
                   )}`,
-                ],
-              ]}
-            />
-            <MiniList
-              title={t("agents.section.runs")}
-              empty={t("agents.noRuns")}
-              items={runs.slice(0, 5).map((run) => ({
-                id: run.id,
-                title: run.input_summary || run.output_summary || run.id,
-                detail: `${labelFor(t, RUNTIME_STATUS_KEYS, run.status)} / ${f.dateTime(run.started_at)}`,
-              }))}
-            />
-            <MiniList
-              title={t("agents.section.steps")}
-              empty={t("agents.noSteps")}
-              items={steps.slice(0, 5).map((step) => ({
-                id: step.id,
-                title: step.title,
-                detail: `${step.kind} / ${labelFor(t, RUNTIME_STATUS_KEYS, step.status)}`,
-              }))}
-            />
-          </div>
-        ) : null}
-
-        {tab === "tools" ? (
-          <div className="space-y-4">
-            <DetailGrid
-              rows={[
-                [
-                  t("agents.field.toolMode"),
-                  toolPolicy.mode === "custom"
-                    ? t("agents.option.toolPolicy.custom")
-                    : t("agents.option.toolPolicy.inherit"),
-                ],
-                [
-                  t("agents.field.allowedTools"),
-                  toolPolicy.allowedToolIds.length
-                    ? String(toolPolicy.allowedToolIds.length)
-                    : t("agents.inherit"),
-                ],
-                [t("agents.field.approvalTools"), String(toolPolicy.requireApprovalToolIds.length)],
-              ]}
-            />
-            <MiniList
-              title={t("agents.section.activity")}
-              empty={t("agents.noActivity")}
-              items={events.slice(0, 8).map((event) => ({
-                id: event.id,
-                title: event.title,
-                detail: `${event.kind} / ${labelFor(t, RUNTIME_STATUS_KEYS, event.status)} / ${f.dateTime(
-                  event.created_at,
-                )}`,
-              }))}
-            />
-          </div>
-        ) : null}
-      </Card.Content>
-    </Card>
+                }))}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 

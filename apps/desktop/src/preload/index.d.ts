@@ -2,7 +2,6 @@ import { ElectronAPI } from "@electron-toolkit/preload";
 import type {
   AgentInput,
   AgentProfile,
-  CacheStats,
   Conversation,
   CustomModelInput,
   CustomProviderInput,
@@ -202,11 +201,6 @@ export interface VoidAIApi {
     locale: () => Promise<string>;
     onPetOpenSettings: (handler: () => void) => () => void;
     onPetOpenAbout: (handler: () => void) => () => void;
-  };
-  // 缂撳瓨绠＄悊
-  cache: {
-    stats: () => Promise<CacheStats>;
-    clear: () => Promise<number>;
   };
 }
 

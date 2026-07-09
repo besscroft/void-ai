@@ -76,7 +76,6 @@ import {
   upsertCustomModel,
   upsertCustomProvider,
 } from "../lib/providers";
-import { getCacheStats, clearCache } from "../lib/cache";
 import type {
   AgentInput,
   AgentProfile,
@@ -389,13 +388,6 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
 
   // ---------- System information ----------
   ipcMain.handle("system:locale", () => app.getLocale());
-
-  // ---------- 缂撳瓨绠＄悊 ----------
-  // 缁熻缂撳瓨鍗犵敤涓庝笂闄?
-  ipcMain.handle("cache:stats", () => getCacheStats());
-
-  // 娓呯悊缂撳瓨锛岃繑鍥炴竻鐞嗗悗鍓╀綑瀛楄妭鏁?
-  ipcMain.handle("cache:clear", async () => clearCache());
 }
 
 /** 瀵煎嚭绫诲瀷渚?preload 浣跨敤 */

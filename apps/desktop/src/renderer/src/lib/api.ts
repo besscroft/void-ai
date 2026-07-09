@@ -1,7 +1,6 @@
 import type {
   AgentInput,
   AgentProfile,
-  CacheStats,
   Conversation,
   CustomModelInput,
   CustomProviderInput,
@@ -276,10 +275,6 @@ export const api = {
       if (!raw) return () => undefined;
       return raw(handler);
     },
-  },
-  cache: {
-    stats: (): Promise<CacheStats> => assertApi().cache.stats(),
-    clear: (): Promise<number> => assertApi().cache.clear(),
   },
 };
 

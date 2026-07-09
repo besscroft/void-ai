@@ -1352,8 +1352,6 @@ export const SettingKey = {
   ChatTools: "chat_tools",
   /** Chat media generation defaults. */
   MediaGeneration: "media_generation",
-  /** 缂撳瓨涓婇檺锛圡B锛夛紝榛樿 200 */
-  CacheSizeMb: "cache_size_mb",
   /** Custom provider and model catalog JSON. */
   ModelCatalog: "model_catalog",
   // 鈥斺€?鍏跺畠 鈥斺€?
@@ -1531,14 +1529,6 @@ export const MONO_FONT_PRESETS: FontPreset[] = [
   { id: "menlo", label: "Menlo / Consolas", value: "Menlo, Consolas, 'Courier New', monospace" },
 ];
 
-/** 缂撳瓨缁熻淇℃伅 */
-export interface CacheStats {
-  /** 褰撳墠缂撳瓨鍗犵敤瀛楄妭鏁?*/
-  bytes: number;
-  /** 缂撳瓨涓婇檺锛圡B锛夛紝鏉ヨ嚜璁剧疆 */
-  limitMb: number;
-}
-
 export interface RuntimeSnapshot {
   agents: AgentProfile[];
   runtimeRuns: RuntimeRun[];
@@ -1580,7 +1570,6 @@ export interface AppSettings {
   modelMaxTokens: number;
   modelTopP: number;
   chatReasoningLevel: ChatReasoningLevel;
-  cacheSizeMb: number;
 }
 
 /**
@@ -1591,7 +1580,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
   themePreset: "default",
-  style: "mira",
+  style: "lyra",
   fontFamily: "",
   monoFontFamily: "",
   translucentSidebar: true,
@@ -1607,5 +1596,4 @@ export const DEFAULT_SETTINGS: AppSettings = {
   modelMaxTokens: 4096,
   modelTopP: 1,
   chatReasoningLevel: "provider-default",
-  cacheSizeMb: 200,
 };
