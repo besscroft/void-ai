@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 涓昏繘绋嬩笌娓叉煋杩涚▼鍏变韩鐨勭被鍨嬪畾涔?
  *
  * 杩欎簺绫诲瀷鎻忚堪浜嗛€氳繃 IPC 鍦ㄤ袱涓繘绋嬮棿浼犻€掔殑鏁版嵁缁撴瀯銆?
@@ -1224,20 +1224,14 @@ export const SettingKey = {
   /** 涓婚妯″紡锛?light' | 'dark' | 'system' */
   Theme: "theme",
   ThemePreset: "theme_preset",
-  /** 寮鸿皟鑹查璁?id锛堣 AccentPreset锛夛紝鎴栬嚜瀹氫箟 oklch 瀛楃涓?*/
-  AccentColor: "accent_color",
-  /** 鑷畾涔夎儗鏅壊锛坔ex / oklch 瀛楃涓诧紱绌哄瓧绗︿覆琛ㄧず娌跨敤涓婚榛樿锛?*/
-  BackgroundColor: "background_color",
-  /** 鑷畾涔夊墠鏅?鏂囧瓧鑹诧紱绌哄瓧绗︿覆琛ㄧず娌跨敤涓婚榛樿 */
-  ForegroundColor: "foreground_color",
+  /** 璇嗗埆鏍峰紡棰勮id */
+  Style: "theme_style",
   /** UI 瀛椾綋 CSS font-family锛涚┖瀛楃涓茶〃绀烘部鐢ㄤ富棰橀粯璁?*/
   FontFamily: "font_family",
   /** 绛夊瀛椾綋 CSS font-family锛涚┖瀛楃涓茶〃绀烘部鐢ㄤ富棰橀粯璁?*/
   MonoFontFamily: "mono_font_family",
   /** 鍗婇€忔槑渚ц竟鏍忥細鏄惁浣跨敤 backdrop-blur */
   TranslucentSidebar: "translucent_sidebar",
-  /** 瀵规瘮搴?0~100锛岀敤浜庡井璋冨己璋冭壊涓庢枃瀛楄壊鐨勬槑鏆楀姣?*/
-  Contrast: "contrast",
   /** 浜や簰鍏冪礌浣跨敤鎸囬拡鍏夋爣 */
   UsePointerCursor: "use_pointer_cursor",
   /** 鍑忓皯鍔ㄦ€佹晥鏋滐細'system' | 'on' | 'off' */
@@ -1338,67 +1332,62 @@ export const THEME_PRESETS: ThemePreset[] = [
   },
 ];
 
-/**
- * 寮鸿皟鑹查璁?
- *
- * value 涓?oklch 瀛楃涓诧紝杩愯鏃惰鐩?--color-accent銆?
- * foreground 涓洪厤濂楃殑鍓嶆櫙鑹诧紙淇濊瘉瀵规瘮搴︼級锛岃鐩?--color-accent-foreground銆?
+/** 视觉风格预设（参考 shadcn v4 的 Mira / Vega / Nova / Maia / Lyra）。
+ *  - Mira：高圆角、圆润、舒适（默认）
+ *  - Vega：方正、现代、较大圆角
+ *  - Nova：紧凑、锐利、小圆角
+ *  - Maia：柔和、衬线
+ *  - Lyra：扁平、低对比、小圆角
  */
-export interface AccentPreset {
-  id: string;
-  /** 鏄剧ず鍚?*/
-  label: string;
-  /** oklch 涓昏壊 */
-  value: string;
-  /** oklch 鍓嶆櫙鑹诧紙閫氬父涓虹櫧/闆壊锛?*/
-  foreground: string;
-  /** 鐢ㄤ簬棰勮鍦嗙偣鐨勫崄鍏繘鍒跺洖閫€鑹诧紙浠呭睍绀猴級 */
-  swatch: string;
+export type StylePresetId = "mira" | "vega" | "nova" | "maia" | "lyra";
+
+export interface StylePreset {
+  id: StylePresetId;
+  /** i18n 键，渲染时通过 useT() 解析 */
+  labelKey: string;
+  /** 描述 i18n 键 */
+  descKey: string;
+  /** 风格字体栈（CSS font-family） */
+  fontStack: string;
+  /** 圆角像素值（影响 swatch 预览与全局 --radius） */
+  radius: number;
 }
 
-/** 棰勭疆寮鸿皟鑹查璁?*/
-export const ACCENT_PRESETS: AccentPreset[] = [
+export const STYLE_PRESETS: StylePreset[] = [
   {
-    id: "indigo",
-    label: "闈涜摑",
-    value: "oklch(0.55 0.22 264)",
-    foreground: "oklch(0.98 0.01 264)",
-    swatch: "#4f46e5",
+    id: "mira",
+    labelKey: "theme.style.mira",
+    descKey: "theme.style.mira.desc",
+    fontStack: "'Inter', 'PingFang SC', system-ui, sans-serif",
+    radius: 12,
   },
   {
-    id: "emerald",
-    label: "缈＄繝",
-    value: "oklch(0.62 0.17 155)",
-    foreground: "oklch(0.98 0.01 155)",
-    swatch: "#059669",
+    id: "vega",
+    labelKey: "theme.style.vega",
+    descKey: "theme.style.vega.desc",
+    fontStack: "'Inter', system-ui, sans-serif",
+    radius: 10,
   },
   {
-    id: "rose",
-    label: "鐜懓",
-    value: "oklch(0.62 0.22 16)",
-    foreground: "oklch(0.98 0.01 16)",
-    swatch: "#e11d48",
+    id: "nova",
+    labelKey: "theme.style.nova",
+    descKey: "theme.style.nova.desc",
+    fontStack: "'Inter', system-ui, sans-serif",
+    radius: 6,
   },
   {
-    id: "amber",
-    label: "鐞ョ弨",
-    value: "oklch(0.72 0.18 70)",
-    foreground: "oklch(0.2 0.02 70)",
-    swatch: "#d97706",
+    id: "maia",
+    labelKey: "theme.style.maia",
+    descKey: "theme.style.maia.desc",
+    fontStack: "'Source Serif Pro', 'Noto Serif SC', Georgia, serif",
+    radius: 8,
   },
   {
-    id: "sky",
-    label: "澶╄摑",
-    value: "oklch(0.62 0.16 230)",
-    foreground: "oklch(0.98 0.01 230)",
-    swatch: "#0284c7",
-  },
-  {
-    id: "violet",
-    label: "Violet",
-    value: "oklch(0.58 0.22 300)",
-    foreground: "oklch(0.98 0.01 300)",
-    swatch: "#7c3aed",
+    id: "lyra",
+    labelKey: "theme.style.lyra",
+    descKey: "theme.style.lyra.desc",
+    fontStack: "'Inter', system-ui, sans-serif",
+    radius: 4,
   },
 ];
 
@@ -1427,7 +1416,7 @@ export const FONT_PRESETS: FontPreset[] = [
   },
   {
     id: "sans",
-    label: "Inter / 鎬濇簮榛戜綋",
+    label: "Inter / 苹方黑体",
     value: "'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif",
   },
   { id: "rounded", label: "Rounded", value: "'Nunito', 'Quicksand', system-ui, sans-serif" },
@@ -1484,13 +1473,10 @@ export interface RuntimeSnapshot {
 export interface AppSettings {
   theme: ThemeMode;
   themePreset: ThemePresetId;
-  accentColor: string;
-  backgroundColor: string;
-  foregroundColor: string;
+  style: StylePresetId;
   fontFamily: string;
   monoFontFamily: string;
   translucentSidebar: boolean;
-  contrast: number;
   usePointerCursor: boolean;
   reduceMotion: ReduceMotion;
   fontSize: FontSizeLevel;
@@ -1514,13 +1500,10 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
   themePreset: "default",
-  accentColor: "theme",
-  backgroundColor: "",
-  foregroundColor: "",
+  style: "mira",
   fontFamily: "",
   monoFontFamily: "",
   translucentSidebar: true,
-  contrast: 50,
   usePointerCursor: true,
   reduceMotion: "system",
   fontSize: "base",

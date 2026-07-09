@@ -1,4 +1,4 @@
-﻿import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
 /**
@@ -53,6 +53,7 @@ const api = {
     archive: (id: string) => ipcRenderer.invoke("agents:archive", id),
     restore: (id: string) => ipcRenderer.invoke("agents:restore", id),
     duplicate: (id: string) => ipcRenderer.invoke("agents:duplicate", id),
+    delete: (id: string) => ipcRenderer.invoke("agents:delete", id),
     queueLearning: (conversationId: string) =>
       ipcRenderer.invoke("agents:queueLearning", conversationId),
     runtimeSnapshot: () => ipcRenderer.invoke("agents:runtimeSnapshot"),

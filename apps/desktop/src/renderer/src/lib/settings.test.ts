@@ -4,24 +4,24 @@ import { CHAT_REASONING_LEVELS, SettingKey } from "@shared/types";
 import { parseSettings } from "./settings";
 
 void describe("parseSettings", () => {
-  void it("uses system language, default theme pack, and theme accent by default", () => {
+  void it("uses system language, default theme pack, and mira style by default", () => {
     const settings = parseSettings({} as Record<string, string | null>);
 
     assert.equal(settings.language, "system");
     assert.equal(settings.theme, "system");
     assert.equal(settings.themePreset, "default");
-    assert.equal(settings.accentColor, "theme");
+    assert.equal(settings.style, "mira");
     assert.equal(settings.chatReasoningLevel, "provider-default");
   });
 
-  void it("keeps compatible legacy language and accent values", () => {
+  void it("keeps explicit language and style values", () => {
     const settings = parseSettings({
       [SettingKey.Language]: "zh-CN",
-      [SettingKey.AccentColor]: "indigo",
+      [SettingKey.Style]: "nova",
     } as Record<string, string | null>);
 
     assert.equal(settings.language, "zh-CN");
-    assert.equal(settings.accentColor, "indigo");
+    assert.equal(settings.style, "nova");
   });
 
   void it("rejects invalid enum values", () => {
@@ -29,14 +29,14 @@ void describe("parseSettings", () => {
       [SettingKey.Language]: "de-DE",
       [SettingKey.ThemePreset]: "unknown",
       [SettingKey.Theme]: "sepia",
-      [SettingKey.AccentColor]: "not-a-color",
+      [SettingKey.Style]: "not-a-style",
       [SettingKey.ChatReasoningLevel]: "maximum",
     } as Record<string, string | null>);
 
     assert.equal(settings.language, "system");
     assert.equal(settings.themePreset, "default");
     assert.equal(settings.theme, "system");
-    assert.equal(settings.accentColor, "theme");
+    assert.equal(settings.style, "mira");
     assert.equal(settings.chatReasoningLevel, "provider-default");
   });
 

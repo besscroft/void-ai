@@ -1,4 +1,4 @@
-﻿import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain, type BrowserWindow } from "electron";
 import { getServerInfo, getServerPort } from "../server";
 import {
   listConversations,
@@ -26,6 +26,7 @@ import {
   archiveAgent,
   restoreAgent as restoreAgentProfile,
   duplicateAgent,
+  deleteAgent,
   saveAgent,
   runtimeSnapshot,
   listMemories,
@@ -196,6 +197,10 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
   ipcMain.handle("agents:archive", (_e, id: string) => archiveAgent(id));
   ipcMain.handle("agents:restore", (_e, id: string) => restoreAgentProfile(id));
   ipcMain.handle("agents:duplicate", (_e, id: string) => duplicateAgent(id));
+  ipcMain.handle("agents:delete", (_e, id: string) => {
+    deleteAgent(id);
+    return true;
+  });
   ipcMain.handle("agents:runtimeSnapshot", () => runtimeSnapshot());
   ipcMain.handle("agents:queueLearning", (_e, conversationId: string) => {
     queueAgentLearning(conversationId);

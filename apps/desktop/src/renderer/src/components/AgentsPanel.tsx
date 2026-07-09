@@ -27,7 +27,6 @@ import { api } from "../lib/api";
 import { createClientChatToolDescriptors } from "../lib/chat-tools";
 import { useT, type TranslationKey } from "../lib/i18n";
 import { notify } from "../lib/toast";
-import { ConfirmDialog } from "./ConfirmDialog";
 import {
   IconCheck,
   IconClose,
@@ -36,10 +35,9 @@ import {
   IconEdit,
   IconPlus,
   IconRotateCcw,
-  IconTrash,
 } from "./icons";
 
-type AgentPanelTab = "active" | "draft" | "archived";
+type AgentPanelTab = "active" | "draft";
 type AgentDetailTab = "overview" | "instructions" | "runtime" | "tools";
 type AgentEditorTab = "basics" | "runtime" | "routing" | "tools";
 
@@ -144,7 +142,6 @@ export function AgentsPanel({
   const [form, setForm] = useState<AgentFormState>(() => createAgentForm());
   const [validation, setValidation] = useState<AgentValidation>({});
   const [busy, setBusy] = useState(false);
-  const [pendingArchive, setPendingArchive] = useState<AgentProfile | null>(null);
   const [managedModels, setManagedModels] = useState<ManagedModelInfo[]>([]);
   const [tools, setTools] = useState<ChatToolDescriptor[]>([]);
   const [runtime, setRuntime] = useState<RuntimeSnapshotState>({
@@ -208,8 +205,8 @@ export function AgentsPanel({
     const normalizedQuery = query.trim().toLowerCase();
     return agents
       .filter((agent) => {
-        if (tab !== "archived" && agent.status === "archived") return false;
-        if (tab === "archived" && agent.status !== "archived") return false;
+        // 已归档的智能体现在只在回收站中显示，列表里隐藏
+        if (agent.status === "archived") return false;
         if (tab === "draft" && agent.status !== "draft") return false;
         if (tab === "active" && agent.status === "draft") return false;
         if (!normalizedQuery) return true;
@@ -270,19 +267,8 @@ export function AgentsPanel({
     setEditing(null);
   };
 
-  const restoreAgent = (agent: AgentProfile): void => {
-    void runAction(() => api.agents.restore(agent.id), t("agents.toast.restored"));
-  };
-
   const duplicateAgent = (agent: AgentProfile): void => {
     void runAction(() => api.agents.duplicate(agent.id), t("agents.toast.duplicated"));
-  };
-
-  const archiveAgent = (): void => {
-    if (!pendingArchive) return;
-    const agent = pendingArchive;
-    setPendingArchive(null);
-    void runAction(() => api.agents.archive(agent.id), t("agents.toast.archived"));
   };
 
   return (
@@ -301,7 +287,6 @@ export function AgentsPanel({
                 <Tabs.List aria-label={t("agents.tabs.label")}>
                   <Tabs.Tab id="active">{t("agents.tab.active")}</Tabs.Tab>
                   <Tabs.Tab id="draft">{t("agents.tab.draft")}</Tabs.Tab>
-                  <Tabs.Tab id="archived">{t("agents.tab.archived")}</Tabs.Tab>
                 </Tabs.List>
               </Tabs>
               <div className="flex flex-wrap items-center gap-2">
@@ -338,8 +323,6 @@ export function AgentsPanel({
                     }}
                     onEdit={() => openEdit(agent)}
                     onDuplicate={() => duplicateAgent(agent)}
-                    onArchive={() => setPendingArchive(agent)}
-                    onRestore={() => restoreAgent(agent)}
                     busy={busy}
                   />
                 ))}
@@ -374,16 +357,6 @@ export function AgentsPanel({
         onSave={() => void saveAgent()}
         onClose={() => setEditing(null)}
       />
-
-      <ConfirmDialog
-        open={!!pendingArchive}
-        danger
-        title={t("agents.archive.title")}
-        message={t("agents.archive.message", { name: pendingArchive?.name ?? "" })}
-        confirmLabel={t("agents.action.archive")}
-        onConfirm={archiveAgent}
-        onClose={() => setPendingArchive(null)}
-      />
     </div>
   );
 }
@@ -395,8 +368,6 @@ function AgentCard({
   onSelect,
   onEdit,
   onDuplicate,
-  onArchive,
-  onRestore,
   busy,
 }: {
   agent: AgentProfile;
@@ -405,8 +376,6 @@ function AgentCard({
   onSelect: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
-  onArchive: () => void;
-  onRestore: () => void;
   busy: boolean;
 }): React.JSX.Element {
   const { t, f } = useT();
@@ -470,17 +439,6 @@ function AgentCard({
               <IconCopy className="size-4" />
               {t("agents.action.duplicate")}
             </Button>
-            {agent.status === "archived" ? (
-              <Button size="sm" variant="secondary" onPress={onRestore} isDisabled={busy}>
-                <IconRotateCcw className="size-4" />
-                {t("agents.action.restore")}
-              </Button>
-            ) : (
-              <Button size="sm" variant="danger" onPress={onArchive} isDisabled={locked || busy}>
-                <IconTrash className="size-4" />
-                {t("agents.action.archive")}
-              </Button>
-            )}
           </div>
         </div>
       </Card.Footer>
@@ -521,7 +479,7 @@ function AgentDetail({
   const handoffConfig = normalizeAgentHandoffConfig(agent.handoff_config_json);
   const toolPolicy = normalizeAgentToolPolicy(agent.tool_policy_json);
   return (
-    <Card className="xl:sticky xl:top-0">
+    <Card className="min-w-0 xl:sticky xl:top-0">
       <Card.Header>
         <div className="flex w-full items-start justify-between gap-3">
           <div className="min-w-0">
@@ -546,7 +504,7 @@ function AgentDetail({
           </Button>
         </div>
       </Card.Header>
-      <Card.Content className="space-y-4 p-4">
+      <Card.Content className="min-w-0 space-y-4 p-4">
         <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentDetailTabKey(key))}>
           <Tabs.List aria-label={t("agents.detail.tabs")}>
             <Tabs.Tab id="overview">{t("agents.tab.overview")}</Tabs.Tab>
@@ -827,7 +785,6 @@ function AgentEditorModal({
                     >
                       <option value="active">{t("status.agent.active")}</option>
                       <option value="draft">{t("status.agent.draft")}</option>
-                      <option value="archived">{t("status.agent.archived")}</option>
                     </select>
                   </Field>
                   <Field label={t("agents.field.maxTurns")}>
@@ -1235,9 +1192,11 @@ function MiniList({
       ) : (
         <div className="space-y-2">
           {items.map((item) => (
-            <div key={item.id} className="rounded-md border border-foreground/10 px-3 py-2">
-              <p className="truncate text-sm font-medium">{item.title}</p>
-              <p className="mt-1 truncate text-xs text-foreground/45">{item.detail}</p>
+            <div key={item.id} className="min-w-0 rounded-md border border-foreground/10 px-3 py-2">
+              <p className="line-clamp-2 break-words text-sm font-medium">{item.title}</p>
+              <p className="mt-1 line-clamp-2 break-words text-xs text-foreground/45">
+                {item.detail}
+              </p>
             </div>
           ))}
         </div>
@@ -1303,7 +1262,7 @@ function labelFor(
 }
 
 function agentTabKey(key: unknown): AgentPanelTab {
-  return key === "draft" || key === "archived" ? key : "active";
+  return key === "draft" ? "draft" : "active";
 }
 
 function agentDetailTabKey(key: unknown): AgentDetailTab {

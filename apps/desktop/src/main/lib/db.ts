@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import Database from "better-sqlite3";
 import { app } from "electron";
 import { is } from "@electron-toolkit/utils";
 import { and, desc, eq, isNotNull, isNull, lt } from "drizzle-orm";
@@ -598,6 +598,25 @@ export function restoreAgent(id: string): AgentProfile {
     agent_id: id,
   });
   return getAgent(id)!;
+}
+
+/** 永久删除智能体：硬删除 agents 表行；不允许删除 root/locked agent。 */
+export function deleteAgent(id: string): void {
+  const existing = getRequiredAgentRow(id);
+  assertAgentEditable(existing);
+  if (existing.kind === "main") throw new Error("Root agent cannot be deleted.");
+  // 清理子表外键后再删除主表行
+  getDb().delete(agentPolicies).where(eq(agentPolicies.agent_id, id)).run();
+  getDb().delete(agents).where(eq(agents.id, id)).run();
+  // 同步内存中的运行时状态
+  upsertAgentRuntimeState({ agent_id: id, status: "idle", current_run_id: null });
+  insertRuntimeEvent({
+    kind: "diagnostic",
+    title: "Agent permanently deleted",
+    status: "succeeded",
+    agent_id: id,
+    detail: { agentId: id, name: existing.name },
+  });
 }
 
 export function duplicateAgent(id: string): AgentProfile {

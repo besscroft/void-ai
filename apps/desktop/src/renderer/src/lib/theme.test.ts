@@ -45,12 +45,14 @@ class FakeDocumentElement {
   setAttribute(name: string, value: string): void {
     if (name === "data-theme") this.dataset.theme = value;
     if (name === "data-theme-preset") this.dataset.themePreset = value;
+    if (name === "data-style") this.dataset.style = value;
     if (name === "data-density") this.dataset.density = value;
   }
 
   removeAttribute(name: string): void {
     if (name === "data-theme") delete this.dataset.theme;
     if (name === "data-theme-preset") delete this.dataset.themePreset;
+    if (name === "data-style") delete this.dataset.style;
     if (name === "data-density") delete this.dataset.density;
   }
 }
@@ -82,7 +84,7 @@ void describe("applyTheme", () => {
       themeSettings({
         theme: "dark",
         themePreset: "ocean",
-        accentColor: "theme",
+        style: "mira",
         fontSize: "lg",
         density: "compact",
       }),
@@ -91,38 +93,37 @@ void describe("applyTheme", () => {
     assert.equal(resolved, "dark");
     assert.equal(root.dataset.theme, "dark");
     assert.equal(root.dataset.themePreset, "ocean");
+    assert.equal(root.dataset.style, "mira");
     assert.equal(root.classList.contains("dark"), true);
     assert.equal(root.classList.contains("light"), false);
     assert.equal(root.dataset.density, "compact");
+    assert.equal(root.style.getPropertyValue("--style-radius"), "12px");
     assert.equal(root.style.fontSize, "16px");
   });
 
-  void it("resolves system theme and clears custom accent when using theme default", () => {
-    root = installDom(true);
+  void it("updates style radius when switching visual styles", () => {
+    applyTheme(
+      themeSettings({
+        theme: "light",
+        themePreset: "forest",
+        style: "vega",
+        fontSize: "base",
+        density: "comfortable",
+      }),
+    );
+    assert.equal(root.style.getPropertyValue("--style-radius"), "10px");
+    assert.equal(root.dataset.style, "vega");
 
     applyTheme(
       themeSettings({
         theme: "light",
         themePreset: "forest",
-        accentColor: "#123456",
+        style: "mira",
         fontSize: "base",
         density: "comfortable",
       }),
     );
-    assert.equal(root.style.getPropertyValue("--accent"), "#123456");
-
-    const resolved = applyTheme(
-      themeSettings({
-        theme: "system",
-        themePreset: "forest",
-        accentColor: "theme",
-        fontSize: "base",
-        density: "comfortable",
-      }),
-    );
-
-    assert.equal(resolved, "dark");
-    assert.equal(root.style.getPropertyValue("--accent"), "");
-    assert.equal(root.style.getPropertyValue("--accent-foreground"), "");
+    assert.equal(root.style.getPropertyValue("--style-radius"), "12px");
+    assert.equal(root.dataset.style, "mira");
   });
 });

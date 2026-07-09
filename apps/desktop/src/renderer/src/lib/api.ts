@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AgentInput,
   AgentProfile,
   CacheStats,
@@ -99,6 +99,7 @@ export const api = {
     archive: (id: string): Promise<AgentProfile> => assertApi().agents.archive(id),
     restore: (id: string): Promise<AgentProfile> => assertApi().agents.restore(id),
     duplicate: (id: string): Promise<AgentProfile> => assertApi().agents.duplicate(id),
+    delete: (id: string): Promise<boolean> => assertApi().agents.delete(id),
     queueLearning: (conversationId: string): Promise<boolean> =>
       assertApi().agents.queueLearning(conversationId),
     runtimeSnapshot: (): Promise<

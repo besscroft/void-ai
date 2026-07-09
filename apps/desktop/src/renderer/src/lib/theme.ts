@@ -1,11 +1,12 @@
 import {
-  ACCENT_PRESETS,
   FONT_SIZE_PX,
+  STYLE_PRESETS,
   type AppSettings,
   type ThemeMode,
   type FontSizeLevel,
   type LayoutDensity,
   type ThemePresetId,
+  type StylePresetId,
   type ReduceMotion,
   type DiffMark,
 } from "@shared/types";
@@ -33,52 +34,19 @@ export function applyThemePreset(preset: ThemePresetId): void {
   document.documentElement.setAttribute("data-theme-preset", preset);
 }
 
-export function applyAccent(accent: string): void {
+/** 应用视觉风格：注入字体栈与全局圆角。 */
+export function applyStyle(style: StylePresetId): void {
   const root = document.documentElement;
-  root.style.removeProperty("--color-accent");
-  root.style.removeProperty("--color-accent-foreground");
-  // Keep legacy app tokens and shadcn tokens in sync while settings migrate.
-  root.style.removeProperty("--accent");
-  root.style.removeProperty("--accent-foreground");
-
-  if (accent === "theme") {
-    return;
-  }
-
-  const preset = ACCENT_PRESETS.find((p) => p.id === accent);
-  const value = preset?.value ?? accent;
-  const foreground = preset?.foreground ?? "oklch(0.98 0.01 264)";
-  root.style.setProperty("--color-accent", value);
-  root.style.setProperty("--color-accent-foreground", foreground);
-  root.style.setProperty("--accent", value);
-  root.style.setProperty("--accent-foreground", foreground);
-}
-
-/** 应用自定义背景/前景色；空字符串清除自定义值 */
-export function applyCustomColors(background: string, foreground: string, contrast: number): void {
-  const root = document.documentElement;
-  // 对比度 0~100 映射到强调色明度微调
-  // 50 = 不变；>50 提亮；<50 压暗
-  const lightness = 0.5 + (contrast - 50) / 200; // [-0.25, 0.75]
-  if (lightness === 0.5) {
-    root.style.removeProperty("--color-accent-lightness-shift");
-  } else {
-    root.style.setProperty("--color-accent-lightness-shift", String(lightness));
-  }
-
-  if (background) {
-    root.style.setProperty("--color-background", background);
-  } else {
-    root.style.removeProperty("--color-background");
-  }
-  if (foreground) {
-    root.style.setProperty("--color-foreground", foreground);
-  } else {
-    root.style.removeProperty("--color-foreground");
+  const preset = STYLE_PRESETS.find((p) => p.id === style) ?? STYLE_PRESETS[0];
+  root.setAttribute("data-style", preset.id);
+  root.style.setProperty("--style-radius", `${preset.radius}px`);
+  // 仅当用户未自定义字体时注入，避免覆盖 applyFonts 的设置
+  if (!root.style.getPropertyValue("--app-font-sans")) {
+    root.style.setProperty("--app-font-sans", preset.fontStack);
   }
 }
 
-/** 应用 UI 字体与等宽字体；空字符串清除自定义 */
+/** 应用 UI 字体与等宽字体；空字符串清除自定义。 */
 export function applyFonts(family: string, mono: string): void {
   const root = document.documentElement;
   if (family) {
@@ -135,13 +103,10 @@ export function applyTheme(
     AppSettings,
     | "theme"
     | "themePreset"
-    | "accentColor"
-    | "backgroundColor"
-    | "foregroundColor"
+    | "style"
     | "fontFamily"
     | "monoFontFamily"
     | "translucentSidebar"
-    | "contrast"
     | "usePointerCursor"
     | "reduceMotion"
     | "codeFontSizePx"
@@ -153,8 +118,7 @@ export function applyTheme(
   const resolved = resolveTheme(settings.theme);
   applyResolvedTheme(resolved);
   applyThemePreset(settings.themePreset);
-  applyAccent(settings.accentColor);
-  applyCustomColors(settings.backgroundColor, settings.foregroundColor, settings.contrast);
+  applyStyle(settings.style);
   applyFonts(settings.fontFamily, settings.monoFontFamily);
   applyCodeFontSize(settings.codeFontSizePx);
   applyTranslucentSidebar(settings.translucentSidebar);

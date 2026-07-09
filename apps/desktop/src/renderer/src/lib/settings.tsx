@@ -12,11 +12,12 @@ import { resolveLanguage } from "./i18n";
 import {
   SettingKey,
   DEFAULT_SETTINGS,
-  ACCENT_PRESETS,
   CHAT_REASONING_LEVELS,
+  STYLE_PRESETS,
   type AppSettings,
   type ThemeMode,
   type ThemePresetId,
+  type StylePresetId,
   type FontSizeLevel,
   type LayoutDensity,
   type LanguageMode,
@@ -30,13 +31,10 @@ import { applyTheme, resolveSystemTheme, type ResolvedTheme } from "./theme";
 const APP_SETTING_KEYS: string[] = [
   SettingKey.Theme,
   SettingKey.ThemePreset,
-  SettingKey.AccentColor,
-  SettingKey.BackgroundColor,
-  SettingKey.ForegroundColor,
+  SettingKey.Style,
   SettingKey.FontFamily,
   SettingKey.MonoFontFamily,
   SettingKey.TranslucentSidebar,
-  SettingKey.Contrast,
   SettingKey.UsePointerCursor,
   SettingKey.ReduceMotion,
   SettingKey.FontSize,
@@ -60,13 +58,10 @@ const RESET_PATCHES: Record<SettingsResetScope, Partial<AppSettings>> = {
   appearance: {
     theme: DEFAULT_SETTINGS.theme,
     themePreset: DEFAULT_SETTINGS.themePreset,
-    accentColor: DEFAULT_SETTINGS.accentColor,
-    backgroundColor: DEFAULT_SETTINGS.backgroundColor,
-    foregroundColor: DEFAULT_SETTINGS.foregroundColor,
+    style: DEFAULT_SETTINGS.style,
     fontFamily: DEFAULT_SETTINGS.fontFamily,
     monoFontFamily: DEFAULT_SETTINGS.monoFontFamily,
     translucentSidebar: DEFAULT_SETTINGS.translucentSidebar,
-    contrast: DEFAULT_SETTINGS.contrast,
     usePointerCursor: DEFAULT_SETTINGS.usePointerCursor,
     reduceMotion: DEFAULT_SETTINGS.reduceMotion,
     fontSize: DEFAULT_SETTINGS.fontSize,
@@ -95,18 +90,6 @@ function parseBool(raw: string | null, fallback: boolean): boolean {
   return fallback;
 }
 
-/** 校验 CSS 颜色字符串是否合法（hex / oklch / rgb / hsl） */
-function isValidColor(raw: string | null, fallback: string): string {
-  if (raw == null) return fallback;
-  const v = raw.trim();
-  if (!v) return fallback;
-  if (v.startsWith("#") && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) {
-    return v;
-  }
-  if (/^(oklch|oklab|rgb|rgba|hsl|hsla|hwb|color)\(/.test(v)) return v;
-  return fallback;
-}
-
 function getBrowserLocale(): string {
   return typeof navigator !== "undefined" && navigator.language ? navigator.language : "en";
 }
@@ -122,22 +105,11 @@ export function parseSettings(map: Record<string, string | null>): AppSettings {
     ["default", "ocean", "forest", "rose"],
     DEFAULT_SETTINGS.themePreset,
   );
-  const accentRaw = map[SettingKey.AccentColor];
-  const accentColor =
-    accentRaw &&
-    (accentRaw === "theme" ||
-      ACCENT_PRESETS.some((p) => p.id === accentRaw) ||
-      accentRaw.startsWith("oklch") ||
-      accentRaw.startsWith("#"))
-      ? accentRaw
-      : DEFAULT_SETTINGS.accentColor;
-  const backgroundColor = isValidColor(
-    map[SettingKey.BackgroundColor],
-    DEFAULT_SETTINGS.backgroundColor,
-  );
-  const foregroundColor = isValidColor(
-    map[SettingKey.ForegroundColor],
-    DEFAULT_SETTINGS.foregroundColor,
+  const allowedStyles = STYLE_PRESETS.map((s) => s.id) as readonly StylePresetId[];
+  const style = parseEnum<StylePresetId>(
+    map[SettingKey.Style],
+    allowedStyles,
+    DEFAULT_SETTINGS.style,
   );
   const fontFamily = (map[SettingKey.FontFamily] ?? "").slice(0, 500);
   const monoFontFamily = (map[SettingKey.MonoFontFamily] ?? "").slice(0, 500);
@@ -145,7 +117,6 @@ export function parseSettings(map: Record<string, string | null>): AppSettings {
     map[SettingKey.TranslucentSidebar],
     DEFAULT_SETTINGS.translucentSidebar,
   );
-  const contrast = parseNumber(map[SettingKey.Contrast], DEFAULT_SETTINGS.contrast, 0, 100);
   const usePointerCursor = parseBool(
     map[SettingKey.UsePointerCursor],
     DEFAULT_SETTINGS.usePointerCursor,
@@ -189,13 +160,10 @@ export function parseSettings(map: Record<string, string | null>): AppSettings {
   return {
     theme,
     themePreset,
-    accentColor,
-    backgroundColor,
-    foregroundColor,
+    style,
     fontFamily,
     monoFontFamily,
     translucentSidebar,
-    contrast,
     usePointerCursor,
     reduceMotion,
     fontSize,
@@ -287,12 +255,7 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
     if (patch.theme !== undefined) writes.push(api.settings.set(SettingKey.Theme, patch.theme));
     if (patch.themePreset !== undefined)
       writes.push(api.settings.set(SettingKey.ThemePreset, patch.themePreset));
-    if (patch.accentColor !== undefined)
-      writes.push(api.settings.set(SettingKey.AccentColor, patch.accentColor));
-    if (patch.backgroundColor !== undefined)
-      writes.push(api.settings.set(SettingKey.BackgroundColor, patch.backgroundColor));
-    if (patch.foregroundColor !== undefined)
-      writes.push(api.settings.set(SettingKey.ForegroundColor, patch.foregroundColor));
+    if (patch.style !== undefined) writes.push(api.settings.set(SettingKey.Style, patch.style));
     if (patch.fontFamily !== undefined)
       writes.push(api.settings.set(SettingKey.FontFamily, patch.fontFamily));
     if (patch.monoFontFamily !== undefined)
@@ -301,8 +264,6 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
       writes.push(
         api.settings.set(SettingKey.TranslucentSidebar, String(patch.translucentSidebar)),
       );
-    if (patch.contrast !== undefined)
-      writes.push(api.settings.set(SettingKey.Contrast, String(patch.contrast)));
     if (patch.usePointerCursor !== undefined)
       writes.push(api.settings.set(SettingKey.UsePointerCursor, String(patch.usePointerCursor)));
     if (patch.reduceMotion !== undefined)

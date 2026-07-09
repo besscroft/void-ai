@@ -1,13 +1,11 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
   Checkbox,
-  ColorSwatchPicker,
   Description,
   Input,
   Label,
   Modal,
-  parseColor,
   SearchField,
   Switch,
   TextArea,
@@ -38,11 +36,11 @@ import {
   IconWrench,
 } from "./icons";
 import {
-  ACCENT_PRESETS,
   type AgentProfile,
   FONT_PRESETS,
   FONT_SIZE_PX,
   MONO_FONT_PRESETS,
+  STYLE_PRESETS,
   THEME_PRESETS,
   type Conversation,
   type CustomProviderInput,
@@ -429,10 +427,6 @@ function AppearanceTab({
   resetDone: boolean;
 }): React.JSX.Element {
   const { t } = useT();
-  const preset = ACCENT_PRESETS.find((p) => p.id === settings.accentColor);
-  const customAccentHex =
-    !preset && settings.accentColor !== "theme" ? settings.accentColor : "#4f46e5";
-  const selectedAccent = preset ? parseColor(preset.swatch) : undefined;
   const presetBundle = THEME_PRESETS.find((p) => p.id === settings.themePreset);
 
   // 涓婚妯″紡棰勮鍗＄墖锛氬乏鍙充袱鑹茬敱"褰撳墠涓婚鍖?+ 娴?娣?鍐冲畾
@@ -521,95 +515,43 @@ function AppearanceTab({
           </div>
         </SettingSection>
 
-        <SettingSection title={t("appearance.accent")} desc={t("appearance.accent.desc")}>
-          <div className="mb-1 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void update({ accentColor: "theme" })}
-              aria-pressed={settings.accentColor === "theme"}
-              className={[
-                "rounded-md border px-2.5 py-1.5 text-xs transition",
-                settings.accentColor === "theme"
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-foreground/15 text-foreground/70 hover:bg-foreground/5",
-              ].join(" ")}
-            >
-              {t("appearance.accent.theme")}
-            </button>
-          </div>
-          <ColorSwatchPicker
-            value={selectedAccent}
-            onChange={(color) => {
-              const hex = color.toString("hex").toLowerCase();
-              const next = ACCENT_PRESETS.find((p) => p.swatch.toLowerCase() === hex);
-              if (next) void update({ accentColor: next.id });
-              else void update({ accentColor: hex });
-            }}
-            size="md"
-            variant="circle"
-            className="gap-2.5"
-          >
-            {ACCENT_PRESETS.map((p) => (
-              <ColorSwatchPicker.Item key={p.id} color={p.swatch}>
-                <ColorSwatchPicker.Swatch />
-                <ColorSwatchPicker.Indicator />
-                <span className="sr-only">{t("theme.accent." + p.id)}</span>
-              </ColorSwatchPicker.Item>
-            ))}
-          </ColorSwatchPicker>
-
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-xs text-foreground/55">{t("appearance.accent.custom")}</span>
-            <input
-              type="color"
-              value={/^#[0-9a-fA-F]{6}$/.test(customAccentHex) ? customAccentHex : "#4f46e5"}
-              onChange={(e) => void update({ accentColor: e.target.value })}
-              className="size-7 cursor-pointer rounded border border-foreground/15 bg-transparent"
-              aria-label={t("appearance.accent.custom")}
-            />
-            <span className="font-mono text-xs text-foreground/40">
-              {settings.accentColor === "theme" ? t("appearance.accent.theme") : customAccentHex}
-            </span>
+        <SettingSection title={t("appearance.style")} desc={t("appearance.style.desc")}>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {STYLE_PRESETS.map((p) => {
+              const selected = settings.style === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => void update({ style: p.id })}
+                  aria-pressed={selected}
+                  className={[
+                    "group flex flex-col items-start gap-2 rounded-md border bg-background p-3 text-left transition",
+                    selected
+                      ? "border-foreground/40 ring-1 ring-foreground/15"
+                      : "border-foreground/10 hover:border-foreground/25",
+                  ].join(" ")}
+                >
+                  <div className="flex w-full items-center justify-between">
+                    <span className="text-sm font-medium">{t(p.labelKey)}</span>
+                    <span
+                      className="size-4 shrink-0 border border-foreground/15"
+                      style={{ borderRadius: Math.min(p.radius, 8) }}
+                    />
+                  </div>
+                  <div
+                    className="flex w-full items-center justify-center bg-foreground/[0.03] py-3 text-2xl text-foreground/70"
+                    style={{ fontFamily: p.fontStack, borderRadius: p.radius }}
+                  >
+                    Aa
+                  </div>
+                  <span className="text-xs leading-relaxed text-foreground/55">{t(p.descKey)}</span>
+                </button>
+              );
+            })}
           </div>
         </SettingSection>
       </div>
-
-      {/* 鈥斺€?棰滆壊锛堣儗鏅?鍓嶆櫙/瀵规瘮搴︼級鈥斺€?*/}
-      <SettingSection title={t("appearance.colors")} desc={t("appearance.colors.desc")}>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ColorFieldRow
-            label={t("appearance.background")}
-            value={settings.backgroundColor}
-            onChange={(v) => void update({ backgroundColor: v })}
-          />
-          <ColorFieldRow
-            label={t("appearance.foreground")}
-            value={settings.foregroundColor}
-            onChange={(v) => void update({ foregroundColor: v })}
-          />
-        </div>
-        <SettingItem
-          title={t("appearance.contrast")}
-          desc={t("appearance.contrast.desc")}
-          control={
-            <div className="flex w-72 items-center gap-3">
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={settings.contrast}
-                onChange={(e) => void update({ contrast: Number(e.target.value) })}
-                className="w-full accent-[var(--color-accent)]"
-                aria-label={t("appearance.contrast")}
-              />
-              <span className="w-8 text-right font-mono text-xs tabular-nums text-foreground/60">
-                {settings.contrast}
-              </span>
-            </div>
-          }
-        />
-      </SettingSection>
 
       {/* 鈥斺€?瀛椾綋 鈥斺€?*/}
       <SettingSection title={t("appearance.fonts")} desc={t("appearance.fonts.desc")}>
@@ -823,63 +765,6 @@ function AppearanceTab({
 // ============================================================
 // 瀛楁瀛愮粍浠?
 // ============================================================
-
-/** 棰滆壊杈撳叆琛岋細宸︿晶鏍囩锛屽彸渚ч鑹查€夋嫨鍣?+ 鏂囨湰杈撳叆 + 娓呯┖鎸夐挳 */
-function ColorFieldRow({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}): React.JSX.Element {
-  const { t } = useT();
-  const isHex = /^#[0-9a-fA-F]{6}$/.test(value);
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
-      <span className="min-w-0 flex-1 text-sm font-medium">{label}</span>
-      <label className="relative flex items-center">
-        <span
-          className="block size-6 rounded-md border border-foreground/20"
-          style={{
-            background: value || "transparent",
-            backgroundImage:
-              "linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%), linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%)",
-            backgroundSize: "8px 8px",
-            backgroundPosition: "0 0, 4px 4px",
-          }}
-        />
-        <input
-          type="color"
-          value={isHex ? value : "#000000"}
-          onChange={(e) => onChange(e.target.value)}
-          className="absolute inset-0 size-full cursor-pointer opacity-0"
-          aria-label={label}
-        />
-      </label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={t("appearance.color.placeholder")}
-        className="w-36 rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent/50"
-        spellCheck={false}
-        aria-label={label}
-      />
-      {value && (
-        <button
-          type="button"
-          onClick={() => onChange("")}
-          className="rounded p-1 text-foreground/45 hover:bg-foreground/5 hover:text-foreground"
-          aria-label={t("common.reset")}
-        >
-          <IconClose className="size-3.5" />
-        </button>
-      )}
-    </div>
-  );
-}
 
 /** 瀛椾綋杈撳叆琛岋細鏍囩 + 棰勮涓嬫媺 + 鑷畾涔夎緭鍏?*/
 function FontFieldRow({
@@ -3395,6 +3280,26 @@ function TrashTab(): React.JSX.Element {
       .catch(() => undefined);
   };
 
+  const [pendingAgentDelete, setPendingAgentDelete] = useState<AgentProfile | null>(null);
+
+  const handleAgentPermanentDelete = (): void => {
+    const agent = pendingAgentDelete;
+    setPendingAgentDelete(null);
+    if (!agent) return;
+    void notify
+      .promise(
+        api.agents.delete(agent.id),
+        {
+          loading: t("toast.agent.deleting"),
+          success: t("toast.agent.deleted"),
+          error: t("toast.agent.deleteFailed"),
+        },
+        locale,
+      )
+      .then(refreshAgents)
+      .catch(() => undefined);
+  };
+
   const handlePermanentDelete = (): void => {
     if (!pendingPermanentDelete) return;
     const item = pendingPermanentDelete;
@@ -3518,14 +3423,25 @@ function TrashTab(): React.JSX.Element {
                       </div>
                     </div>
                   </div>
-                  <Button
-                    className="w-full sm:w-auto"
-                    variant="secondary"
-                    size="sm"
-                    onPress={() => handleAgentRestore(agent)}
-                  >
-                    {t("common.restore")}
-                  </Button>
+                  <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                    <Button
+                      className="w-full sm:w-auto"
+                      variant="secondary"
+                      size="sm"
+                      onPress={() => handleAgentRestore(agent)}
+                    >
+                      {t("common.restore")}
+                    </Button>
+                    <Button
+                      className="w-full sm:w-auto"
+                      variant="danger"
+                      size="sm"
+                      onPress={() => setPendingAgentDelete(agent)}
+                    >
+                      <IconTrash className="size-3.5" />
+                      {t("trash.agents.delete.confirm")}
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -3674,6 +3590,16 @@ function TrashTab(): React.JSX.Element {
         confirmLabel={t("common.permanentDelete")}
         onConfirm={handlePermanentDelete}
         onClose={() => setPendingPermanentDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingAgentDelete !== null}
+        title={t("trash.agents.delete.title")}
+        message={t("trash.agents.delete.message", { name: pendingAgentDelete?.name ?? "" })}
+        danger
+        confirmLabel={t("trash.agents.delete.confirm")}
+        onConfirm={handleAgentPermanentDelete}
+        onClose={() => setPendingAgentDelete(null)}
       />
 
       <ConfirmDialog

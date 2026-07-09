@@ -1,4 +1,4 @@
-﻿import { ElectronAPI } from "@electron-toolkit/preload";
+import { ElectronAPI } from "@electron-toolkit/preload";
 import type {
   AgentInput,
   AgentProfile,
@@ -88,6 +88,7 @@ export interface VoidAIApi {
     archive: (id: string) => Promise<AgentProfile>;
     restore: (id: string) => Promise<AgentProfile>;
     duplicate: (id: string) => Promise<AgentProfile>;
+    delete: (id: string) => Promise<boolean>;
     queueLearning: (conversationId: string) => Promise<boolean>;
     runtimeSnapshot: () => Promise<
       Pick<
