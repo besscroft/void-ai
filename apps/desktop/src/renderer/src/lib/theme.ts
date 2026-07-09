@@ -34,16 +34,15 @@ export function applyThemePreset(preset: ThemePresetId): void {
   document.documentElement.setAttribute("data-theme-preset", preset);
 }
 
-/** 应用视觉风格：注入字体栈与全局圆角。 */
+/** 应用视觉风格：注入字体栈与全局圆角。
+ * 注入 --style-radius 和 --style-font-stack，由 main.css 桥接到 --radius / --app-font-sans。
+ * 用户在"字体"选择器里设的值会 inline 写到 --app-font-sans，CSS 级联下用户值优先。*/
 export function applyStyle(style: StylePresetId): void {
   const root = document.documentElement;
   const preset = STYLE_PRESETS.find((p) => p.id === style) ?? STYLE_PRESETS[0];
   root.setAttribute("data-style", preset.id);
   root.style.setProperty("--style-radius", `${preset.radius}px`);
-  // 仅当用户未自定义字体时注入，避免覆盖 applyFonts 的设置
-  if (!root.style.getPropertyValue("--app-font-sans")) {
-    root.style.setProperty("--app-font-sans", preset.fontStack);
-  }
+  root.style.setProperty("--style-font-stack", preset.fontStack);
 }
 
 /** 应用 UI 字体与等宽字体；空字符串清除自定义。 */

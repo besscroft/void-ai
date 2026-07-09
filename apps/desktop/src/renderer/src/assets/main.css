@@ -40,12 +40,19 @@
 
 :root {
   --spacing: 0.25rem;
-  --radius: 0.5rem;
+  /* 视觉风格 token：被 applyStyle(settings.style) 注入；未注入时回退到默认值。
+   * 桥接 --style-radius → --radius，使 Mira/Vega/Nova/Maia/Lyra 的圆角风格
+   * 直接影响 Tailwind 的 rounded-* utility（rounded-md = calc(--radius - 2px) 等）。*/
+  --style-radius: 0.5rem;
+  --radius: var(--style-radius);
+  --style-font-stack: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --white: oklch(1 0 0);
   --snow: oklch(0.985 0.003 247);
   --eclipse: oklch(0.145 0.01 260);
 
-  --app-font-sans: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  /* 字体优先用 applyFonts 注入的 inline 值（用户自选），未注入时回退到风格字体。
+   * 这样 applyFonts("") 清空时不会再回退到写死的 JetBrains Mono。*/
+  --app-font-sans: var(--style-font-stack);
   --app-font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, monospace;
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);

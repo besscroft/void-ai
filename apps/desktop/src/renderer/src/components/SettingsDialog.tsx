@@ -480,7 +480,7 @@ function AppearanceTab({
       </SettingSection>
 
       {/* 鈥斺€?涓婚鍖?+ 寮鸿皟鑹?骞跺垪 鈥斺€?*/}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="space-y-4">
         <SettingSection title={t("appearance.bundle")} desc={t("appearance.bundle.desc")}>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {THEME_PRESETS.map((p) => {
@@ -516,7 +516,7 @@ function AppearanceTab({
         </SettingSection>
 
         <SettingSection title={t("appearance.style")} desc={t("appearance.style.desc")}>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {STYLE_PRESETS.map((p) => {
               const selected = settings.style === p.id;
               return (
