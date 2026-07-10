@@ -341,7 +341,7 @@ export function ContextPopover({
           aria-label={t("ai.context.details")}
           className={cn(
             "absolute bottom-full left-1/2 z-50 mb-2 w-[300px] -translate-x-1/2",
-            "rounded-xl border border-foreground/10 bg-background/95 p-2 shadow-2xl backdrop-blur",
+            "rounded-xl border border-foreground/10 bg-background/95 p-2 shadow-2xl",
             "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2",
           )}
         >

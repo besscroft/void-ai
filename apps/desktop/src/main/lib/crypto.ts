@@ -110,7 +110,7 @@ export function decrypt(payload: EncryptedPayload): string {
 
 /**
  * 重置主密钥（仅用于调试/重置场景）。
- * ⚠️ 调用后所有已加密数据将无法解密。
+ * 调用后所有已加密数据将无法解密。
  */
 export function resetMasterKey(): void {
   cachedMasterKey = null;

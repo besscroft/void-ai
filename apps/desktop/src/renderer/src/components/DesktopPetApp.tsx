@@ -292,7 +292,7 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
           {state.activity === "interact" ? <span className="desktop-pet-burst">✨</span> : null}
           {state.activity === "sleep" ? <span className="desktop-pet-zzz">Zzz</span> : null}
         </span>
-        <span className="rounded-full border border-foreground/10 bg-background/75 px-2 py-0.5 text-[10px] font-medium shadow-sm backdrop-blur">
+        <span className="rounded-full border border-foreground/10 bg-background px-2 py-0.5 text-[10px] font-medium shadow-sm">
           {snapshot.agent?.name ?? "Void"} · {statusText}
         </span>
       </button>

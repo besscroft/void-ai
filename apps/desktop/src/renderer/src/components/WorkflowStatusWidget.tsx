@@ -151,7 +151,7 @@ export function WorkflowStatusWidget({
       aria-live="polite"
       data-phase={phase}
       className={cn(
-        "pointer-events-auto fixed top-3 right-3 z-40 w-[300px] overflow-hidden rounded-lg border border-border/60 bg-background/95 shadow-lg backdrop-blur",
+        "pointer-events-auto fixed top-3 right-3 z-40 w-[300px] overflow-hidden rounded-lg border border-border/60 bg-background/95 shadow-lg",
         "transition-[transform,opacity] duration-200 ease-out",
       )}
     >

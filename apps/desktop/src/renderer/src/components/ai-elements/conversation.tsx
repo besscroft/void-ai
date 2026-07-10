@@ -163,7 +163,7 @@ export function ConversationScrollButton({
       className={cn(
         "absolute bottom-4 left-1/2 z-10 -translate-x-1/2",
         "flex size-8 items-center justify-center rounded-full",
-        "border border-foreground/15 bg-background/90 shadow-lg backdrop-blur",
+        "border border-foreground/15 bg-background/90 shadow-lg",
         "text-foreground/70 transition hover:bg-background hover:text-foreground",
         className,
       )}
