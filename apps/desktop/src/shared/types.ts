@@ -268,6 +268,13 @@ export interface WorkflowBranchOption {
 export interface WorkflowNodeConfig {
   // 通用
   agentId?: string;
+  /**
+   * 该节点归属的 agent 路径（OpenAI Responses Multi-agent 风格的层级命名，例如
+   * "/root"、"/root/researcher"）。缺省时引擎回退到 "/root"。UI 可按此字段对节点
+   * 事件做来源分组/着色；目前仅 engine 透传到 EngineEvent 与 step_run.metadata_json，
+   * 不持久化到独立列。
+   */
+  agentPath?: string;
   // prompt
   systemPrompt?: string;
   promptTemplate?: string;

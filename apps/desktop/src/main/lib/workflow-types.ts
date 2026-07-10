@@ -24,6 +24,19 @@ export const DEFAULT_RETRY_POLICY: WorkflowRetryPolicy = {
 /** 单节点默认错误处置：失败即终止整个工作流。 */
 export const DEFAULT_ON_ERROR: WorkflowOnErrorPolicy = "fail";
 
+/**
+ * 整个工作流运行内允许同时执行的"活跃子代理/节点"数量上限。
+ *
+ * 对齐 OpenAI Responses Multi-agent 文档的 `max_concurrent_subagents`（默认 3）。
+ * 该上限作用于引擎派发循环：
+ *   - ready 节点在 inFlight 数 < max 时立即派发
+ *   - 否则 await 任意一个完成后再继续
+ *   - parallel 节点内部 children 也复用 runNode，因此受同一 gate 约束
+ *
+ * 取值 < 1 会被引擎强制 clamp 到 1。
+ */
+export const DEFAULT_MAX_CONCURRENT_SUBAGENTS = 3;
+
 /** 把 ToolSkillStep（旧版）转换为 WorkflowNode（新版）。 */
 export function buildNodeFromLegacyStep(raw: unknown, index: number): WorkflowNode {
   const step = (raw ?? {}) as Partial<ToolSkillStep>;

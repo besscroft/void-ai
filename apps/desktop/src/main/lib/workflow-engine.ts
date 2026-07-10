@@ -54,7 +54,7 @@ import {
   updateWorkflowRunRecord,
   updateWorkflowStepRun,
 } from "./workflow-runs";
-import { DEFAULT_RETRY_POLICY } from "./workflow-types";
+import { DEFAULT_MAX_CONCURRENT_SUBAGENTS, DEFAULT_RETRY_POLICY } from "./workflow-types";
 import { interpolateTemplate } from "./workflow-template";
 import { attachWorkflowController, detachWorkflowController } from "./workflow-cancellation";
 
@@ -82,12 +82,26 @@ export interface EngineDependencies {
   readMemories: StepExecutionContext["readMemories"];
   writeMemory: StepExecutionContext["writeMemory"];
   resolveModelRef: (node: WorkflowNode) => string | null;
+  /**
+   * 整个工作流运行内允许同时执行的"活跃子代理/节点"数量上限。
+   * 对齐 OpenAI Responses Multi-agent 文档的 `max_concurrent_subagents`。
+   * 缺省沿用 `DEFAULT_MAX_CONCURRENT_SUBAGENTS`（=3）。< 1 会被 clamp 到 1。
+   * 同时被 inFlight 集合的 `Promise.race` 等待 + semaphore gate 共同保证。
+   */
+  maxConcurrentSubagents?: number;
   onNodeEvent?: (event: EngineEvent) => void | Promise<void>;
 }
 
 export type EngineEvent =
   | { type: "run_started"; runId: string; workflowId: string }
-  | { type: "node_started"; runId: string; nodeId: string; attempt: number }
+  | {
+      type: "node_started";
+      runId: string;
+      nodeId: string;
+      attempt: number;
+      /** 节点归属的 agent 路径（OpenAI 风格的 "/root/..." 层级命名）。 */
+      agentPath: string;
+    }
   | {
       type: "node_completed";
       runId: string;
@@ -95,6 +109,8 @@ export type EngineEvent =
       status: WorkflowNodeStatus;
       durationMs: number;
       output?: unknown;
+      /** 节点归属的 agent 路径，与对应 `node_started` 一致。 */
+      agentPath: string;
     }
   | {
       type: "run_completed";
@@ -117,6 +133,8 @@ const DEFAULT_DEPS: EngineDependencies = {
   readMemories: () => [],
   writeMemory: () => "",
   resolveModelRef: () => null,
+  // 对齐 OpenAI `max_concurrent_subagents` 默认值；调用方可通过 deps.maxConcurrentSubagents 覆盖
+  maxConcurrentSubagents: DEFAULT_MAX_CONCURRENT_SUBAGENTS,
 };
 
 export interface ExecuteWorkflowResult {
@@ -187,6 +205,10 @@ export async function executeWorkflow(
   let finalError: string | undefined;
   let runOutput: unknown;
   const inFlight = new Set<Promise<void>>();
+  // 全局并发上限（对齐 OpenAI `max_concurrent_subagents`），作用在 ready 派发环节
+  const sem = createSubagentSemaphore(
+    deps.maxConcurrentSubagents ?? DEFAULT_MAX_CONCURRENT_SUBAGENTS,
+  );
 
   try {
     while (true) {
@@ -225,6 +247,8 @@ export async function executeWorkflow(
       }
       for (const nodeId of ready) {
         statuses.set(nodeId, "running");
+        // runNode 入口会自行 acquire semaphore，递归入口（parallel/branch/fallback 的子节点）
+        // 也都受同一 gate 约束，从而保证全树 in-flight 数不超过 max
         const promise = runNode(
           workflow,
           nodeId,
@@ -234,9 +258,14 @@ export async function executeWorkflow(
           signal,
           deps,
           runId,
-        );
+          sem,
+        )
+          // 单节点异常不应击穿外层 try/catch —— runNode 内部已经把异常转为 failed status
+          .catch((error) => {
+            console.warn(`[workflow-engine] runNode '${nodeId}' threw:`, error);
+          })
+          .finally(() => inFlight.delete(promise));
         inFlight.add(promise);
-        void promise.finally(() => inFlight.delete(promise));
       }
       // 等任意一个 in-flight 完成，然后回到循环顶部
       if (inFlight.size > 0) {
@@ -285,123 +314,151 @@ async function runNode(
   signal: AbortSignal,
   deps: EngineDependencies,
   runId: string,
+  sem: ReturnType<typeof createSubagentSemaphore>,
 ): Promise<void> {
-  const node = def.nodes.find((n) => n.id === nodeId);
-  if (!node) return;
-  // 平行/分支节点：由引擎用 control flow 处理
-  if (node.kind === "parallel") {
-    await runParallelNode(def, node, statuses, results, shared, signal, deps, runId);
-    return;
-  }
-  if (node.kind === "branch") {
-    await runBranchNode(def, node, statuses, results, shared, signal, deps, runId);
-    return;
-  }
-  // 普通节点：进入单步重试循环
-  const policy = node.retryPolicy ?? DEFAULT_RETRY_POLICY;
-  const maxAttempts = Math.max(1, policy.maxAttempts + 1); // 包含首次执行
-  let lastError: string | undefined;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (signal.aborted) {
-      finalizeNode(node.id, "cancelled", undefined, "aborted", statuses, results, runId, shared);
+  // 入口 gate：保证全树 in-flight 数不超过 `max_concurrent_subagents`。
+  // 整个 runNode 主体包在 try/finally 中，确保 cancel / throw 路径下也 release。
+  await sem.acquire();
+  try {
+    const node = def.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    // 平行/分支节点：由引擎用 control flow 处理
+    if (node.kind === "parallel") {
+      await runParallelNode(def, node, statuses, results, shared, signal, deps, runId, sem);
       return;
     }
-    const stepRun = createWorkflowStepRun({
-      workflowRunId: runId,
-      nodeId: node.id,
-      status: "running",
-      attempt,
-      inputJson: JSON.stringify({
-        input: shared.input,
-        previousOutputs: pickUpstream(def, node, shared.outputs),
-      }),
-      startedAt: Date.now(),
-      assignedAgentId: node.config.agentId ?? null,
-    });
-    recordWorkflowTransition(
-      runId,
-      lastNodeIdForTransition(def, node.id, statuses),
-      node.id,
-      `attempt_${attempt}`,
-    );
-    await safeEmit(deps, { type: "node_started", runId, nodeId: node.id, attempt });
-    const start = Date.now();
-    let result: NodeResult;
-    try {
-      const exec = stepExecutors[node.kind];
-      if (!exec) {
-        result = { status: "failed", error: `No executor for kind '${node.kind}'` };
-      } else {
-        const ctx: StepExecutionContext = {
-          runId,
-          workflowId: def.id,
-          node,
-          shared,
-          dispatchTool: deps.dispatchTool,
-          dispatchChildAgent: deps.dispatchChildAgent,
-          waitForApproval: (id, prompt) =>
-            withApprovalTimeout(deps.waitForApproval(id, prompt), signal),
-          readMemories: deps.readMemories,
-          writeMemory: deps.writeMemory,
-          signal,
-        };
-        result = await exec(ctx);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      result = { status: "failed", error: message };
+    if (node.kind === "branch") {
+      await runBranchNode(def, node, statuses, results, shared, signal, deps, runId, sem);
+      return;
     }
-    const durationMs = Date.now() - start;
-    if (result.status === "succeeded") {
-      shared.outputs[node.id] = result.output ?? null;
+    // 普通节点：进入单步重试循环
+    const policy = node.retryPolicy ?? DEFAULT_RETRY_POLICY;
+    const maxAttempts = Math.max(1, policy.maxAttempts + 1); // 包含首次执行
+    let lastError: string | undefined;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (signal.aborted) {
+        finalizeNode(node.id, "cancelled", undefined, "aborted", statuses, results, runId, shared);
+        return;
+      }
+      const stepRun = createWorkflowStepRun({
+        workflowRunId: runId,
+        nodeId: node.id,
+        status: "running",
+        attempt,
+        inputJson: JSON.stringify({
+          input: shared.input,
+          previousOutputs: pickUpstream(def, node, shared.outputs),
+        }),
+        startedAt: Date.now(),
+        assignedAgentId: node.config.agentId ?? null,
+        // agentPath 写入 metadata_json，避免新增 DB 列；下游 / UI 可解析该字段做来源分组
+        metadataJson: safeJsonStringify({ agentPath: agentPathOf(node) }),
+      });
+      recordWorkflowTransition(
+        runId,
+        lastNodeIdForTransition(def, node.id, statuses),
+        node.id,
+        `attempt_${attempt}`,
+      );
+      await safeEmit(deps, {
+        type: "node_started",
+        runId,
+        nodeId: node.id,
+        attempt,
+        agentPath: agentPathOf(node),
+      });
+      const start = Date.now();
+      let result: NodeResult;
+      try {
+        const exec = stepExecutors[node.kind];
+        if (!exec) {
+          result = { status: "failed", error: `No executor for kind '${node.kind}'` };
+        } else {
+          const ctx: StepExecutionContext = {
+            runId,
+            workflowId: def.id,
+            node,
+            shared,
+            dispatchTool: deps.dispatchTool,
+            dispatchChildAgent: deps.dispatchChildAgent,
+            waitForApproval: (id, prompt) =>
+              withApprovalTimeout(deps.waitForApproval(id, prompt), signal),
+            readMemories: deps.readMemories,
+            writeMemory: deps.writeMemory,
+            signal,
+          };
+          result = await exec(ctx);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        result = { status: "failed", error: message };
+      }
+      const durationMs = Date.now() - start;
+      if (result.status === "succeeded") {
+        shared.outputs[node.id] = result.output ?? null;
+        updateWorkflowStepRun(stepRun.id, {
+          status: "succeeded",
+          outputJson: safeJsonStringify(result.output),
+          finishedAt: Date.now(),
+          durationMs,
+          metadataJson: safeJsonStringify(result.metadata ?? {}),
+        });
+        finalizeNode(
+          node.id,
+          "succeeded",
+          result.output,
+          undefined,
+          statuses,
+          results,
+          runId,
+          shared,
+        );
+        await safeEmit(deps, {
+          type: "node_completed",
+          runId,
+          nodeId: node.id,
+          status: "succeeded",
+          durationMs,
+          output: result.output,
+          agentPath: agentPathOf(node),
+        });
+        return;
+      }
+      // 失败/取消
+      lastError = result.error ?? "unknown error";
       updateWorkflowStepRun(stepRun.id, {
-        status: "succeeded",
-        outputJson: safeJsonStringify(result.output),
+        status: result.status,
+        error: lastError,
         finishedAt: Date.now(),
         durationMs,
         metadataJson: safeJsonStringify(result.metadata ?? {}),
       });
-      finalizeNode(
-        node.id,
-        "succeeded",
-        result.output,
-        undefined,
+      if (result.status === "cancelled" || signal.aborted) {
+        finalizeNode(node.id, "cancelled", undefined, lastError, statuses, results, runId, shared);
+        return;
+      }
+      // 是否继续重试
+      if (attempt < maxAttempts) {
+        const backoff = policy.backoffMs * Math.pow(policy.backoffMultiplier, attempt - 1);
+        await sleepWithAbort(backoff, signal);
+        continue;
+      }
+      // 重试耗尽，按 onError 处置
+      await applyErrorPolicy(
+        def,
+        node,
+        lastError,
         statuses,
         results,
-        runId,
         shared,
-      );
-      await safeEmit(deps, {
-        type: "node_completed",
+        signal,
+        deps,
         runId,
-        nodeId: node.id,
-        status: "succeeded",
-        durationMs,
-        output: result.output,
-      });
-      return;
+        sem,
+      );
     }
-    // 失败/取消
-    lastError = result.error ?? "unknown error";
-    updateWorkflowStepRun(stepRun.id, {
-      status: result.status,
-      error: lastError,
-      finishedAt: Date.now(),
-      durationMs,
-      metadataJson: safeJsonStringify(result.metadata ?? {}),
-    });
-    if (result.status === "cancelled" || signal.aborted) {
-      finalizeNode(node.id, "cancelled", undefined, lastError, statuses, results, runId, shared);
-      return;
-    }
-    // 是否继续重试
-    if (attempt < maxAttempts) {
-      const backoff = policy.backoffMs * Math.pow(policy.backoffMultiplier, attempt - 1);
-      await sleepWithAbort(backoff, signal);
-      continue;
-    }
-    // 重试耗尽，按 onError 处置
-    await applyErrorPolicy(def, node, lastError, statuses, results, shared, signal, deps, runId);
+  } finally {
+    sem.release();
   }
 }
 
@@ -431,6 +488,7 @@ async function applyErrorPolicy(
   signal: AbortSignal,
   deps: EngineDependencies,
   runId: string,
+  sem: ReturnType<typeof createSubagentSemaphore>,
 ): Promise<void> {
   const policy = node.onError ?? "fail";
   if (policy === "continue") {
@@ -442,7 +500,7 @@ async function applyErrorPolicy(
     // 派发到 fallback 节点（一次性，递归调用 runNode）
     recordWorkflowTransition(runId, node.id, node.fallbackNodeId, "fallback");
     statuses.set(node.fallbackNodeId, "running");
-    await runNode(def, node.fallbackNodeId, statuses, results, shared, signal, deps, runId);
+    await runNode(def, node.fallbackNodeId, statuses, results, shared, signal, deps, runId, sem);
     return;
   }
   if (policy === "compensate") {
@@ -499,6 +557,7 @@ async function runParallelNode(
   signal: AbortSignal,
   deps: EngineDependencies,
   runId: string,
+  sem: ReturnType<typeof createSubagentSemaphore>,
 ): Promise<void> {
   const children = resolveParallelChildren(def, node.id);
   if (children.length === 0) {
@@ -518,9 +577,10 @@ async function runParallelNode(
   for (const childId of children) {
     if (statuses.get(childId) === "pending") statuses.set(childId, "running");
   }
-  // 并发启动所有子节点
+  // 并发启动所有子节点；每个子节点自身会 acquire 自己的 slot，
+  // 因此整体 in-flight 数仍受 `max_concurrent_subagents` 约束
   const tasks = children.map((childId) =>
-    runNode(def, childId, statuses, results, shared, signal, deps, runId),
+    runNode(def, childId, statuses, results, shared, signal, deps, runId, sem),
   );
   await Promise.all(tasks);
   // parallel 节点自身只在所有子节点完成后置 succeeded；
@@ -562,6 +622,7 @@ async function runBranchNode(
   signal: AbortSignal,
   deps: EngineDependencies,
   runId: string,
+  sem: ReturnType<typeof createSubagentSemaphore>,
 ): Promise<void> {
   let chosenId: string | null = null;
   if (node.config.branches && node.config.branches.length > 0) {
@@ -602,7 +663,7 @@ async function runBranchNode(
     return;
   }
   statuses.set(chosenId, "running");
-  await runNode(def, chosenId, statuses, results, shared, signal, deps, runId);
+  await runNode(def, chosenId, statuses, results, shared, signal, deps, runId, sem);
   finalizeNode(
     node.id,
     "succeeded",
@@ -815,6 +876,52 @@ async function safeEmit(deps: EngineDependencies, event: EngineEvent): Promise<v
       console.warn("[workflow-engine] onNodeEvent threw:", error);
     }
   }
+}
+
+/** 取节点的 agent 路径；缺省回退到 root。 */
+function agentPathOf(node: WorkflowNode): string {
+  return node.config.agentPath ?? "/root";
+}
+
+/**
+ * 计数式 semaphore：用于限制 in-flight 节点数，对齐
+ * OpenAI Responses Multi-agent 的 `max_concurrent_subagents`。
+ *
+ * - `acquire()` 立即返回当 inFlight < max，否则挂起到 `waiters` 队列
+ * - `release()` 唤醒队首等待者，并把 inFlight 转交给它（避免空档）
+ * - 必须 `try { await acquire() } finally { release() }` 调用以防泄漏
+ */
+function createSubagentSemaphore(max: number): {
+  readonly max: number;
+  acquire(): Promise<void>;
+  release(): void;
+  inFlight(): number;
+} {
+  const cap = Math.max(1, max | 0);
+  let inFlight = 0;
+  const waiters: Array<() => void> = [];
+  return {
+    max: cap,
+    acquire(): Promise<void> {
+      if (inFlight < cap) {
+        inFlight++;
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => waiters.push(resolve));
+    },
+    release(): void {
+      inFlight = Math.max(0, inFlight - 1);
+      const next = waiters.shift();
+      if (next) {
+        // 把当前 slot 直接转交给等待者，避免 release→acquire 之间的空档
+        inFlight++;
+        next();
+      }
+    },
+    inFlight(): number {
+      return inFlight;
+    },
+  };
 }
 
 // 重新导出拓扑序 / 初始 ready 给上层（如：UI 渲染管线预览）
