@@ -38,7 +38,7 @@ interface CreateAppOptions {
   resolveModel?: (modelRef: string) => ResolvedChatModel;
   resolveMediaModel?: typeof import("../lib/providers").resolveMediaModel;
   writeMediaAsset?: typeof import("../lib/media-assets").writeMediaAsset;
-  buildAgentSystemPrompt?: (agentId?: string | null, conversationId?: string) => string;
+  buildAgentSystemPrompt?: (agentId?: string | null, conversationId?: string) => Promise<string>;
   runAgentChat?: typeof import("../lib/agent-runtime").runAgentChat;
 }
 
@@ -308,8 +308,8 @@ export function createApp(options: CreateAppOptions = {}): Hono {
         preferredAgentId: body.agentId,
         reasoning: reasoning.value,
         toolSelection: body.toolSelection,
-        buildAgentSystemPrompt: (agentId, conversationId) =>
-          body.system ?? buildAgentSystemPrompt(agentId, conversationId),
+        buildAgentSystemPrompt: async (agentId, conversationId) =>
+          body.system ?? (await buildAgentSystemPrompt(agentId, conversationId)),
         resolveModel,
       });
     } catch (err) {

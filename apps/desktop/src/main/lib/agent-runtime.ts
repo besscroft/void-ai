@@ -73,7 +73,7 @@ export interface RunAgentChatOptions {
   preferredAgentId?: string | null;
   reasoning?: StreamTextOptions["reasoning"];
   toolSelection?: ChatToolSelectionRequest;
-  buildAgentSystemPrompt: (agentId?: string | null, conversationId?: string) => string;
+  buildAgentSystemPrompt: (agentId?: string | null, conversationId?: string) => Promise<string>;
   resolveModel?: (modelRef: string) => ResolvedChatModel;
 }
 
@@ -89,7 +89,7 @@ interface RuntimeContext {
   preferredAgentId?: string | null;
   reasoning?: StreamTextOptions["reasoning"];
   toolSelection?: ChatToolSelectionRequest;
-  buildAgentSystemPrompt: (agentId?: string | null, conversationId?: string) => string;
+  buildAgentSystemPrompt: (agentId?: string | null, conversationId?: string) => Promise<string>;
   resolveModel: (modelRef: string) => ResolvedChatModel;
   finalAgentId: string;
   sandbox?: SandboxContext;
@@ -230,7 +230,7 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
       id: DEFAULT_AGENT_ID,
       modelRef: rootModelRef,
       resolved,
-      instructions: createRootInstructions(context, toolRuntime.instructions),
+      instructions: await createRootInstructions(context, toolRuntime.instructions),
       messages: options.messages,
       runtimeConfig: rootRuntimeConfig,
       reasoning: context.reasoning,
@@ -533,7 +533,7 @@ async function runChildAgent(
       id: child.id,
       modelRef: childModelRef,
       resolved: childResolved,
-      instructions: createChildInstructions(context, child, mode),
+      instructions: await createChildInstructions(context, child, mode),
       messages: [],
       runtimeConfig: childConfig,
       reasoning: normalizeRuntimeReasoning(childConfig.reasoning),
@@ -1076,7 +1076,10 @@ function createExecutionTracker({
   };
 }
 
-function createRootInstructions(context: RuntimeContext, toolInstructions?: string): string {
+async function createRootInstructions(
+  context: RuntimeContext,
+  toolInstructions?: string,
+): Promise<string> {
   const childLines = context.enabledChildren.map((agent) => {
     const handoff = readHandoffConfig(agent.handoff_config_json);
     return [
@@ -1089,8 +1092,12 @@ function createRootInstructions(context: RuntimeContext, toolInstructions?: stri
       .filter(Boolean)
       .join(" ");
   });
+  const basePrompt = await context.buildAgentSystemPrompt(
+    DEFAULT_AGENT_ID,
+    context.conversationId,
+  );
   return [
-    context.buildAgentSystemPrompt(DEFAULT_AGENT_ID, context.conversationId),
+    basePrompt,
     "You are Void, the root orchestrator. Every chat request enters through you, regardless of provider.",
     "Decide whether to answer directly, consult a child agent, or hand off ownership to a child agent.",
     "When a child agent is disabled, draft, archived, or locked, it is not available and must not be used.",
@@ -1109,14 +1116,15 @@ function createRootInstructions(context: RuntimeContext, toolInstructions?: stri
     .join("\n\n");
 }
 
-function createChildInstructions(
+async function createChildInstructions(
   context: RuntimeContext,
   child: AgentProfile,
   mode: "consult" | "handoff",
-): string {
+): Promise<string> {
   const handoff = readHandoffConfig(child.handoff_config_json);
+  const basePrompt = await context.buildAgentSystemPrompt(child.id, context.conversationId);
   return [
-    context.buildAgentSystemPrompt(child.id, context.conversationId),
+    basePrompt,
     "You are a child agent under Void. Stay inside your specialty and be concise.",
     mode === "handoff"
       ? "Ownership has been transferred to you for this task."

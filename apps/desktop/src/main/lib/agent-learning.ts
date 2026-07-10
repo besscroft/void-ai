@@ -1,6 +1,7 @@
-﻿import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { DEFAULT_AGENT_ID, type MemoryRecord } from "../../shared/types";
 import { insertRuntimeEvent, listMessages, saveMemory, updateVoidLearningState } from "./db";
+import { addMemoriesFromConversation } from "./mem0-service";
 
 const DEBOUNCE_MS = 1_200;
 const MAX_INPUT_CHARS = 8_000;
@@ -34,25 +35,53 @@ async function runLearning(conversationId: string): Promise<void> {
 
   try {
     const messages = listMessages(conversationId);
-    const candidates = extractMemoryCandidates(messages)
-      .slice(0, MAX_MEMORIES_PER_RUN)
-      .map((content) => buildMemory(content));
 
-    for (const memory of candidates) saveMemory(memory);
+    // 准备 Mem0 格式的消息（取最近 12 条，提取文本内容）
+    const mem0Messages = messages
+      .slice(-12)
+      .map((m) => ({
+        role: m.role,
+        content: extractMessageText(m.content),
+      }))
+      .filter((m) => m.content.length > 0);
 
-    updateVoidLearningState({
-      status: "idle",
-      lastLearningAt: Date.now(),
-      soulPromptAppend: candidates.map((memory) => memory.content).join(" "),
-    });
+    // 尝试 Mem0 LLM 抽取（向量嵌入 + 存入内存索引 + 双写 SQLite）
+    let count = 0;
+    if (mem0Messages.length > 0) {
+      count = await addMemoriesFromConversation(mem0Messages, DEFAULT_AGENT_ID, conversationId);
+    }
+
+    // 降级：Mem0 不可用时回退到正则抽取
+    if (count === 0) {
+      const candidates = extractMemoryCandidates(messages)
+        .slice(0, MAX_MEMORIES_PER_RUN)
+        .map((content) => buildMemory(content));
+      for (const memory of candidates) saveMemory(memory);
+      count = candidates.length;
+
+      // 正则降级路径仍需 append 到 soul_prompt（Mem0 路径通过语义搜索注入，无需 append）
+      updateVoidLearningState({
+        status: "idle",
+        lastLearningAt: Date.now(),
+        soulPromptAppend: candidates.map((memory) => memory.content).join(" "),
+      });
+    } else {
+      // Mem0 路径：记忆已写入 SQLite + 向量索引，buildAgentSystemPrompt 会语义检索
+      updateVoidLearningState({
+        status: "idle",
+        lastLearningAt: Date.now(),
+      });
+    }
+
     insertRuntimeEvent({
       kind: "learning",
       title: "Void learning completed",
       status: "succeeded",
       detail: {
         conversationId,
-        count: candidates.length,
+        count,
         durationMs: Date.now() - started,
+        source: count > 0 && mem0Messages.length > 0 ? "mem0" : "regex",
       },
     });
   } catch (error) {

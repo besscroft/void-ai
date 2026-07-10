@@ -20,7 +20,6 @@ import type { NativeChatTool } from "./providers";
 import {
   getRuntimeSnapshot,
   insertRuntimeEvent,
-  listMemories,
   listMessages,
   saveMemory,
   upsertAgentRuntimeState,
@@ -470,7 +469,7 @@ export async function executeChatHostTool({
           const value = input as MemorySearchInput;
           const query = normalizeQuery(value.query);
           const limit = normalizeLimit(value.limit, 6, 12);
-          const results = searchMemories(query, limit);
+          const results = await searchMemories(query, limit, agentId, conversationId);
           return { query, count: results.length, results };
         }
         case "runtime_snapshot": {
@@ -498,7 +497,7 @@ export async function executeChatHostTool({
           return searchConversation(conversationId, query, limit);
         }
         case "memory_save":
-          return saveChatMemory(input as MemorySaveInput, conversationId, agentId);
+          return await saveChatMemory(input as MemorySaveInput, conversationId, agentId);
         case "sandbox_list_files":
         case "sandbox_read_file":
         case "sandbox_write_file":
@@ -594,7 +593,7 @@ function createHostTools({
         executeWithAudit("memory_search", "Memory search", model, conversationId, async () => {
           const query = normalizeQuery(input.query);
           const limit = normalizeLimit(input.limit, 6, 12);
-          const results = searchMemories(query, limit);
+          const results = await searchMemories(query, limit, agentId, conversationId);
           return { query, count: results.length, results };
         }),
     }),
@@ -684,7 +683,7 @@ function createHostTools({
       }),
       execute: (input) =>
         executeWithAudit("memory_save", "Save memory", model, conversationId, async () =>
-          saveChatMemory(input, conversationId, agentId),
+          await saveChatMemory(input, conversationId, agentId),
         ),
     }),
   };
@@ -862,10 +861,12 @@ function recordAgentRuntimeState(patch: Parameters<typeof upsertAgentRuntimeStat
   }
 }
 
-function searchMemories(
+async function searchMemories(
   query: string,
   limit: number,
-): Array<{
+  agentId?: string | null,
+  conversationId?: string,
+): Promise<Array<{
   id: string;
   scope: MemoryScope;
   kind: MemoryKind;
@@ -873,25 +874,19 @@ function searchMemories(
   content: string;
   salience: number;
   pinned: boolean;
-}> {
-  const terms = splitTerms(query);
-  return listMemories()
-    .map((memory) => ({
-      memory,
-      score: scoreText([memory.title, memory.content, memory.kind, memory.scope].join(" "), terms),
-    }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || b.memory.salience - a.memory.salience)
-    .slice(0, limit)
-    .map(({ memory }) => ({
-      id: memory.id,
-      scope: memory.scope,
-      kind: memory.kind,
-      title: memory.title,
-      content: truncate(memory.content, 600),
-      salience: memory.salience,
-      pinned: memory.pinned === 1,
-    }));
+}>> {
+  // Mem0 语义搜索（无 API Key 时内部降级到全量过滤）
+  const { searchMemoriesSemantic } = await import("./mem0-service");
+  const results = await searchMemoriesSemantic(query, agentId, conversationId, limit);
+  return results.map((memory) => ({
+    id: memory.id,
+    scope: memory.scope,
+    kind: memory.kind,
+    title: memory.title,
+    content: truncate(memory.content, 600),
+    salience: memory.salience,
+    pinned: memory.pinned === 1,
+  }));
 }
 
 function summarizeRuntimeSnapshot(limit: number): unknown {
@@ -962,11 +957,11 @@ function searchConversation(
   return { query, count: results.length, results };
 }
 
-function saveChatMemory(
+async function saveChatMemory(
   input: MemorySaveInput,
   conversationId: string | undefined,
   agentId: string | null | undefined,
-): unknown {
+): Promise<unknown> {
   const now = Date.now();
   const scope = input.scope ?? "conversation";
   const kind = input.kind ?? "fact";
@@ -985,6 +980,17 @@ function saveChatMemory(
   };
   if (!memory.title || !memory.content) throw new Error("title and content are required.");
   saveMemory(memory);
+
+  // 双写 Mem0（fire-and-forget，不阻塞返回；Mem0 不可用时静默降级）
+  const { addMemoriesFromConversation } = await import("./mem0-service");
+  addMemoriesFromConversation(
+    [{ role: "user", content: `${input.title}: ${input.content}` }],
+    agentId,
+    conversationId,
+  ).catch((error) => {
+    console.warn("[chat-tools] saveChatMemory mem0 dual-write failed:", error);
+  });
+
   return {
     id: memory.id,
     scope: memory.scope,

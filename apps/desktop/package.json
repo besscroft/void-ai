@@ -48,6 +48,7 @@
     "hono": "^4.6.12",
     "lucide-react": "catalog:",
     "motion": "catalog:",
+    "mem0ai": "catalog:",
     "shadcn": "catalog:",
     "sonner": "catalog:",
     "tailwind-merge": "catalog:",

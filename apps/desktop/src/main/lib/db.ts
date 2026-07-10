@@ -1624,17 +1624,32 @@ export function updateVoidLearningState(input: {
   }
 }
 
-export function buildAgentSystemPrompt(agentId?: string | null, conversationId?: string): string {
+export async function buildAgentSystemPrompt(
+  agentId?: string | null,
+  conversationId?: string,
+): Promise<string> {
   const agent = getAgent(agentId || DEFAULT_AGENT_ID) ?? getAgent(DEFAULT_AGENT_ID);
   if (!agent) return "You are Void, a local AI assistant.";
-  const memoriesForPrompt = listMemories()
-    .filter(
-      (memory) =>
-        memory.scope === "global" ||
-        memory.agent_id === agent.id ||
-        (conversationId && memory.conversation_id === conversationId),
-    )
-    .slice(0, 8)
+
+  // 从最近用户消息提取查询词，用于 Mem0 语义搜索
+  const recentMessages = conversationId ? listMessages(conversationId) : [];
+  const lastUserMsg = [...recentMessages].reverse().find((m) => m.role === "user");
+  const query = lastUserMsg
+    ? extractMessageTextFromContent(lastUserMsg.content).slice(0, 200)
+    : "";
+
+  // 语义搜索记忆（降级到全量过滤）
+  const { searchMemoriesSemantic } = await import("./mem0-service");
+  const memories = query
+    ? await searchMemoriesSemantic(query, agent.id, conversationId, 8)
+    : listMemories()
+        .filter(
+          (memory) =>
+            memory.scope === "global" || memory.agent_id === agent.id,
+        )
+        .slice(0, 8);
+
+  const memoriesForPrompt = memories
     .map((memory) => `- ${memory.title}: ${memory.content}`)
     .join("\n");
   return [
@@ -1646,6 +1661,20 @@ export function buildAgentSystemPrompt(agentId?: string | null, conversationId?:
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+/** 从消息 content JSON 中提取纯文本（内联以避免与 agent-learning.ts 的循环依赖） */
+function extractMessageTextFromContent(content: string): string {
+  try {
+    const parsed = JSON.parse(content) as { parts?: Array<{ type?: string; text?: string }> };
+    if (!Array.isArray(parsed.parts)) return content;
+    return parsed.parts
+      .filter((part) => part.type === "text" && typeof part.text === "string")
+      .map((part) => part.text)
+      .join("\n");
+  } catch {
+    return content;
+  }
 }
 
 export function listSandboxSessions(limit = 50): SandboxSession[] {

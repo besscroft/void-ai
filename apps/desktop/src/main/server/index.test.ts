@@ -119,7 +119,7 @@ void describe("local chat server", () => {
         assert.equal(modelRef, "mock/chat");
         return { model, temperature: 0.7, topP: 1, maxOutputTokens: 256, providerOptions };
       },
-      buildAgentSystemPrompt: () => "You are a test assistant.",
+      buildAgentSystemPrompt: async () => "You are a test assistant.",
       runAgentChat: async (options) => {
         captured.value = options;
         return agentRuntimeResponse("runtime-stream");
@@ -149,7 +149,7 @@ void describe("local chat server", () => {
     assert.equal(captured.value?.reasoning, "high");
     assert.deepEqual(captured.value?.resolved.providerOptions, providerOptions);
     assert.equal(
-      captured.value?.buildAgentSystemPrompt("agent-void", "c-stream"),
+      await captured.value?.buildAgentSystemPrompt("agent-void", "c-stream"),
       "You are a test assistant.",
     );
   });
@@ -180,7 +180,7 @@ void describe("local chat server", () => {
             maxOutputTokens: 256,
           };
         },
-        buildAgentSystemPrompt: () => "Void root prompt",
+        buildAgentSystemPrompt: async () => "Void root prompt",
         runAgentChat: async (options) => {
           called = true;
           assert.equal(options.modelRef, modelRef);
@@ -190,7 +190,7 @@ void describe("local chat server", () => {
           assert.deepEqual(options.toolSelection, toolSelection);
           assert.equal(options.resolved.providerKind, providerKind);
           assert.equal(
-            options.buildAgentSystemPrompt("agent-void", "c-neutral"),
+            await options.buildAgentSystemPrompt("agent-void", "c-neutral"),
             "Void root prompt",
           );
           return agentRuntimeResponse("agents-stream");
@@ -237,10 +237,13 @@ void describe("local chat server", () => {
     const app = createApp({
       sessionToken: token,
       resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
-      buildAgentSystemPrompt: () => "Base instructions.",
+      buildAgentSystemPrompt: async () => "Base instructions.",
       runAgentChat: async (options) => {
         assert.deepEqual(options.messages, messages);
-        assert.equal(options.buildAgentSystemPrompt("agent-void", undefined), "Base instructions.");
+        assert.equal(
+          await options.buildAgentSystemPrompt("agent-void", undefined),
+          "Base instructions.",
+        );
         return agentRuntimeResponse("reaction-stream");
       },
     });
@@ -281,7 +284,7 @@ void describe("local chat server", () => {
           topP: 1,
           maxOutputTokens: 256,
         }),
-        buildAgentSystemPrompt: () => "You are a test assistant.",
+        buildAgentSystemPrompt: async () => "You are a test assistant.",
         runAgentChat: async (options) => {
           captured.value = options;
           return agentRuntimeResponse("reasoning-stream");
@@ -571,7 +574,7 @@ void describe("local chat server /api/title", () => {
         assert.equal(modelRef, "mock/chat");
         return { model, temperature: 0.4, topP: 1, maxOutputTokens: 64, providerOptions };
       },
-      buildAgentSystemPrompt: () => "",
+      buildAgentSystemPrompt: async () => "",
     });
 
     const response = await app.request("/api/title", {
