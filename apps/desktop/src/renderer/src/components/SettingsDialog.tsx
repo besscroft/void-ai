@@ -20,7 +20,6 @@ import { useSettings, type SettingsResetScope } from "../lib/settings";
 import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
 import { cn } from "../lib/utils";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ToolsPanel } from "./ToolsPanel";
 import {
   IconClose,
   IconKey,
@@ -34,7 +33,6 @@ import {
   IconZap,
   IconTrash,
   IconPlus,
-  IconWrench,
 } from "./icons";
 import {
   type AgentProfile,
@@ -70,7 +68,7 @@ interface SettingsDialogProps {
 }
 
 /** Tab 瀹氫箟 */
-type TabId = "appearance" | "model" | "tools" | "diagnostics" | "trash";
+type TabId = "appearance" | "model" | "diagnostics" | "trash";
 
 /**
  * 璁剧疆寮圭獥锛堝垎 Tab 缁撴瀯锛?
@@ -133,7 +131,6 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
   const tabs: { id: TabId; label: string; Icon: typeof IconPalette }[] = [
     { id: "appearance", label: t("settings.tab.appearance"), Icon: IconPalette },
     { id: "model", label: t("settings.tab.model"), Icon: IconCpu },
-    { id: "tools", label: t("settings.tab.tools"), Icon: IconWrench },
     { id: "diagnostics", label: t("settings.tab.diagnostics"), Icon: IconSliders },
     { id: "trash", label: t("settings.tab.trash"), Icon: IconTrash },
   ];
@@ -203,7 +200,6 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
               />
             )}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
-            {tab === "tools" && <ToolsPanel />}
             {tab === "diagnostics" && <DiagnosticsTab />}
             {tab === "trash" && <TrashTab />}
           </div>
