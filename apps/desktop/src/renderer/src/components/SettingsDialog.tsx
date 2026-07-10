@@ -7,7 +7,11 @@ import {
   Label,
   Modal,
   SearchField,
+  Slider,
   Switch,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   TextArea,
   TextField,
   Tooltip,
@@ -37,7 +41,6 @@ import {
 import {
   type AgentProfile,
   FONT_PRESETS,
-  FONT_SIZE_PX,
   MONO_FONT_PRESETS,
   STYLE_PRESETS,
   THEME_PRESETS,
@@ -164,30 +167,25 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
         </div>
 
         {/* 涓讳綋锛氬鑸?+ 鍐呭锛岀獎灞忕旱鍚戝竷灞€ */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as TabId)}
+          orientation="vertical"
+          className="min-h-0 flex-1 overflow-hidden"
+        >
           {/* 瀵艰埅 */}
-          <nav className="flex shrink-0 gap-1 border-b border-foreground/10 p-2 md:w-48 md:flex-col md:border-b-0 md:border-r">
-            {tabs.map(({ id, label, Icon }) => {
-              const active = tab === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  className={[
-                    "flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-sm transition md:flex-none",
-                    active
-                      ? "bg-accent/10 text-accent"
-                      : "text-foreground/70 hover:bg-foreground/5",
-                  ].join(" ")}
-                  onClick={() => setTab(id)}
-                  aria-pressed={active}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  <span className="truncate">{label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          <TabsList className="h-fit w-full shrink-0 justify-start gap-1 rounded-none border-r border-foreground/10 bg-transparent p-2 md:w-48">
+            {tabs.map(({ id, label, Icon }) => (
+              <TabsTrigger
+                key={id}
+                value={id}
+                className="justify-start gap-2 rounded-md px-3 py-2 text-sm font-normal transition hover:text-foreground data-active:bg-accent/10 data-active:text-accent"
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="truncate">{label}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
           {/* 鍐呭 */}
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 flex flex-col">
@@ -203,7 +201,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
             {tab === "diagnostics" && <DiagnosticsTab />}
             {tab === "trash" && <TrashTab />}
           </div>
-        </div>
+        </Tabs>
 
         {/* 搴曢儴 */}
         <div className="flex items-center justify-between border-t border-foreground/10 px-6 py-2.5">
@@ -555,73 +553,69 @@ function AppearanceTab({
       </div>
 
       {/* 鈥斺€?瀛椾綋 鈥斺€?*/}
-      <SettingSection title={t("appearance.fonts")} desc={t("appearance.fonts.desc")}>
-        <FontFieldRow
+      {/* 字体与排版（合并卡片）：一行四列，字号 tabs 横向 */}
+      <SettingSection
+        title={t("appearance.fonts")}
+        desc={t("appearance.fonts.desc")}
+        bodyClassName="grid grid-cols-4 gap-3"
+      >
+        {/* UI 字体：下拉框选择 */}
+        <FontSelectRow
           label={t("appearance.font.ui")}
-          placeholder={t("appearance.font.ui.hint")}
           value={settings.fontFamily}
           presets={FONT_PRESETS}
           onChange={(v) => void update({ fontFamily: v })}
         />
-        <FontFieldRow
+        {/* 等宽字体：下拉框选择 */}
+        <FontSelectRow
           label={t("appearance.font.mono")}
-          placeholder={t("appearance.font.mono.hint")}
           value={settings.monoFontFamily}
           presets={MONO_FONT_PRESETS}
           onChange={(v) => void update({ monoFontFamily: v })}
         />
+        {/* 字号：Slider 选择（5 档） */}
+        <div className="flex h-full flex-col gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{t("appearance.fontSize")}</p>
+            <p className="mt-0.5 text-xs text-foreground/50">{t("appearance.fontSize.desc")}</p>
+          </div>
+          <Slider
+            value={FONT_SIZE_LEVELS.indexOf(settings.fontSize)}
+            min={0}
+            max={FONT_SIZE_LEVELS.length - 1}
+            step={1}
+            onValueChange={(v) => {
+              const idx = Array.isArray(v) ? v[0] : v;
+              if (FONT_SIZE_LEVELS[idx]) {
+                void update({ fontSize: FONT_SIZE_LEVELS[idx] });
+              }
+            }}
+          />
+        </div>
+        {/* 代码字号：Slider 选择（5 档） */}
+        <div className="flex h-full flex-col gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{t("appearance.codeFontSize")}</p>
+            <p className="mt-0.5 text-xs text-foreground/50">{t("appearance.codeFontSize.desc")}</p>
+          </div>
+          <Slider
+            value={CODE_FONT_SIZE_PRESETS.indexOf(
+              settings.codeFontSizePx as (typeof CODE_FONT_SIZE_PRESETS)[number],
+            )}
+            min={0}
+            max={CODE_FONT_SIZE_PRESETS.length - 1}
+            step={1}
+            onValueChange={(v) => {
+              const idx = Array.isArray(v) ? v[0] : v;
+              if (CODE_FONT_SIZE_PRESETS[idx] !== undefined) {
+                void update({ codeFontSizePx: CODE_FONT_SIZE_PRESETS[idx] });
+              }
+            }}
+          />
+        </div>
       </SettingSection>
 
       {/* 鈥斺€?鎺掔増 鈥斺€?*/}
-      <SettingSection title={t("appearance.typography")}>
-        <SettingItem
-          title={t("appearance.fontSize")}
-          desc={t("appearance.fontSize.desc")}
-          control={
-            <ToggleButtonGroup
-              selectionMode="single"
-              disallowEmptySelection
-              size="sm"
-              selectedKeys={[settings.fontSize]}
-              onSelectionChange={(keys) => {
-                const v = Array.from(keys)[0];
-                if (v === "xs" || v === "sm" || v === "base" || v === "lg" || v === "xl") {
-                  void update({ fontSize: v });
-                }
-              }}
-            >
-              {(["xs", "sm", "base", "lg", "xl"] as FontSizeLevel[]).map((lv, idx) => (
-                <ToggleButton key={lv} id={lv}>
-                  {idx > 0 && <ToggleButtonGroup.Separator />}
-                  <span style={{ fontSize: String(FONT_SIZE_PX[lv]) + "px" }}>A</span>
-                </ToggleButton>
-              ))}
-            </ToggleButtonGroup>
-          }
-        />
-        <SettingItem
-          title={t("appearance.codeFontSize")}
-          desc={t("appearance.codeFontSize.desc")}
-          control={
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={10}
-                max={24}
-                step={1}
-                value={settings.codeFontSizePx}
-                onChange={(e) => {
-                  const v = Math.min(24, Math.max(10, Number(e.target.value) || 13));
-                  void update({ codeFontSizePx: v });
-                }}
-                className="w-20 rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 text-right text-sm font-mono tabular-nums outline-none focus:border-accent/50"
-                aria-label={t("appearance.codeFontSize")}
-              />
-              <span className="text-xs text-foreground/50">{t("format.unit.px")}</span>
-            </div>
-          }
-        />
-      </SettingSection>
 
       {/* 鈥斺€?浜や簰 鈥斺€?*/}
       <SettingSection title={t("appearance.interaction")}>
@@ -653,56 +647,41 @@ function AppearanceTab({
           title={t("appearance.motion")}
           desc={t("appearance.motion.desc")}
           control={
-            <ToggleButtonGroup
-              selectionMode="single"
-              disallowEmptySelection
-              size="sm"
-              selectedKeys={[settings.reduceMotion]}
-              onSelectionChange={(keys) => {
-                const v = Array.from(keys)[0];
-                if (v === "system" || v === "on" || v === "off") {
-                  void update({ reduceMotion: v as ReduceMotion });
+            <Tabs
+              value={settings.reduceMotion}
+              onValueChange={(key) => {
+                if (key === "system" || key === "on" || key === "off") {
+                  void update({ reduceMotion: key as ReduceMotion });
                 }
               }}
             >
-              <ToggleButton id="system">{t("appearance.motion.system")}</ToggleButton>
-              <ToggleButton id="on">
-                <ToggleButtonGroup.Separator />
-                {t("appearance.motion.on")}
-              </ToggleButton>
-              <ToggleButton id="off">
-                <ToggleButtonGroup.Separator />
-                {t("appearance.motion.off")}
-              </ToggleButton>
-            </ToggleButtonGroup>
+              <TabsList aria-label={t("appearance.motion")}>
+                <TabsTrigger value="system">{t("appearance.motion.system")}</TabsTrigger>
+                <TabsTrigger value="on">{t("appearance.motion.on")}</TabsTrigger>
+                <TabsTrigger value="off">{t("appearance.motion.off")}</TabsTrigger>
+              </TabsList>
+            </Tabs>
           }
         />
         <SettingItem
           title={t("appearance.density")}
           desc={t("appearance.density.desc")}
           control={
-            <ToggleButtonGroup
-              selectionMode="single"
-              disallowEmptySelection
-              size="sm"
-              selectedKeys={[settings.density]}
-              onSelectionChange={(keys) => {
-                const v = Array.from(keys)[0];
-                if (v === "compact" || v === "comfortable" || v === "loose") {
-                  void update({ density: v as LayoutDensity });
+            <Tabs
+              orientation="horizontal"
+              value={settings.density}
+              onValueChange={(key) => {
+                if (key === "compact" || key === "comfortable" || key === "loose") {
+                  void update({ density: key as LayoutDensity });
                 }
               }}
             >
-              <ToggleButton id="compact">{t("appearance.density.compact")}</ToggleButton>
-              <ToggleButton id="comfortable">
-                <ToggleButtonGroup.Separator />
-                {t("appearance.density.comfortable")}
-              </ToggleButton>
-              <ToggleButton id="loose">
-                <ToggleButtonGroup.Separator />
-                {t("appearance.density.loose")}
-              </ToggleButton>
-            </ToggleButtonGroup>
+              <TabsList aria-label={t("appearance.density")}>
+                <TabsTrigger value="compact">{t("appearance.density.compact")}</TabsTrigger>
+                <TabsTrigger value="comfortable">{t("appearance.density.comfortable")}</TabsTrigger>
+                <TabsTrigger value="loose">{t("appearance.density.loose")}</TabsTrigger>
+              </TabsList>
+            </Tabs>
           }
         />
       </SettingSection>
@@ -713,49 +692,43 @@ function AppearanceTab({
           title={t("appearance.diff")}
           desc={t("appearance.diff.desc")}
           control={
-            <ToggleButtonGroup
-              selectionMode="single"
-              disallowEmptySelection
-              size="sm"
-              selectedKeys={[settings.diffMark]}
-              onSelectionChange={(keys) => {
-                const v = Array.from(keys)[0];
-                if (v === "color" || v === "symbol") {
-                  void update({ diffMark: v as DiffMark });
+            <Tabs
+              orientation="horizontal"
+              value={settings.diffMark}
+              onValueChange={(key) => {
+                if (key === "color" || key === "symbol") {
+                  void update({ diffMark: key as DiffMark });
                 }
               }}
             >
-              <ToggleButton id="color">{t("appearance.diff.color")}</ToggleButton>
-              <ToggleButton id="symbol">
-                <ToggleButtonGroup.Separator />
-                {t("appearance.diff.symbol")}
-              </ToggleButton>
-            </ToggleButtonGroup>
+              <TabsList aria-label={t("appearance.diff")}>
+                <TabsTrigger value="color">{t("appearance.diff.color")}</TabsTrigger>
+                <TabsTrigger value="symbol">{t("appearance.diff.symbol")}</TabsTrigger>
+              </TabsList>
+            </Tabs>
           }
         />
         <SettingItem
           title={t("appearance.language")}
           desc={t("appearance.language.desc")}
           control={
-            <ToggleButtonGroup
-              selectionMode="single"
-              disallowEmptySelection
-              size="sm"
-              selectedKeys={[settings.language]}
-              onSelectionChange={(keys) => {
-                const v = Array.from(keys)[0];
-                if (v === "system" || v === "zh-CN" || v === "en") {
-                  void update({ language: v as LanguageMode });
+            <Tabs
+              orientation="horizontal"
+              value={settings.language}
+              onValueChange={(key) => {
+                if (key === "system" || key === "zh-CN" || key === "en") {
+                  void update({ language: key as LanguageMode });
                 }
               }}
             >
-              {LANGUAGE_OPTIONS.map((opt, idx) => (
-                <ToggleButton key={opt.value} id={opt.value}>
-                  {idx > 0 && <ToggleButtonGroup.Separator />}
-                  {t(opt.labelKey)}
-                </ToggleButton>
-              ))}
-            </ToggleButtonGroup>
+              <TabsList aria-label={t("appearance.language")}>
+                {LANGUAGE_OPTIONS.map((opt) => (
+                  <TabsTrigger key={opt.value} value={opt.value}>
+                    {t(opt.labelKey)}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
           }
         />
       </SettingSection>
@@ -779,7 +752,6 @@ function AppearanceTab({
 function DesktopPetSection(): React.JSX.Element {
   const { t } = useT();
   const [snapshot, setSnapshot] = useState<import("@shared/types").DesktopPetSnapshot | null>(null);
-  const [autoSleepInput, setAutoSleepInput] = useState<string>("60");
 
   useEffect(() => {
     let cancelled = false;
@@ -787,7 +759,6 @@ function DesktopPetSection(): React.JSX.Element {
       void api.desktopPet.getSnapshot().then((next) => {
         if (cancelled) return;
         setSnapshot(next);
-        setAutoSleepInput(String(Math.round(next.config.interaction.autoSleepMs / 1000)));
       });
     };
     load();
@@ -852,80 +823,12 @@ function DesktopPetSection(): React.JSX.Element {
         }
       />
       <SettingItem
-        title={t("desktopPet.settings.scale")}
-        control={
-          <div className="flex w-56 items-center gap-2">
-            <input
-              type="range"
-              min={0.5}
-              max={1.5}
-              step={0.05}
-              value={cfg.window.scale}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v)) updateConfig({ window: { scale: v } });
-              }}
-              className="flex-1 accent-current"
-              aria-label={t("desktopPet.settings.scale")}
-            />
-            <span className="w-10 text-right text-xs tabular-nums text-foreground/60">
-              {Math.round(cfg.window.scale * 100)}%
-            </span>
-          </div>
-        }
-      />
-      <SettingItem
-        title={t("desktopPet.settings.opacity")}
-        control={
-          <div className="flex w-56 items-center gap-2">
-            <input
-              type="range"
-              min={0.3}
-              max={1}
-              step={0.05}
-              value={cfg.window.opacity}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v)) updateConfig({ window: { opacity: v } });
-              }}
-              className="flex-1 accent-current"
-              aria-label={t("desktopPet.settings.opacity")}
-            />
-            <span className="w-10 text-right text-xs tabular-nums text-foreground/60">
-              {Math.round(cfg.window.opacity * 100)}%
-            </span>
-          </div>
-        }
-      />
-      <SettingItem
         title={t("desktopPet.settings.sound")}
         control={
           <Switch
             isSelected={cfg.interaction.soundEnabled}
             onChange={(v) => updateConfig({ interaction: { soundEnabled: v } })}
             aria-label={t("desktopPet.settings.sound")}
-          />
-        }
-      />
-      <SettingItem
-        title={t("desktopPet.settings.autoSleep")}
-        control={
-          <Input
-            type="number"
-            min={0}
-            value={autoSleepInput}
-            onChange={(e) => setAutoSleepInput(e.target.value)}
-            onBlur={() => {
-              const seconds = Number(autoSleepInput);
-              if (!Number.isFinite(seconds) || seconds < 0) {
-                setAutoSleepInput("0");
-                updateConfig({ interaction: { autoSleepMs: 0 } });
-                return;
-              }
-              updateConfig({ interaction: { autoSleepMs: Math.round(seconds * 1000) } });
-            }}
-            className="w-20 text-right tabular-nums"
-            aria-label={t("desktopPet.settings.autoSleep")}
           />
         }
       />
@@ -954,15 +857,20 @@ function DesktopPetSection(): React.JSX.Element {
 // ============================================================
 
 /** 瀛椾綋杈撳叆琛岋細鏍囩 + 棰勮涓嬫媺 + 鑷畾涔夎緭鍏?*/
-function FontFieldRow({
+/** 字号档位（按从小到大排列，供 Slider 索引映射） */
+const FONT_SIZE_LEVELS: FontSizeLevel[] = ["xs", "sm", "base", "lg", "xl"];
+
+/** 代码字号离散档位（在 10-24px 范围内取 5 档供 Slider 选择） */
+const CODE_FONT_SIZE_PRESETS = [11, 13, 15, 18, 22] as const;
+
+/** 字体选择行：标签 + 下拉框 + 预览（已移除自定义输入框） */
+function FontSelectRow({
   label,
-  placeholder,
   value,
   presets,
   onChange,
 }: {
   label: string;
-  placeholder: string;
   value: string;
   presets: FontPreset[];
   onChange: (v: string) => void;
@@ -971,49 +879,33 @@ function FontFieldRow({
   // 褰撳墠 value 鍛戒腑鏌愪釜棰勮鏃堕珮浜畠
   const matchedPreset = presets.find((p) => p.value === value);
   return (
-    <div className="space-y-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
-      <div className="flex items-center justify-between gap-3">
+    <div className="flex h-full flex-col gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
+      <label className="block min-w-0">
         <span className="text-sm font-medium">{label}</span>
-        <select
-          value={matchedPreset ? matchedPreset.id : ""}
-          onChange={(e) => {
-            const next = presets.find((p) => p.id === e.target.value);
-            onChange(next ? next.value : value);
-          }}
-          className="rounded-md border border-foreground/15 bg-background px-2 py-1 text-xs outline-none focus:border-accent/50"
-        >
-          <option value="">{t("common.none")}</option>
-          {presets.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent/50"
-        spellCheck={false}
-        aria-label={label}
-        style={value ? { fontFamily: value } : undefined}
-      />
+      </label>
+      <select
+        value={matchedPreset ? matchedPreset.id : ""}
+        onChange={(e) => {
+          const next = presets.find((p) => p.id === e.target.value);
+          // 选"无"时清空，否则用预设值
+          onChange(next ? next.value : "");
+        }}
+        className="w-full rounded-md border border-foreground/15 bg-background px-2 py-1 text-xs outline-none focus:border-accent/50"
+      >
+        <option value="">{t("common.none")}</option>
+        {presets.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.label}
+          </option>
+        ))}
+      </select>
       {value && (
-        <div className="flex items-center justify-between text-xs text-foreground/50">
-          <span className="truncate" style={{ fontFamily: value, fontSize: "14px" }}>
-            {t("appearance.font.preview")}
-          </span>
-          <button
-            type="button"
-            onClick={() => onChange("")}
-            className="ml-2 rounded p-1 text-foreground/45 hover:bg-foreground/5 hover:text-foreground"
-            aria-label={t("common.reset")}
-          >
-            <IconClose className="size-3.5" />
-          </button>
-        </div>
+        <span
+          className="block truncate text-xs text-foreground/50"
+          style={{ fontFamily: value, fontSize: "14px" }}
+        >
+          {t("appearance.font.preview")}
+        </span>
       )}
     </div>
   );

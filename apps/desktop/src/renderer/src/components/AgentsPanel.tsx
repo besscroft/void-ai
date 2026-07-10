@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Card, Chip, Input, Label, Switch, Tabs, TextArea } from "./ui";
+import {
+  Button,
+  Card,
+  Chip,
+  Input,
+  Label,
+  Switch,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TextArea,
+} from "./ui";
 import {
   CHAT_REASONING_LEVELS,
   DEFAULT_AGENT_HANDOFF_CONFIG,
@@ -284,11 +295,11 @@ export function AgentsPanel({
       <Card>
         <Card.Content className="space-y-4 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentTabKey(key))}>
-              <Tabs.List aria-label={t("agents.tabs.label")}>
-                <Tabs.Tab id="active">{t("agents.tab.active")}</Tabs.Tab>
-                <Tabs.Tab id="draft">{t("agents.tab.draft")}</Tabs.Tab>
-              </Tabs.List>
+            <Tabs value={tab} onValueChange={(key) => setTab(agentTabKey(key))}>
+              <TabsList aria-label={t("agents.tabs.label")}>
+                <TabsTrigger value="active">{t("agents.tab.active")}</TabsTrigger>
+                <TabsTrigger value="draft">{t("agents.tab.draft")}</TabsTrigger>
+              </TabsList>
             </Tabs>
             <div className="flex flex-wrap items-center gap-2">
               <Input
@@ -523,13 +534,13 @@ function AgentDetailModal({
           </div>
         </header>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-          <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentDetailTabKey(key))}>
-            <Tabs.List aria-label={t("agents.detail.tabs")}>
-              <Tabs.Tab id="overview">{t("agents.tab.overview")}</Tabs.Tab>
-              <Tabs.Tab id="instructions">{t("agents.tab.instructions")}</Tabs.Tab>
-              <Tabs.Tab id="runtime">{t("agents.tab.runtime")}</Tabs.Tab>
-              <Tabs.Tab id="tools">{t("agents.tab.tools")}</Tabs.Tab>
-            </Tabs.List>
+          <Tabs value={tab} onValueChange={(key) => setTab(agentDetailTabKey(key))}>
+            <TabsList aria-label={t("agents.detail.tabs")}>
+              <TabsTrigger value="overview">{t("agents.tab.overview")}</TabsTrigger>
+              <TabsTrigger value="instructions">{t("agents.tab.instructions")}</TabsTrigger>
+              <TabsTrigger value="runtime">{t("agents.tab.runtime")}</TabsTrigger>
+              <TabsTrigger value="tools">{t("agents.tab.tools")}</TabsTrigger>
+            </TabsList>
           </Tabs>
 
           {tab === "overview" ? (
@@ -720,13 +731,13 @@ function AgentEditorModal({
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <div className="space-y-5">
-            <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(agentEditorTabKey(key))}>
-              <Tabs.List aria-label={t("agents.editor.tabs")}>
-                <Tabs.Tab id="basics">{t("agents.tab.basics")}</Tabs.Tab>
-                <Tabs.Tab id="runtime">{t("agents.tab.runtime")}</Tabs.Tab>
-                <Tabs.Tab id="routing">{t("agents.tab.routing")}</Tabs.Tab>
-                <Tabs.Tab id="tools">{t("agents.tab.tools")}</Tabs.Tab>
-              </Tabs.List>
+            <Tabs value={tab} onValueChange={(key) => setTab(agentEditorTabKey(key))}>
+              <TabsList aria-label={t("agents.editor.tabs")}>
+                <TabsTrigger value="basics">{t("agents.tab.basics")}</TabsTrigger>
+                <TabsTrigger value="runtime">{t("agents.tab.runtime")}</TabsTrigger>
+                <TabsTrigger value="routing">{t("agents.tab.routing")}</TabsTrigger>
+                <TabsTrigger value="tools">{t("agents.tab.tools")}</TabsTrigger>
+              </TabsList>
             </Tabs>
 
             {tab === "basics" ? (

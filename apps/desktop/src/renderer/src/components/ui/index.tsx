@@ -243,68 +243,10 @@ export function TextField({ className, isInvalid, ...props }: TextFieldProps): R
   );
 }
 
-interface TabsContextValue {
-  selectedKey: string;
-  onSelectionChange?: (key: string) => void;
-}
-
-const TabsContext = createContext<TabsContextValue | null>(null);
-
-interface TabsProps extends HTMLAttributes<HTMLDivElement> {
-  selectedKey: string;
-  onSelectionChange?: (key: string) => void;
-}
-
-function TabsRoot({
-  selectedKey,
-  onSelectionChange,
-  children,
-  ...props
-}: TabsProps): React.JSX.Element {
-  return (
-    <TabsContext.Provider value={{ selectedKey, onSelectionChange }}>
-      <div {...props}>{children}</div>
-    </TabsContext.Provider>
-  );
-}
-
-function TabsList({ className, ...props }: HTMLAttributes<HTMLDivElement>): React.JSX.Element {
-  return (
-    <div
-      role="tablist"
-      className={cn("inline-flex rounded-md border border-border bg-muted/40 p-0.5", className)}
-      {...props}
-    />
-  );
-}
-
-interface TabsTabProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  id: string;
-}
-
-function TabsTab({ id, className, children, ...props }: TabsTabProps): React.JSX.Element {
-  const context = useContext(TabsContext);
-  const selected = context?.selectedKey === id;
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      className={cn(
-        "rounded px-3 py-1.5 text-xs font-medium text-muted-foreground transition",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35",
-        selected && "bg-background text-foreground shadow-sm",
-        className,
-      )}
-      onClick={() => context?.onSelectionChange?.(id)}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
-export const Tabs = Object.assign(TabsRoot, { List: TabsList, Tab: TabsTab });
+// 选项卡组件改用 shadcn/ui（基于 Base UI）实现，源文件见 ./tabs.tsx
+export { Tabs, TabsList, TabsTrigger, TabsContent } from "./tabs";
+// 滑块组件改用 shadcn/ui（基于 Base UI）实现，源文件见 ./slider.tsx
+export { Slider } from "./slider";
 
 interface ToggleGroupContextValue {
   selectedKeys: Set<string>;

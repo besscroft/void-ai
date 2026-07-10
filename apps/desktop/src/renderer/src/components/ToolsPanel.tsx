@@ -1,5 +1,17 @@
 import { useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
-import { Button, Card, Chip, Input, Label, Modal, Switch, Tabs, TextArea } from "./ui";
+import {
+  Button,
+  Card,
+  Chip,
+  Input,
+  Label,
+  Modal,
+  Switch,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TextArea,
+} from "./ui";
 import { strFromU8, unzipSync } from "fflate";
 import { api, type ToolsSnapshot } from "../lib/api";
 import { useT } from "../lib/i18n";
@@ -148,12 +160,12 @@ export function ToolsPanel(): React.JSX.Element {
         <MetricCard label={t("tools.metric.skills")} value={snapshot?.skills.length ?? 0} />
       </div>
 
-      <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(toToolsTab(key))}>
-        <Tabs.List aria-label={t("tools.tabs.label")}>
-          <Tabs.Tab id="registry">{t("tools.tab.registry")}</Tabs.Tab>
-          <Tabs.Tab id="mcp">{t("tools.tab.mcp")}</Tabs.Tab>
-          <Tabs.Tab id="skills">{t("tools.tab.skills")}</Tabs.Tab>
-        </Tabs.List>
+      <Tabs value={tab} onValueChange={(key) => setTab(toToolsTab(key))}>
+        <TabsList aria-label={t("tools.tabs.label")}>
+          <TabsTrigger value="registry">{t("tools.tab.registry")}</TabsTrigger>
+          <TabsTrigger value="mcp">{t("tools.tab.mcp")}</TabsTrigger>
+          <TabsTrigger value="skills">{t("tools.tab.skills")}</TabsTrigger>
+        </TabsList>
       </Tabs>
 
       {loading && !snapshot ? (
