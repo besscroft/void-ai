@@ -6,7 +6,7 @@
  */
 
 import { eq } from "drizzle-orm";
-import { getDb, schema } from "./db";
+import { getDb, schema, insertRuntimeEvent } from "./db";
 import type { MemoryKind, MemoryRecord } from "../../shared/types";
 
 export interface DefaultEngineDepsOptions {
@@ -248,7 +248,6 @@ async function dispatchChildAgentStub(opts: {
     throw new Error(`Target agent '${opts.targetAgentId}' not found.`);
   }
   // 记录到 runtime_events，便于 UI/日志追踪
-  const { insertRuntimeEvent } = await import("./runtime-recorder");
   insertRuntimeEvent({
     kind: "handoff",
     title: `${opts.mode === "handoff" ? "Handoff" : "Consult"} to ${agent.name}`,

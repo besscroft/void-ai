@@ -134,6 +134,7 @@ export interface VoidAIApi {
     showContextMenu: () => Promise<boolean>;
     setFrameRate: (fps: number) => Promise<boolean>;
     setWindowSize: (size: { width: number; height: number }) => Promise<boolean>;
+    setIgnoreMouseEvents: (ignore: boolean) => Promise<boolean>;
     onOpenConversation: (handler: (conversationId?: string) => void) => () => void;
     onConfigApplied: (handler: (config: DesktopPetConfig) => void) => () => void;
   };

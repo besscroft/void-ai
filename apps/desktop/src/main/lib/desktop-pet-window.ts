@@ -19,8 +19,6 @@ import {
 } from "./desktop-pet-bounds";
 
 export const DESKTOP_PET_OPEN_CONVERSATION_CHANNEL = "desktopPet:openConversation";
-export const DESKTOP_PET_OPEN_SETTINGS_CHANNEL = "desktopPet:openSettings";
-export const DESKTOP_PET_OPEN_ABOUT_CHANNEL = "desktopPet:openAbout";
 
 /**
  * 展开/收起桌宠时窗口大小的硬性范围。
@@ -36,13 +34,7 @@ interface DesktopPetWindowControllerOptions {
   rendererDevUrl?: string;
   /** 渲染层触发右键菜单时调用 */
   onContextMenu?: (win: BrowserWindow) => void;
-  /** 桌宠需要"打开主窗口设置面板"时调用 */
-  openMainSettings?: () => void;
-  /** 桌宠需要"打开关于对话框"时调用 */
-  openAbout?: () => void;
-  /** 桌宠需要"真正退出应用"时调用 */
-  quitApp?: () => void;
-  /** 同步托盘菜单状态 */
+  /** 同步托盘菜单状态（外部未接线时静默 no-op） */
   syncTrayMenu?: () => void;
 }
 

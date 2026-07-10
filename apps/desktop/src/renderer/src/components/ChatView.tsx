@@ -144,8 +144,6 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   );
   /** 鏄惁宸蹭负鏈璇濈敓鎴愯繃鏍囬锛堥槻姝㈤噸澶嶇敓鎴愶級 */
   const titledRef = useRef<Set<string>>(new Set());
-  /** 涓婁竴娆″彂閫佹椂鐨勬秷鎭暟锛堢敤浜庤瘑鍒?鏈疆鍥炲瀹屾垚"锛?*/
-  const lastSentCountRef = useRef(0);
   const createdAtRef = useRef<Map<string, number>>(new Map());
   const selectedModelRef = useRef<string | null>(null);
   const reasoningLevelRef = useRef<ChatReasoningLevel>(DEFAULT_SETTINGS.chatReasoningLevel);
@@ -164,7 +162,42 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   );
   const [followupSuggestions, setFollowupSuggestions] = useState<string[]>([]);
 
-  /** 基于对话上下文异步获取追问建议 */
+  /**
+   * 上报一次聊天错误：写入 chatError、记录 console、统一弹 toast，并按需持久化。
+   * - persistSnapshot: 同时把"出错时的快照"持久化（出错一般也意味着 transport 已部分刷新）
+   * - toastKey: 默认 "toast.chat.failed"；媒体相关失败用 "toast.media.failed"
+   */
+  const reportChatError = useCallback(
+    (
+      source: string,
+      err: unknown,
+      opts: { persistSnapshot?: UIMessage[]; toastKey?: string } = {},
+    ): void => {
+      const detail = getChatErrorMessage(err, locale);
+      setChatError(detail);
+      console.error(`[chat] ${source} failed:`, err);
+      if (opts.persistSnapshot) {
+        void persistMessagesSnapshot(conversationId, opts.persistSnapshot, createdAtRef.current);
+        void api.conversations.touch(conversationId);
+      }
+      notify.error(t(opts.toastKey ?? "toast.chat.failed"), detail, locale);
+    },
+    [conversationId, locale, t],
+  );
+
+  /**
+   * 同步落盘消息快照并刷新会话 updated_at。
+   * 行为等价于"先 persistMessagesSnapshot 后 conversations.touch"，用于消除两处 IPC 总是成对出现的样板代码。
+   */
+  const persistAndTouch = useCallback(
+    async (messages: UIMessage[]): Promise<void> => {
+      await persistMessagesSnapshot(conversationId, messages, createdAtRef.current);
+      await api.conversations.touch(conversationId);
+    },
+    [conversationId],
+  );
+
+  /** 异步生成追问建议 */
   const fetchFollowupSuggestions = useCallback(async (messages: UIMessage[]): Promise<void> => {
     try {
       const settings = await api.settings.getAll([SettingKey.SelectedModel]);
@@ -263,7 +296,6 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     createdAtRef.current = new Map();
     hydratedConversationRef.current = null;
     // 涓嶉噸缃?titledRef锛氫繚鐣欒法浼氳瘽璁板綍锛岄伩鍏嶉噸澶嶇敓鎴愶紙鍒囨崲鍥炲埌鏃у璇濅篃涓嶉噸鐢熸垚锛?
-    lastSentCountRef.current = 0;
 
     void api.messages.list(conversationId).then((rows) => {
       const messages = rows.map(hydrateStoredMessage);
@@ -291,22 +323,18 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     onFinish: ({ messages, isError }) => {
       if (!isError) setChatError(null);
       setIsStopped(false);
-      void persistMessagesSnapshot(conversationId, messages, createdAtRef.current)
+      void persistAndTouch(messages)
         .then(() => api.agents.queueLearning(conversationId))
         .catch((err) => console.error("[chat] failed to persist messages or queue learning:", err));
-      void api.conversations.touch(conversationId);
       // 鑷姩鐢熸垚鏍囬锛氭湰杞彂閫佷簡娑堟伅 + assistant 瀹屾暣浜х敓 + 杩樻病鐢熸垚杩?
-      tryAutoTitle(conversationId, messages, lastSentCountRef.current, titledRef);
+      tryAutoTitle(conversationId, messages, titledRef);
       // 异步生成追问建议
       void fetchFollowupSuggestions(messages);
     },
     onError: (err) => {
-      const detail = getChatErrorMessage(err, locale);
-      setChatError(detail);
-      console.error("[chat] streaming error:", err);
-      void persistMessagesSnapshot(conversationId, latestMessagesRef.current, createdAtRef.current);
-      void api.conversations.touch(conversationId);
-      notify.error(t("toast.chat.failed"), detail, locale);
+      reportChatError("streaming", err, {
+        persistSnapshot: latestMessagesRef.current,
+      });
     },
   });
 
@@ -406,7 +434,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         options: media.options,
       });
     } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
+      const detail = getChatErrorMessage(err, locale);
       notify.error(t("toast.media.failed"), detail, locale);
       return;
     }
@@ -434,12 +462,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     const pendingMessages = appendOrReplaceMessage(userMessages, pendingMessage);
     chat.setMessages(pendingMessages);
     latestMessagesRef.current = pendingMessages;
-    lastSentCountRef.current = userMessages.length;
 
-    void persistMessagesSnapshot(conversationId, pendingMessages, createdAtRef.current).catch(
-      (err) => console.error("[chat] failed to pre-save media messages:", err),
+    void persistAndTouch(pendingMessages).catch((err) =>
+      console.error("[chat] failed to pre-save media messages:", err),
     );
-    void api.conversations.touch(conversationId);
 
     try {
       const response = await fetch(`http://127.0.0.1:${serverInfo.port}/api/media/generate`, {
@@ -459,17 +485,15 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       const nextMessages = appendOrReplaceMessage(pendingMessages, resultMessage);
       chat.setMessages(nextMessages);
       latestMessagesRef.current = nextMessages;
-      void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
-      void api.conversations.touch(conversationId);
-      tryAutoTitle(conversationId, nextMessages, lastSentCountRef.current, titledRef);
+      void persistAndTouch(nextMessages);
+      tryAutoTitle(conversationId, nextMessages, titledRef);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       const errorMessage = buildMediaErrorMessage(assistantMessageId, media.kind, detail, media);
       const nextMessages = appendOrReplaceMessage(pendingMessages, errorMessage);
       chat.setMessages(nextMessages);
       latestMessagesRef.current = nextMessages;
-      void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
-      void api.conversations.touch(conversationId);
+      void persistAndTouch(nextMessages);
       notify.error(t("toast.media.failed"), detail, locale);
     } finally {
       setIsMediaGenerating(false);
@@ -512,29 +536,19 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     chat.clearError();
 
     const pendingMessages = appendOrReplaceMessage(latestMessagesRef.current, userMessage);
-    void persistMessagesSnapshot(conversationId, pendingMessages, createdAtRef.current).catch(
-      (err) => {
-        console.error("[chat] failed to pre-save user message:", err);
-      },
-    );
-    void api.conversations.touch(conversationId);
-    lastSentCountRef.current = pendingMessages.length;
+    void persistAndTouch(pendingMessages).catch((err) => {
+      console.error("[chat] failed to pre-save user message:", err);
+    });
 
     void chat.sendMessage(userMessage).catch((err) => {
-      const detail = getChatErrorMessage(err, locale);
-      setChatError(detail);
-      console.error("[chat] failed to send message:", err);
-      void persistMessagesSnapshot(conversationId, pendingMessages, createdAtRef.current);
-      void api.conversations.touch(conversationId);
-      notify.error(t("toast.chat.failed"), detail, locale);
+      reportChatError("send", err, { persistSnapshot: pendingMessages });
     });
   };
 
   const handleStop = (): void => {
     void chat.stop().finally(() => {
       setIsStopped(true);
-      void persistMessagesSnapshot(conversationId, latestMessagesRef.current, createdAtRef.current);
-      void api.conversations.touch(conversationId);
+      void persistAndTouch(latestMessagesRef.current);
     });
   };
 
@@ -543,8 +557,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     setIsStopped(false);
     chat.clearError();
     void chat.regenerate().finally(() => {
-      void persistMessagesSnapshot(conversationId, latestMessagesRef.current, createdAtRef.current);
-      void api.conversations.touch(conversationId);
+      void persistAndTouch(latestMessagesRef.current);
     });
   };
 
@@ -639,20 +652,16 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     createdAtRef.current.delete(messageId);
 
     // 2. 鎸佷箙鍖栨柊蹇収锛堝垹闄ゅ悗缁秷鎭級
-    void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
+    void persistAndTouch(nextMessages);
     setIsStopped(false);
     setChatError(null);
     chat.clearError();
 
     // 3. 瑙﹀彂閲嶆柊鐢熸垚
-    lastSentCountRef.current = nextMessages.length;
     try {
       await chat.regenerate({ messageId: target.id });
     } catch (err) {
-      console.error("[chat] edit regenerate failed:", err);
-      const detail = getChatErrorMessage(err, locale);
-      setChatError(detail);
-      notify.error(t("toast.chat.failed"), detail, locale);
+      reportChatError("edit regenerate", err);
     }
   };
 
@@ -671,17 +680,13 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     chat.clearError();
 
     // 2. 鎸佷箙鍖栵紙鍒犻櫎鍚庣画娑堟伅锛?
-    void persistMessagesSnapshot(conversationId, nextMessages, createdAtRef.current);
+    void persistAndTouch(nextMessages);
 
     // 3. 瑙﹀彂閲嶆柊鐢熸垚
-    lastSentCountRef.current = nextMessages.length;
     try {
       await chat.regenerate({ messageId: target.id });
     } catch (err) {
-      console.error("[chat] resend failed:", err);
-      const detail = getChatErrorMessage(err, locale);
-      setChatError(detail);
-      notify.error(t("toast.chat.failed"), detail, locale);
+      reportChatError("resend", err);
     }
   };
 
@@ -870,7 +875,6 @@ function formatRuntimeSummary(
 function tryAutoTitle(
   conversationId: string,
   messages: UIMessage[],
-  _lastSentCount: number,
   titledRef: React.MutableRefObject<Set<string>>,
 ): void {
   if (titledRef.current.has(conversationId)) return;

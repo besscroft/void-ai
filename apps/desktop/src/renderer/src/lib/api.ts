@@ -48,6 +48,14 @@ function assertApi(): NonNullable<Window["api"]> {
   return window.api;
 }
 
+/**
+ * 软访问 window.api：未注入时返回 null 而不是抛错。
+ * 供那些可能在 preload 加载前就执行的位置使用（例如 useEffect 清理 / 单测）。
+ */
+export function safeApi(): NonNullable<Window["api"]> | null {
+  return window.api ?? null;
+}
+
 export const api = {
   conversations: {
     list: (): Promise<Conversation[]> => assertApi().conversations.list(),
@@ -146,35 +154,14 @@ export const api = {
       assertApi().desktopPet.openMain(conversationId),
     showContextMenu: (): Promise<boolean> => assertApi().desktopPet.showContextMenu(),
     setFrameRate: (fps: number): Promise<boolean> => assertApi().desktopPet.setFrameRate(fps),
-    setWindowSize: (size: { width: number; height: number }): Promise<boolean> => {
-      const raw = (
-        assertApi().desktopPet as unknown as {
-          setWindowSize?: (s: { width: number; height: number }) => Promise<boolean>;
-        }
-      ).setWindowSize;
-      if (!raw) return Promise.resolve(false);
-      return raw(size);
-    },
-    setIgnoreMouseEvents: (ignore: boolean): Promise<boolean> => {
-      const raw = (
-        assertApi().desktopPet as unknown as {
-          setIgnoreMouseEvents?: (ignore: boolean) => Promise<boolean>;
-        }
-      ).setIgnoreMouseEvents;
-      if (!raw) return Promise.resolve(false);
-      return raw(ignore);
-    },
+    setWindowSize: (size: { width: number; height: number }): Promise<boolean> =>
+      assertApi().desktopPet.setWindowSize(size),
+    setIgnoreMouseEvents: (ignore: boolean): Promise<boolean> =>
+      assertApi().desktopPet.setIgnoreMouseEvents(ignore),
     onOpenConversation: (handler: (conversationId?: string) => void): (() => void) =>
       assertApi().desktopPet.onOpenConversation(handler),
-    onConfigApplied: (handler: (config: DesktopPetConfig) => void): (() => void) => {
-      const raw = (
-        assertApi().desktopPet as unknown as {
-          onConfigApplied?: (cb: (cfg: unknown) => void) => () => void;
-        }
-      ).onConfigApplied;
-      if (!raw) return () => undefined;
-      return raw((cfg) => handler(cfg as DesktopPetConfig));
-    },
+    onConfigApplied: (handler: (config: DesktopPetConfig) => void): (() => void) =>
+      assertApi().desktopPet.onConfigApplied(handler),
   },
   sync: {
     get: (): Promise<SyncState> => assertApi().sync.get(),
@@ -263,20 +250,10 @@ export const api = {
   },
   system: {
     locale: (): Promise<string> => assertApi().system.locale(),
-    onPetOpenSettings: (handler: () => void): (() => void) => {
-      const raw = (
-        assertApi().system as unknown as { onPetOpenSettings?: (cb: () => void) => () => void }
-      ).onPetOpenSettings;
-      if (!raw) return () => undefined;
-      return raw(handler);
-    },
-    onPetOpenAbout: (handler: () => void): (() => void) => {
-      const raw = (
-        assertApi().system as unknown as { onPetOpenAbout?: (cb: () => void) => () => void }
-      ).onPetOpenAbout;
-      if (!raw) return () => undefined;
-      return raw(handler);
-    },
+    onPetOpenSettings: (handler: () => void): (() => void) =>
+      assertApi().system.onPetOpenSettings(handler),
+    onPetOpenAbout: (handler: () => void): (() => void) =>
+      assertApi().system.onPetOpenAbout(handler),
   },
 };
 

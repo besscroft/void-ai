@@ -36,6 +36,27 @@ export interface MediaIntent {
   source: "rule";
 }
 
+/**
+ * 匹配"中英双语意图"模式。
+ * - englishWords: 用于英文 \b...\b 模式（不区分大小写由调用方传入小写字符串）
+ * - chineseWords: 用于中文直接字面量
+ * - englishBidirectional: true 时英文也匹配 B.*A 语序（默认），false 时仅匹配 A.*B
+ */
+function matchIntent(
+  lower: string,
+  normalized: string,
+  englishWords: { action: string; target: string },
+  chineseWords: { action: string; target: string },
+  englishBidirectional = true,
+): boolean {
+  const enA = new RegExp(`\\b${englishWords.action}\\b.*\\b${englishWords.target}\\b`);
+  const enB = new RegExp(`\\b${englishWords.target}\\b.*\\b${englishWords.action}\\b`);
+  const zhA = new RegExp(`${chineseWords.action}.*${chineseWords.target}`);
+  const zhB = new RegExp(`${chineseWords.target}.*${chineseWords.action}`);
+  const enMatched = englishBidirectional ? enA.test(lower) || enB.test(lower) : enA.test(lower);
+  return enMatched || zhA.test(normalized) || zhB.test(normalized);
+}
+
 export function detectMediaIntent(
   text: string,
   files: readonly MediaFileInput[] = [],
@@ -54,33 +75,44 @@ export function detectMediaIntent(
   }
 
   if (
-    /\b(generate|create|make|render)\b.*\b(video|movie|clip|animation)\b/.test(lower) ||
-    /\b(video|movie|clip|animation)\b.*\b(generate|create|make|render)\b/.test(lower) ||
-    /(生成|创建|制作).*(视频|短片|动画)/.test(normalized) ||
-    /(视频|短片|动画).*(生成|创建|制作)/.test(normalized)
+    matchIntent(
+      lower,
+      normalized,
+      { action: "generate|create|make|render", target: "video|movie|clip|animation" },
+      { action: "生成|创建|制作", target: "视频|短片|动画" },
+    )
   ) {
     return { kind: "video", confidence: "high", source: "rule" };
   }
 
+  // 语音类意图：英文只匹配"动作在前"的语序（如 "text to speech"、"generate speech"），
+  // 因为语音的动作短语大多不可拆解成 A+B（target 通常是动作短语的一部分）。
   if (
-    /\b(text to speech|tts|read aloud|voice over|generate speech|generate audio|synthesize speech)\b/.test(
+    matchIntent(
       lower,
-    ) ||
-    /(生成|合成|朗读|读出).*(语音|音频|旁白|声音)/.test(normalized) ||
-    /(语音|音频|旁白|声音).*(生成|合成|朗读|读出)/.test(normalized)
+      normalized,
+      {
+        action:
+          "text to speech|tts|read aloud|voice over|generate speech|generate audio|synthesize speech",
+        target: "speech|audio|voice|narration",
+      },
+      { action: "生成|合成|朗读|读出", target: "语音|音频|旁白|声音" },
+      false,
+    )
   ) {
     return { kind: "speech", confidence: "high", source: "rule" };
   }
 
   if (
-    /\b(generate|create|make|draw|paint|render)\b.*\b(image|picture|photo|poster|illustration|logo)\b/.test(
+    matchIntent(
       lower,
-    ) ||
-    /\b(image|picture|photo|poster|illustration|logo)\b.*\b(generate|create|make|draw|paint|render)\b/.test(
-      lower,
-    ) ||
-    /(生成|创建|制作|画|绘制).*(图片|图像|照片|海报|插画|标志|logo)/i.test(normalized) ||
-    /(图片|图像|照片|海报|插画|标志|logo).*(生成|创建|制作|画|绘制)/i.test(normalized)
+      normalized,
+      {
+        action: "generate|create|make|draw|paint|render",
+        target: "image|picture|photo|poster|illustration|logo",
+      },
+      { action: "生成|创建|制作|画|绘制", target: "图片|图像|照片|海报|插画|标志|logo" },
+    )
   ) {
     return { kind: "image", confidence: "high", source: "rule" };
   }

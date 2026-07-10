@@ -37,14 +37,15 @@ import {
 } from "./chat-tools";
 import { commandLooksDangerous, inputHasPathEscape } from "./approval-policy";
 import { loadAgentGraph } from "./agent-graph";
-import { upsertAgentRuntimeState, upsertConversationAgentState } from "./db";
 import {
-  recordRuntimeEvent as insertRuntimeEvent,
-  recordRuntimeRun as createRuntimeRun,
-  recordRuntimeStep as createRuntimeStep,
-  updateRecordedRuntimeRun as updateRuntimeRun,
-  updateRecordedRuntimeStep as updateRuntimeStep,
-} from "./runtime-recorder";
+  upsertAgentRuntimeState,
+  upsertConversationAgentState,
+  createRuntimeRun,
+  createRuntimeStep,
+  updateRuntimeRun,
+  updateRuntimeStep,
+  insertRuntimeEvent,
+} from "./db";
 import {
   createSandboxSnapshot,
   getOrCreateSandboxSession,
@@ -409,7 +410,6 @@ function createRunWorkflowTool(context: RuntimeContext): ToolSet[string] {
       const { executeWorkflow } = await import("./workflow-engine");
       const { getWorkflowDefinition } = await import("./workflow-runs");
       const { buildDefaultEngineDeps } = await import("./workflow-dispatcher");
-      const { insertRuntimeEvent } = await import("./runtime-recorder");
       const workflow = getWorkflowDefinition(input.workflowId);
       if (!workflow) {
         throw new Error(`Workflow '${input.workflowId}' not found.`);

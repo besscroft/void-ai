@@ -114,22 +114,11 @@ function AppContent(): React.JSX.Element {
     });
   }, []);
 
-  // 托盘 / 桌宠右键菜单触发的"打开设置"和"关于"
+  // 托盘 / 桌宠右键菜单触发的"打开设置"
   useEffect(() => {
-    const offSettings = (
-      api.system as unknown as { onPetOpenSettings?: (cb: () => void) => () => void }
-    ).onPetOpenSettings?.(() => setSettingsOpen(true));
-    const offAbout = (
-      api.system as unknown as { onPetOpenAbout?: (cb: () => void) => () => void }
-    ).onPetOpenAbout?.(() => {
-      // 简化：直接弹出 toast 展示应用版本信息
-      // 后续可扩展为独立 AboutDialog
-      // eslint-disable-next-line no-console
-      console.info("[about] Void desktop pet · v0.0.1");
-    });
+    const offSettings = api.system.onPetOpenSettings(() => setSettingsOpen(true));
     return () => {
       offSettings?.();
-      offAbout?.();
     };
   }, []);
 

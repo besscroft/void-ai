@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DesktopPetActivity, DesktopPetConfig, DesktopPetSnapshot } from "@shared/types";
+import { safeApi } from "./api";
 
 /**
  * 桌宠交互状态机。
@@ -26,8 +27,6 @@ export interface DesktopPetStateController {
   setDragging: (dragging: boolean) => void;
   /** 任意"有意义"的用户活动：重置 sleep 计时器 */
   notifyActivity: () => void;
-  /** 由 main 进程发送的 configApplied 事件触发，更新 sleep 阈值等 */
-  applyServerConfig: (config: DesktopPetConfig) => void;
 }
 
 interface UseDesktopPetStateOptions {
@@ -92,10 +91,6 @@ export function useDesktopPetState(options: UseDesktopPetStateOptions): DesktopP
     setActivity((current) => (current === "sleep" ? "idle" : current));
   }, []);
 
-  const applyServerConfig = useCallback((config: DesktopPetConfig): void => {
-    setAutoSleepMs(config.interaction.autoSleepMs);
-  }, []);
-
   // 同步后端 config
   useEffect(() => {
     if (snapshot) setAutoSleepMs(snapshot.config.interaction.autoSleepMs);
@@ -104,14 +99,14 @@ export function useDesktopPetState(options: UseDesktopPetStateOptions): DesktopP
   // 监听主进程实时推送的 config
   useEffect(() => {
     const handler = (config: DesktopPetConfig): void => {
-      applyServerConfig(config);
+      setAutoSleepMs(config.interaction.autoSleepMs);
     };
     // 渲染进程通过 preload 的 onConfigApplied 监听
-    const unsubscribe = window.api?.desktopPet?.onConfigApplied?.(handler);
+    const unsubscribe = safeApi()?.desktopPet.onConfigApplied(handler);
     return () => {
       unsubscribe?.();
     };
-  }, [applyServerConfig]);
+  }, []);
 
   // 自动睡眠检测 + 内存优化（sleep 状态降低帧率）
   useEffect(() => {
@@ -141,7 +136,7 @@ export function useDesktopPetState(options: UseDesktopPetStateOptions): DesktopP
   useEffect(() => {
     const targetFps = activity === "sleep" ? 1 : 60;
     try {
-      void window.api?.desktopPet?.setFrameRate?.(targetFps);
+      void safeApi()?.desktopPet.setFrameRate(targetFps);
     } catch (err) {
       // 主进程 IPC 可能在初始化时短暂不可用，忽略
       console.debug("[pet-state] setFrameRate failed:", err);
@@ -162,6 +157,5 @@ export function useDesktopPetState(options: UseDesktopPetStateOptions): DesktopP
     setHover,
     setDragging,
     notifyActivity,
-    applyServerConfig,
   };
 }
