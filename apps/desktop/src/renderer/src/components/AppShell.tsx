@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Chip } from "./ui";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
@@ -9,7 +9,6 @@ import {
   IconSettings,
   IconTrash,
   IconCpu,
-  IconSliders,
   IconDatabase,
   IconWrench,
   IconSearch,
@@ -35,7 +34,8 @@ interface AppShellProps {
 const primaryNav: { id: AppView; labelKey: TranslationKey; Icon: typeof IconMessage }[] = [
   { id: "chat", labelKey: "shell.nav.conversations", Icon: IconMessage },
   { id: "agents", labelKey: "main.title.agents", Icon: IconCpu },
-  { id: "workflows", labelKey: "main.title.workflows", Icon: IconSliders },
+  // 工作流与工作流运行已下沉为 chat 页面右上角悬浮状态框（WorkflowStatusWidget）
+  // 入口不再展示，独立页面与组件（WorkflowRunsPanel / WorkflowRunDetail）已删除
   { id: "tools", labelKey: "main.title.tools", Icon: IconWrench },
   { id: "memory", labelKey: "main.title.memory", Icon: IconDatabase },
 ];

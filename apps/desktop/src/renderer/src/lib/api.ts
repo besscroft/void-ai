@@ -28,8 +28,7 @@ import type {
   ProviderInfo,
   ProviderTestResult,
   SyncState,
-  WorkflowDefinition,
-  WorkflowRun,
+  ActiveWorkflowRunSnapshot,
   RuntimeSnapshot,
 } from "@shared/types";
 
@@ -123,8 +122,11 @@ export const api = {
     delete: (id: string): Promise<boolean> => assertApi().memories.delete(id),
   },
   workflows: {
-    list: (): Promise<WorkflowDefinition[]> => assertApi().workflows.list(),
-    runs: (): Promise<WorkflowRun[]> => assertApi().workflows.runs(),
+    // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）
+    activeRunForConversation: (conversationId: string): Promise<ActiveWorkflowRunSnapshot | null> =>
+      assertApi().workflows.activeRunForConversation(conversationId),
+    // 用户可主动取消正在运行的 workflow
+    cancelRun: (runId: string): Promise<boolean> => assertApi().workflows.cancelRun(runId),
   },
   interactions: {
     list: (): Promise<InteractionProfile[]> => assertApi().interactions.list(),
@@ -304,7 +306,6 @@ export type {
   ProviderInfo,
   ProviderTestResult,
   SyncState,
-  WorkflowDefinition,
-  WorkflowRun,
+  ActiveWorkflowRunSnapshot,
   RuntimeSnapshot,
 };

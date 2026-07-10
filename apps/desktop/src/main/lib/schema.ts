@@ -88,7 +88,15 @@ export const runtimeRuns = sqliteTable(
     final_agent_id: text("final_agent_id").references(() => agents.id, { onDelete: "set null" }),
     workflow_id: text("workflow_id"),
     status: text("status", {
-      enum: ["queued", "running", "waiting_approval", "succeeded", "failed", "cancelled"],
+      enum: [
+        "queued",
+        "running",
+        "waiting_approval",
+        "waiting_handoff",
+        "succeeded",
+        "failed",
+        "cancelled",
+      ],
     }).notNull(),
     model_ref: text("model_ref"),
     trace_id: text("trace_id"),
@@ -133,7 +141,15 @@ export const runtimeSteps = sqliteTable(
       ],
     }).notNull(),
     status: text("status", {
-      enum: ["queued", "running", "waiting_approval", "succeeded", "failed", "cancelled"],
+      enum: [
+        "queued",
+        "running",
+        "waiting_approval",
+        "waiting_handoff",
+        "succeeded",
+        "failed",
+        "cancelled",
+      ],
     }).notNull(),
     title: text("title").notNull(),
     detail_json: text("detail_json").notNull().default("{}"),
@@ -177,7 +193,15 @@ export const runtimeEvents = sqliteTable(
       ],
     }).notNull(),
     status: text("status", {
-      enum: ["queued", "running", "waiting_approval", "succeeded", "failed", "cancelled"],
+      enum: [
+        "queued",
+        "running",
+        "waiting_approval",
+        "waiting_handoff",
+        "succeeded",
+        "failed",
+        "cancelled",
+      ],
     }).notNull(),
     severity: text("severity", { enum: ["debug", "info", "warning", "error"] })
       .notNull()
@@ -303,6 +327,11 @@ export const workflows = sqliteTable(
     status: text("status", { enum: ["enabled", "paused", "draft"] })
       .notNull()
       .default("draft"),
+    // 新版：节点 + 边（DAG）
+    nodes_json: text("nodes_json").notNull().default("[]"),
+    entry_node_id: text("entry_node_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    // 兼容旧 ToolSkillStep 的 JSON 描述
     steps_json: text("steps_json").notNull().default("[]"),
     trigger: text("trigger").notNull().default("manual"),
     created_at: integer("created_at").notNull(),
@@ -322,16 +351,95 @@ export const workflowRuns = sqliteTable(
       onDelete: "set null",
     }),
     status: text("status", {
-      enum: ["queued", "running", "waiting_approval", "succeeded", "failed", "cancelled"],
+      enum: [
+        "queued",
+        "running",
+        "waiting_approval",
+        "waiting_handoff",
+        "succeeded",
+        "failed",
+        "cancelled",
+      ],
     }).notNull(),
     input_json: text("input_json"),
     output_json: text("output_json"),
+    error: text("error"),
+    context_json: text("context_json").notNull().default("{}"),
+    triggered_by: text("triggered_by", {
+      enum: ["void-tool", "manual", "schedule", "skill"],
+    })
+      .notNull()
+      .default("manual"),
+    triggered_by_agent_id: text("triggered_by_agent_id").references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    conversation_id: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
     started_at: integer("started_at").notNull(),
     finished_at: integer("finished_at"),
   },
   (table) => [
     index("idx_workflow_runs_workflow").on(table.workflow_id),
     index("idx_workflow_runs_runtime").on(table.runtime_run_id),
+    index("idx_workflow_runs_started").on(table.started_at),
+    index("idx_workflow_runs_status").on(table.status),
+  ],
+);
+
+export const workflowStepRuns = sqliteTable(
+  "workflow_step_runs",
+  {
+    id: text("id").primaryKey(),
+    workflow_run_id: text("workflow_run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    node_id: text("node_id").notNull(),
+    status: text("status", {
+      enum: [
+        "pending",
+        "running",
+        "succeeded",
+        "failed",
+        "skipped",
+        "cancelled",
+        "waiting_approval",
+        "waiting_handoff",
+      ],
+    }).notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    input_json: text("input_json"),
+    output_json: text("output_json"),
+    error: text("error"),
+    started_at: integer("started_at"),
+    finished_at: integer("finished_at"),
+    duration_ms: integer("duration_ms"),
+    assigned_agent_id: text("assigned_agent_id").references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    metadata_json: text("metadata_json").notNull().default("{}"),
+  },
+  (table) => [
+    index("idx_workflow_step_runs_run").on(table.workflow_run_id),
+    index("idx_workflow_step_runs_started").on(table.started_at),
+  ],
+);
+
+export const workflowTransitions = sqliteTable(
+  "workflow_transitions",
+  {
+    id: text("id").primaryKey(),
+    workflow_run_id: text("workflow_run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    from_node_id: text("from_node_id"),
+    to_node_id: text("to_node_id").notNull(),
+    reason: text("reason").notNull().default(""),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_workflow_transitions_run").on(table.workflow_run_id),
+    index("idx_workflow_transitions_created").on(table.created_at),
   ],
 );
 

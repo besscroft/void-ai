@@ -202,24 +202,151 @@ export interface WorkflowStep {
   detail: string;
 }
 
+/**
+ * 工作流节点类型。在 OpenAI Orchestration 范式之上扩展：
+ * - handoff 节点把控制权转交给子代理（OpenAI Handoffs 范式）
+ * - consult 节点作为受限能力被父代理调用（Agents-as-tools 范式）
+ * - parallel / branch / delay 提供控制流
+ */
+export type WorkflowNodeKind =
+  | "prompt"
+  | "tool"
+  | "approval"
+  | "memory"
+  | "handoff"
+  | "consult"
+  | "parallel"
+  | "branch"
+  | "delay";
+
+export type WorkflowNodeStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "cancelled"
+  | "waiting_approval"
+  | "waiting_handoff";
+
+export type WorkflowRunStatus =
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "waiting_handoff"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export type WorkflowOnErrorPolicy = "fail" | "continue" | "compensate" | "fallback";
+
+/**
+ * Chat 页面悬浮状态框专用快照：与主进程 `getActiveWorkflowRunForConversation` 返回值对齐。
+ * - 活动 run：status 在 queued/running/waiting_approval/waiting_handoff 之一
+ * - 终态 run：用于显示短暂 toast（5s 后自动隐藏）
+ */
+export interface ActiveWorkflowRunSnapshot {
+  id: string;
+  workflowId: string;
+  status: WorkflowRunStatus;
+  startedAt: number;
+  finishedAt: number | null;
+  currentNodeId: string | null;
+}
+
+export interface WorkflowRetryPolicy {
+  maxAttempts: number; // 0 = 不重试
+  backoffMs: number; // 首次退避毫秒
+  backoffMultiplier: number; // 指数退避倍率
+}
+
+export interface WorkflowBranchOption {
+  nodeId: string; // 分支选中的下一节点 id
+  when?: string; // 极简表达式，命中条件（缺省/空 = 默认分支）
+}
+
+export interface WorkflowNodeConfig {
+  // 通用
+  agentId?: string;
+  // prompt
+  systemPrompt?: string;
+  promptTemplate?: string;
+  // tool
+  toolRef?: string; // "skill:<id>" / "<chatToolId>" / "mcp:<serverId>:<toolName>"
+  toolInput?: JsonObject;
+  // approval
+  approvalPrompt?: string;
+  // memory
+  memoryQuery?: string;
+  memoryKind?: MemoryKind;
+  memoryWrite?: { title: string; content: string; kind: MemoryKind };
+  // handoff / consult
+  targetAgentId?: string;
+  handoffTask?: string;
+  handoffExpectedOutput?: string;
+  // parallel
+  parallelNodes?: string[]; // 参与并行的节点 id 列表
+  // branch
+  conditionExpression?: string; // 整条表达式的入口；branches 缺省时用此求值
+  branches?: WorkflowBranchOption[]; // 多路分支，第一个 when 求值为 truthy 的胜出
+  // delay
+  delayMs?: number;
+}
+
+export interface WorkflowNode {
+  id: string;
+  kind: WorkflowNodeKind;
+  title: string;
+  description?: string;
+  dependsOn: string[]; // DAG 前置节点
+  config: WorkflowNodeConfig;
+  retryPolicy: WorkflowRetryPolicy;
+  onError: WorkflowOnErrorPolicy;
+  fallbackNodeId?: string; // onError=fallback 时跳转的节点
+  timeoutMs?: number; // 节点级超时
+}
+
 export interface WorkflowDefinition {
   id: string;
   name: string;
   description: string;
   status: WorkflowStatus;
-  steps_json: string;
   trigger: string;
+  version: number;
+  entryNodeId: string;
+  nodes: WorkflowNode[];
+  // 旧版 ToolSkillStep JSON，保留以兼容存量数据
+  steps_json?: string;
   created_at: number;
   updated_at: number;
 }
 
-export type RunStatus =
-  | "queued"
-  | "running"
-  | "waiting_approval"
-  | "succeeded"
-  | "failed"
-  | "cancelled";
+export type RunStatus = WorkflowRunStatus;
+
+export interface WorkflowStepRun {
+  id: string;
+  workflow_run_id: string;
+  node_id: string;
+  status: WorkflowNodeStatus;
+  attempt: number;
+  input_json: string | null;
+  output_json: string | null;
+  error: string | null;
+  started_at: number | null;
+  finished_at: number | null;
+  duration_ms: number | null;
+  assigned_agent_id: string | null;
+  metadata_json: string;
+}
+
+export interface WorkflowTransition {
+  id: string;
+  workflow_run_id: string;
+  from_node_id: string | null;
+  to_node_id: string;
+  reason: string;
+  created_at: number;
+}
 
 export interface WorkflowRun {
   id: string;
@@ -228,8 +355,13 @@ export interface WorkflowRun {
   status: RunStatus;
   input_json: string | null;
   output_json: string | null;
+  error: string | null;
+  context_json: string;
   started_at: number;
   finished_at: number | null;
+  triggered_by: "void-tool" | "manual" | "schedule" | "skill";
+  triggered_by_agent_id: string | null;
+  conversation_id: string | null;
 }
 
 export interface RuntimeEvent {

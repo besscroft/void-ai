@@ -32,8 +32,6 @@ import {
   listMemories,
   saveMemory,
   deleteMemory,
-  listWorkflows,
-  listWorkflowRuns,
   listRuntimeEvents,
   listInteractionProfiles,
   getSyncState,
@@ -93,6 +91,8 @@ import { queueAgentLearning } from "../lib/agent-learning";
 import { closeMcpClient, discoverMcpServer, testMcpServer } from "../lib/mcp-manager";
 import { runToolSkill } from "../lib/skill-runtime";
 import { generateSkillDraft } from "../lib/skill-drafts";
+import { cancelWorkflowRun } from "../lib/workflow-cancellation";
+import { getActiveWorkflowRunForConversation } from "../lib/workflow-runs";
 
 /**
  * IPC handlers 娉ㄥ唽
@@ -218,8 +218,12 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     deleteMemory(id);
     return true;
   });
-  ipcMain.handle("workflows:list", () => listWorkflows());
-  ipcMain.handle("workflowRuns:list", () => listWorkflowRuns());
+  // 工作流编排：仅暴露 chat 页面悬浮状态框需要的能力 —— 取消运行 + 按会话查最近一次 run
+  ipcMain.handle("workflowRuns:cancel", (_e, runId: string) => cancelWorkflowRun(runId));
+  // chat 页面右上方悬浮状态框：按会话取最近一次 run（活动优先 / 终态次之）
+  ipcMain.handle("workflowRuns:activeForConversation", (_e, conversationId: string) =>
+    getActiveWorkflowRunForConversation(conversationId),
+  );
   ipcMain.handle("runtime:events:list", () => listRuntimeEvents());
   ipcMain.handle("interactions:list", () => listInteractionProfiles());
   ipcMain.handle("sync:get", () => getSyncState());

@@ -11,7 +11,6 @@ void describe("messages", () => {
   void it("keeps primary Chinese navigation and management surfaces localized", () => {
     assert.equal(translate("zh-CN", "shell.nav.conversations"), "对话");
     assert.equal(translate("zh-CN", "main.title.agents"), "智能体");
-    assert.equal(translate("zh-CN", "main.title.workflows"), "工作流");
     assert.equal(translate("zh-CN", "main.title.tools"), "工具");
     assert.equal(translate("zh-CN", "main.title.memory"), "记忆");
     assert.equal(translate("zh-CN", "settings.title"), "设置");

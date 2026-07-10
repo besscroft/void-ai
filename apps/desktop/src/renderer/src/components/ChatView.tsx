@@ -23,6 +23,7 @@ import { MessageInput } from "./MessageInput";
 import { api, type RuntimeSnapshot } from "../lib/api";
 import { hasMeaningfulConversationTitle } from "../lib/conversation-title";
 import { getChatErrorMessage } from "../lib/errors";
+import { WorkflowStatusWidget } from "./WorkflowStatusWidget";
 import {
   appendOrReplaceMessage,
   buildUserMessage,
@@ -768,6 +769,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         onMediaSettingsChange={handleMediaSettingsChange}
         contextMetrics={contextMetrics}
       />
+
+      {/* 右上角悬浮工作流状态框：当前会话有活动 / 终态 run 时出现 */}
+      <WorkflowStatusWidget conversationId={conversationId} />
     </div>
   );
 }

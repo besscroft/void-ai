@@ -26,12 +26,15 @@ import type {
   ToolServerInput,
   ToolRecord,
   ProviderModelSyncResult,
+  WorkflowDefinition,
+  WorkflowRun,
+  WorkflowStepRun,
+  WorkflowTransition,
   ProviderInfo,
   ProviderTestResult,
   SyncState,
-  WorkflowDefinition,
-  WorkflowRun,
   RuntimeSnapshot,
+  ActiveWorkflowRunSnapshot,
 } from "../shared/types";
 
 /**
@@ -111,8 +114,10 @@ export interface VoidAIApi {
     delete: (id: string) => Promise<boolean>;
   };
   workflows: {
-    list: () => Promise<WorkflowDefinition[]>;
-    runs: () => Promise<WorkflowRun[]>;
+    // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）
+    activeRunForConversation: (conversationId: string) => Promise<ActiveWorkflowRunSnapshot | null>;
+    // 用户在悬浮状态框中可主动取消正在运行的 workflow
+    cancelRun: (runId: string) => Promise<boolean>;
   };
   interactions: {
     list: () => Promise<InteractionProfile[]>;

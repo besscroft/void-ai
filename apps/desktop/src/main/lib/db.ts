@@ -34,7 +34,6 @@ import {
   toolSecrets,
   toolServers,
   tools,
-  workflowRuns,
   workflows,
   type AgentPolicy as DbAgentPolicy,
   type AgentProfile as DbAgentProfile,
@@ -101,6 +100,14 @@ import {
   type WorkflowDefinition,
   type WorkflowRun,
 } from "../../shared/types";
+import {
+  createWorkflowRunRecord,
+  listWorkflowDefinitions,
+  listWorkflowRuns,
+  toWorkflowDefinition,
+  updateWorkflowRunRecord,
+} from "./workflow-runs";
+import { buildNodeFromLegacyStep } from "./workflow-types";
 
 export type {
   AgentProfile,
@@ -124,6 +131,9 @@ export type {
   WorkflowRun,
 };
 
+// 重新导出 schema 供其他模块直接引用（统一来源）。
+export { schema };
+
 const DB_FILENAME = "void-ai.db";
 const DATA_DIRNAME = "data";
 const DEFAULT_AGENT_ID = SHARED_DEFAULT_AGENT_ID;
@@ -131,7 +141,7 @@ const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_PROFILE_ID = "sync-local";
 
 type DbInstance = BetterSQLite3Database<typeof schema>;
-type RuntimeStatus = RunStatus | "waiting_approval";
+type RuntimeStatus = RunStatus;
 
 let rawDb: Database.Database | null = null;
 let dbInstance: DbInstance | null = null;
@@ -968,54 +978,65 @@ export function deleteMemory(id: string): void {
 }
 
 export function listWorkflows(): WorkflowDefinition[] {
-  return getDb().select().from(workflows).orderBy(desc(workflows.updated_at)).all();
-}
-
-export function listWorkflowRuns(): WorkflowRun[] {
-  return getDb().select().from(workflowRuns).orderBy(desc(workflowRuns.started_at)).all();
+  return listWorkflowDefinitions();
 }
 
 export function createWorkflowRun(input: {
   id?: string;
   workflow_id: string;
   runtime_run_id?: string | null;
-  status: RuntimeStatus;
+  status: RuntimeStatus | "waiting_handoff";
   input_json?: string | null;
   output_json?: string | null;
   started_at?: number;
   finished_at?: number | null;
 }): WorkflowRun {
-  const row = {
-    id: input.id ?? randomUUID(),
-    workflow_id: input.workflow_id,
-    runtime_run_id: input.runtime_run_id ?? null,
+  return createWorkflowRunRecord({
+    id: input.id,
+    workflowId: input.workflow_id,
+    runtimeRunId: input.runtime_run_id ?? null,
     status: input.status,
-    input_json: input.input_json ?? null,
-    output_json: input.output_json ?? null,
-    started_at: input.started_at ?? Date.now(),
-    finished_at: input.finished_at ?? null,
-  };
-  getDb().insert(workflowRuns).values(row).run();
-  return row as WorkflowRun;
+    inputJson: input.input_json ?? null,
+    outputJson: input.output_json ?? null,
+    startedAt: input.started_at,
+    finishedAt: input.finished_at ?? null,
+    triggeredBy: "manual",
+  });
 }
 
 export function updateWorkflowRun(
   id: string,
   patch: Partial<Pick<WorkflowRun, "status" | "output_json" | "finished_at">>,
 ): WorkflowRun | null {
-  const existing = getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id)).get();
-  if (!existing) return null;
-  getDb()
-    .update(workflowRuns)
-    .set({
-      status: (patch.status as RuntimeStatus | undefined) ?? existing.status,
-      output_json: patch.output_json === undefined ? existing.output_json : patch.output_json,
-      finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
-    })
-    .where(eq(workflowRuns.id, id))
-    .run();
-  return getDb().select().from(workflowRuns).where(eq(workflowRuns.id, id)).get() ?? null;
+  return updateWorkflowRunRecord(id, {
+    status: patch.status as WorkflowRun["status"] | undefined,
+    outputJson: patch.output_json === undefined ? undefined : patch.output_json,
+    finishedAt: patch.finished_at === undefined ? undefined : patch.finished_at,
+  });
 }
+
+/**
+ * 暴露给 IPC / server 的"只读"集合，配合 workflow-runs.ts 使用。
+ * 旧代码仍可直接 import 这两个函数；新代码优先使用 workflow-runs.ts 的具名导出。
+ */
+export {
+  getWorkflowDefinition,
+  listWorkflowDefinitions,
+  createWorkflowDefinition,
+  updateWorkflowDefinition,
+  deleteWorkflowDefinition,
+  getWorkflowRun,
+  getWorkflowRunDetail,
+  listWorkflowStepRuns,
+  listWorkflowTransitions,
+  listWorkflowRuns,
+  createWorkflowRunRecord,
+  updateWorkflowRunRecord,
+  createWorkflowStepRun,
+  updateWorkflowStepRun,
+  recordWorkflowTransition,
+  upgradeLegacyWorkflows,
+} from "./workflow-runs";
 
 export function listToolServers(kind?: "mcp" | "local" | "sandbox"): ToolServer[] {
   const where = kind
@@ -2094,25 +2115,37 @@ function normalizeSkillToolInput(
 }
 
 function ensureSkillWorkflow(skill: NewToolRecord): WorkflowDefinition {
-  const existing = getDb()
-    .select()
-    .from(workflows)
-    .where(eq(workflows.id, skill.workflow_id ?? skillWorkflowId(skill.id)))
-    .get();
-  if (existing) return existing;
+  const id = skill.workflow_id ?? skillWorkflowId(skill.id);
+  const existing = getDb().select().from(workflows).where(eq(workflows.id, id)).get();
+  if (existing) return toWorkflowDefinition(existing);
   const now = Date.now();
-  const row: WorkflowDefinition = {
-    id: skill.workflow_id ?? skillWorkflowId(skill.id),
+  // 把 skill 的 steps_json (ToolSkillStep) 升级为 WorkflowNode
+  const parsedLegacy = safeParseSteps(skill.steps_json ?? "[]");
+  const nodes = parsedLegacy.map((s, idx) => buildNodeFromLegacyStep(s, idx));
+  const row = {
+    id,
     name: skill.title ?? skill.name,
     description: skill.description ?? "",
-    status: "enabled",
+    status: "enabled" as const,
+    nodes_json: JSON.stringify(nodes),
+    entry_node_id: nodes[0]?.id ?? "",
+    version: 1,
     steps_json: skill.steps_json ?? "[]",
     trigger: `skill:${skill.id}`,
     created_at: now,
     updated_at: now,
   };
   getDb().insert(workflows).values(row).run();
-  return row;
+  return toWorkflowDefinition(row);
+}
+
+function safeParseSteps(raw: string): unknown[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function getRequiredToolServer(id: string): ToolServer {

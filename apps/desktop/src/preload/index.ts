@@ -65,8 +65,11 @@ const api = {
     delete: (id: string) => ipcRenderer.invoke("memories:delete", id),
   },
   workflows: {
-    list: () => ipcRenderer.invoke("workflows:list"),
-    runs: () => ipcRenderer.invoke("workflowRuns:list"),
+    // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）
+    activeRunForConversation: (conversationId: string) =>
+      ipcRenderer.invoke("workflowRuns:activeForConversation", conversationId),
+    // 用户在悬浮状态框中可主动取消正在运行的 workflow
+    cancelRun: (runId: string) => ipcRenderer.invoke("workflowRuns:cancel", runId),
   },
   interactions: {
     list: () => ipcRenderer.invoke("interactions:list"),

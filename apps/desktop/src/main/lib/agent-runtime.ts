@@ -28,6 +28,7 @@ import {
   type ModelCapabilities,
 } from "../../shared/types";
 import { appendReactionFeedback, type ResolvedChatModel } from "./chat-agent";
+import { z } from "zod";
 import {
   auditChatToolApprovalResponses,
   buildChatToolRuntime,
@@ -304,6 +305,12 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
     }
   }
 
+  // 仅有 Void 自身可调用工作流：把控制权转交给编排好的多步流程。
+  // Child agent 不挂此工具，避免循环调度。
+  const runWorkflowName = "run_workflow";
+  assignTool(tools, runWorkflowName, createRunWorkflowTool(context));
+  activeTools.add(runWorkflowName);
+
   const names = [...activeTools];
   return {
     ...base,
@@ -376,6 +383,105 @@ function createHandoffTool(context: RuntimeContext, child: AgentProfile): ToolSe
     description: "Transfer task ownership to " + child.name + " and run that child agent.",
     inputSchema: handoffInputSchema,
     execute: async (input) => runChildAgent(context, child, "handoff", input),
+  });
+}
+
+// 仅在 Void 自身可用的 run_workflow 工具：触发预定义的多步工作流。
+// 对齐 OpenAI Orchestration 范式中"manager 调度多步流程"的语义；
+// 实际子步骤执行由工作流引擎（workflow-engine.ts）接管。
+const runWorkflowInputSchema = z.object({
+  workflowId: z.string().describe("Workflow definition id to run"),
+  input: z.record(z.string(), z.unknown()).optional().describe("Input payload for the workflow"),
+  reason: z.string().optional().describe("Why Void chose to invoke this workflow"),
+});
+
+function createRunWorkflowTool(context: RuntimeContext): ToolSet[string] {
+  // 用一个可变容器承载 runId；引擎在 run_started 事件中写入，
+  // 工作流节点派发（approval 队列、记忆写入、handoff 记录）会读取最新值。
+  const liveRunId = { value: "" };
+  return tool({
+    description:
+      "Run a saved multi-step workflow by id. Use when the user request is best served by a " +
+      "predefined orchestration (multiple steps, agent handoffs, parallel/branch logic) rather " +
+      "than a single direct answer. Returns the workflow run id and a summary of node outcomes.",
+    inputSchema: runWorkflowInputSchema,
+    execute: async (input) => {
+      const { executeWorkflow } = await import("./workflow-engine");
+      const { getWorkflowDefinition } = await import("./workflow-runs");
+      const { buildDefaultEngineDeps } = await import("./workflow-dispatcher");
+      const { insertRuntimeEvent } = await import("./runtime-recorder");
+      const workflow = getWorkflowDefinition(input.workflowId);
+      if (!workflow) {
+        throw new Error(`Workflow '${input.workflowId}' not found.`);
+      }
+      if (workflow.status === "paused") {
+        throw new Error(`Workflow '${input.workflowId}' is paused.`);
+      }
+      // deps 工厂：每次派发都基于最新 runId 生成
+      const depsFactory = () =>
+        buildDefaultEngineDeps({
+          conversationId: context.conversationId ?? null,
+          runtimeRunId: context.runId ?? null,
+          triggeredByAgentId: DEFAULT_AGENT_ID,
+          workflowRunId: liveRunId.value,
+        });
+      const result = await executeWorkflow({
+        workflow,
+        input: input.input ?? {},
+        triggeredBy: "void-tool",
+        triggeredByAgentId: DEFAULT_AGENT_ID,
+        conversationId: context.conversationId ?? null,
+        runtimeRunId: context.runId ?? null,
+        deps: {
+          dispatchTool: async (ref, payload) => depsFactory().dispatchTool(ref, payload),
+          dispatchChildAgent: (target, payload, mode) =>
+            depsFactory().dispatchChildAgent(target, payload, mode),
+          waitForApproval: async (nodeId, prompt) => depsFactory().waitForApproval(nodeId, prompt),
+          readMemories: (q, k) => depsFactory().readMemories(q, k),
+          writeMemory: (payload) => depsFactory().writeMemory(payload),
+          resolveModelRef: (node) => depsFactory().resolveModelRef(node),
+          onNodeEvent: (event) => {
+            if (event.type === "run_started") {
+              liveRunId.value = event.runId;
+            }
+            if (event.type === "node_started") {
+              insertRuntimeEvent({
+                kind: "workflow",
+                title: `Workflow node started: ${event.nodeId}`,
+                status: "running",
+                detail: { runId: event.runId, nodeId: event.nodeId, attempt: event.attempt },
+              });
+            } else if (event.type === "node_completed") {
+              insertRuntimeEvent({
+                kind: "workflow",
+                title: `Workflow node ${event.status}: ${event.nodeId}`,
+                status: event.status as "succeeded" | "failed" | "running",
+                detail: {
+                  runId: event.runId,
+                  nodeId: event.nodeId,
+                  durationMs: event.durationMs,
+                },
+              });
+            } else if (event.type === "run_completed") {
+              insertRuntimeEvent({
+                kind: "workflow",
+                title: `Workflow ${event.status}`,
+                status: event.status,
+                detail: { runId: event.runId, output: event.output, error: event.error },
+              });
+            }
+          },
+        },
+      });
+      return {
+        runId: result.runId,
+        status: result.status,
+        durationMs: result.durationMs,
+        output: result.output,
+        error: result.error,
+        reason: input.reason ?? null,
+      };
+    },
   });
 }
 

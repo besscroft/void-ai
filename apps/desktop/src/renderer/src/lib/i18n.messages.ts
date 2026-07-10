@@ -970,17 +970,28 @@ const entries = {
     zh: "管理 MCP、技能、内置工具、审批策略与密钥。",
     en: "Manage MCP, Skills, built-in tools, approval policy, and secrets.",
   },
-  "main.subtitle.workflows": {
-    zh: "可复用的 agent 流程与执行摘要。",
-    en: "Reusable agent flows and execution summaries.",
-  },
   "main.title.agents": { zh: "智能体", en: "Agents" },
   "main.title.memory": { zh: "记忆", en: "Memory" },
   "main.title.tools": { zh: "工具", en: "Tools" },
-  "main.title.workflows": { zh: "工作流", en: "Workflows" },
   "main.value.disabled": { zh: "已禁用", en: "Disabled" },
   "main.value.enabled": { zh: "已启用", en: "Enabled" },
   "zh-CN": { zh: "简体中文", en: "Simplified Chinese" },
+
+  // 工作流悬浮状态框（chat 页面右上角）
+  "workflow.widget.active": { zh: "工作流运行中 · {id}", en: "Workflow running · {id}" },
+  "workflow.widget.terminal": { zh: "{status} · {id}", en: "{status} · {id}" },
+  "workflow.widget.run": { zh: "运行", en: "Run" },
+  "workflow.widget.workflow": { zh: "工作流", en: "Workflow" },
+  "workflow.widget.status": { zh: "状态", en: "Status" },
+  "workflow.widget.node": { zh: "当前节点", en: "Current node" },
+  "workflow.widget.cancel": { zh: "取消运行", en: "Cancel run" },
+  "workflow.status.succeeded": { zh: "已完成", en: "Succeeded" },
+  "workflow.status.failed": { zh: "失败", en: "Failed" },
+  "workflow.status.cancelled": { zh: "已取消", en: "Cancelled" },
+  "workflow.status.running": { zh: "运行中", en: "Running" },
+  "workflow.status.queued": { zh: "排队中", en: "Queued" },
+  "workflow.status.waitingApproval": { zh: "等待审批", en: "Waiting for approval" },
+  "workflow.status.waitingHandoff": { zh: "等待交接", en: "Waiting for handoff" },
 } as const;
 
 const zhOverrides: Dict = {
@@ -1436,11 +1447,9 @@ const zhOverrides: Dict = {
   "main.subtitle.agents": "管理身份、角色、指令、人格、模型、工具策略和运行策略。",
   "main.subtitle.memory": "管理全局、智能体和对话级记忆。",
   "main.subtitle.tools": "管理 MCP、技能、内置工具、审批策略与密钥。",
-  "main.subtitle.workflows": "管理可复用的智能体流程和执行摘要。",
   "main.title.agents": "智能体",
   "main.title.memory": "记忆",
   "main.title.tools": "工具",
-  "main.title.workflows": "工作流",
   "zh-CN": "简体中文",
 };
 

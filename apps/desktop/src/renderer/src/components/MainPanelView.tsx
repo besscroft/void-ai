@@ -1,19 +1,14 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Button, Card, Chip } from "./ui";
-import {
-  api,
-  type AgentProfile,
-  type MemoryRecord,
-  type RuntimeEvent,
-  type WorkflowDefinition,
-} from "../lib/api";
+import { api, type AgentProfile, type MemoryRecord, type RuntimeEvent } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { AgentsPanel } from "./AgentsPanel";
 import { ToolsPanel } from "./ToolsPanel";
-import { IconDatabase, IconRotateCcw, IconSliders } from "./icons";
+import { IconDatabase, IconRotateCcw } from "./icons";
 import { cn } from "../lib/utils";
 
-export type MainSection = "agents" | "workflows" | "tools" | "memory";
+export type MainSection = "agents" | "tools" | "memory";
 
 interface MainPanelViewProps {
   section: MainSection;
@@ -21,7 +16,6 @@ interface MainPanelViewProps {
 
 interface PanelData {
   agents: AgentProfile[];
-  workflows: WorkflowDefinition[];
   memories: MemoryRecord[];
   runtimeEvents: RuntimeEvent[];
 }
@@ -30,7 +24,6 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
   const { t } = useT();
   const [data, setData] = useState<PanelData>({
     agents: [],
-    workflows: [],
     memories: [],
     runtimeEvents: [],
   });
@@ -39,14 +32,9 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
 
   const refresh = (): void => {
     setRefreshing(true);
-    void Promise.all([
-      api.agents.list(),
-      api.workflows.list(),
-      api.memories.list(),
-      api.runtime.events.list(),
-    ])
-      .then(([agents, workflows, memories, runtimeEvents]) => {
-        setData({ agents, workflows, memories, runtimeEvents });
+    void Promise.all([api.agents.list(), api.memories.list(), api.runtime.events.list()])
+      .then(([agents, memories, runtimeEvents]) => {
+        setData({ agents, memories, runtimeEvents });
       })
       .finally(() => {
         setLoading(false);
@@ -86,45 +74,15 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
             loading={loading || refreshing}
           />
         )}
-        {section === "workflows" && <WorkflowsPanel workflows={data.workflows} />}
         {section === "memory" && <MemoryPanel memories={data.memories} />}
       </div>
     </main>
   );
 }
 
-function WorkflowsPanel({ workflows }: { workflows: WorkflowDefinition[] }): React.JSX.Element {
-  const { t } = useT();
-  return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {workflows.map((workflow) => (
-        <Card key={workflow.id}>
-          <Card.Header>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <Card.Title>{workflow.name}</Card.Title>
-                <Card.Description>{workflow.trigger}</Card.Description>
-              </div>
-              <Chip size="sm" variant="soft">
-                {workflow.status}
-              </Chip>
-            </div>
-          </Card.Header>
-          <Card.Content>
-            <p className="text-sm text-foreground/60">{workflow.description}</p>
-          </Card.Content>
-        </Card>
-      ))}
-      {workflows.length === 0 && (
-        <EmptyState icon={<IconSliders />} title={t("main.title.workflows")} />
-      )}
-    </div>
-  );
-}
-
 function MemoryPanel({ memories }: { memories: MemoryRecord[] }): React.JSX.Element {
   const { t } = useT();
-  const pinned = useMemo(() => memories.filter((memory) => memory.pinned), [memories]);
+  const pinned = memories.filter((memory) => memory.pinned);
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
       <Card>

@@ -475,6 +475,10 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     }
   });
 
+  // ---------- 工作流编排端点 ----------
+  // 工作流不再对外暴露 HTTP 端点：侧栏入口已下线，widget 直接走 IPC 与主进程内的 engine/cancellation 交互。
+  // 底层 db schema、engine、cancellation、dispatcher（handoff/approval）保留作为核心模块。
+
   return app;
 }
 
