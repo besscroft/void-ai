@@ -171,10 +171,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
           value={tab}
           onValueChange={(value) => setTab(value as TabId)}
           orientation="vertical"
+          groupName="settings-nav"
           className="min-h-0 flex-1 overflow-hidden"
         >
           {/* 瀵艰埅 */}
-          <TabsList className="h-fit w-full shrink-0 justify-start gap-1 rounded-none border-r border-foreground/10 bg-transparent p-2 md:w-48">
+          <TabsList className="flex-col h-fit w-full shrink-0 justify-start gap-1 rounded-none border-r border-foreground/10 bg-transparent p-2 md:w-48">
             {tabs.map(({ id, label, Icon }) => (
               <TabsTrigger
                 key={id}
@@ -668,7 +669,6 @@ function AppearanceTab({
           desc={t("appearance.density.desc")}
           control={
             <Tabs
-              orientation="horizontal"
               value={settings.density}
               onValueChange={(key) => {
                 if (key === "compact" || key === "comfortable" || key === "loose") {
@@ -693,7 +693,6 @@ function AppearanceTab({
           desc={t("appearance.diff.desc")}
           control={
             <Tabs
-              orientation="horizontal"
               value={settings.diffMark}
               onValueChange={(key) => {
                 if (key === "color" || key === "symbol") {
@@ -713,7 +712,6 @@ function AppearanceTab({
           desc={t("appearance.language.desc")}
           control={
             <Tabs
-              orientation="horizontal"
               value={settings.language}
               onValueChange={(key) => {
                 if (key === "system" || key === "zh-CN" || key === "en") {
