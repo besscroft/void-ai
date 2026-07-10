@@ -25,11 +25,35 @@
       "skillPath": "skills/gpt-tasteskill/SKILL.md",
       "computedHash": "7bd1bfdda0e51016ca222693401a65fc0dd9bf9487e0bd5b1740ba510f6f963a"
     },
+    "kill-ai-slop": {
+      "source": "local",
+      "sourceType": "local",
+      "skillPath": ".agents/skills/kill-ai-slop/SKILL.md",
+      "computedHash": "38578e421063ffa3e54258c6508f2bd711d25d1402256fce09e316e2074fda77"
+    },
     "mastra": {
       "source": "mastra-ai/skills",
       "sourceType": "github",
       "skillPath": "skills/mastra/SKILL.md",
       "computedHash": "517cfc6261f08fcd16c8f0ee64bf7a5b70d0d69acb723cbec4179678b0462f18"
+    },
+    "mem0": {
+      "source": "mem0ai/mem0",
+      "sourceType": "github",
+      "skillPath": "skills/mem0/SKILL.md",
+      "computedHash": "b6a1ed093485d9dc603fdbd1ff3a523a474bc2fb97851e8af394ae3c258614dd"
+    },
+    "mem0-cli": {
+      "source": "mem0ai/mem0",
+      "sourceType": "github",
+      "skillPath": "skills/mem0-cli/SKILL.md",
+      "computedHash": "2167909bee6d472f39e80b1f4767584420bc0686471f12534f4956f71e8659a6"
+    },
+    "mem0-vercel-ai-sdk": {
+      "source": "mem0ai/mem0",
+      "sourceType": "github",
+      "skillPath": "skills/mem0-vercel-ai-sdk/SKILL.md",
+      "computedHash": "996d9e59734b994e954e20916f8de49257b88e2d673b5d4b0377244caf1230a7"
     },
     "migrate-radix-to-base": {
       "source": "shadcn/ui",
@@ -54,12 +78,6 @@
       "sourceType": "github",
       "skillPath": "skills/shadcn/SKILL.md",
       "computedHash": "4f78ff7cd3a4f637b6fe30dbbab4a80a19dd63fa62d9352bed461ccfdbcbbf43"
-    },
-    "kill-ai-slop": {
-      "source": "local",
-      "sourceType": "local",
-      "skillPath": ".agents/skills/kill-ai-slop/SKILL.md",
-      "computedHash": "38578e421063ffa3e54258c6508f2bd711d25d1402256fce09e316e2074fda77"
     }
   }
 }
