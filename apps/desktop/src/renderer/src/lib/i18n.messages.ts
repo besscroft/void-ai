@@ -578,6 +578,7 @@ const entries = {
   "settings.tab.tools": { zh: "工具", en: "Tools" },
   "settings.tab.trash": { zh: "回收站", en: "Trash" },
   "settings.title": { zh: "设置", en: "Settings" },
+  "settings.nav": { zh: "设置导航", en: "Settings navigation" },
   "settings.tools.subtitle": {
     zh: "管理 MCP、技能与密钥",
     en: "Manage MCP servers, skills, and secrets",

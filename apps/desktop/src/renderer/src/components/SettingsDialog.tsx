@@ -167,26 +167,33 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
         </div>
 
         {/* 涓讳綋锛氬鑸?+ 鍐呭锛岀獎灞忕旱鍚戝竷灞€ */}
-        <Tabs
-          value={tab}
-          onValueChange={(value) => setTab(value as TabId)}
-          orientation="vertical"
-          groupName="settings-nav"
-          className="min-h-0 flex-1 overflow-hidden"
-        >
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* 瀵艰埅 */}
-          <TabsList className="flex-col h-fit w-full shrink-0 justify-start gap-1 rounded-none border-r border-foreground/10 bg-transparent p-2 md:w-48">
-            {tabs.map(({ id, label, Icon }) => (
-              <TabsTrigger
-                key={id}
-                value={id}
-                className="justify-start gap-2 rounded-md px-3 py-2 text-sm font-normal transition hover:text-foreground data-active:bg-accent/10 data-active:text-accent"
-              >
-                <Icon className="size-4 shrink-0" />
-                <span className="truncate">{label}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <nav
+            aria-label={t("settings.nav")}
+            className="w-full shrink-0 space-y-1 border-r border-foreground/10 bg-foreground/[0.02] p-2 md:w-48"
+          >
+            {tabs.map(({ id, label, Icon }) => {
+              const active = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTab(id)}
+                  aria-current={active ? "page" : undefined}
+                  className={[
+                    "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition",
+                    active
+                      ? "bg-accent/10 text-accent"
+                      : "text-foreground/70 hover:bg-foreground/5 hover:text-foreground",
+                  ].join(" ")}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  <span className="truncate">{label}</span>
+                </button>
+              );
+            })}
+          </nav>
 
           {/* 鍐呭 */}
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 flex flex-col">
@@ -202,7 +209,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
             {tab === "diagnostics" && <DiagnosticsTab />}
             {tab === "trash" && <TrashTab />}
           </div>
-        </Tabs>
+        </div>
 
         {/* 搴曢儴 */}
         <div className="flex items-center justify-between border-t border-foreground/10 px-6 py-2.5">

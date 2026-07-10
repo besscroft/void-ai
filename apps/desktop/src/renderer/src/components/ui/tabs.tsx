@@ -3,17 +3,12 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@renderer/lib/utils";
 
-function Tabs({
-  className,
-  orientation = "horizontal",
-  groupName = "tabs",
-  ...props
-}: TabsPrimitive.Root.Props & { groupName?: string }) {
+function Tabs({ className, orientation = "horizontal", ...props }: TabsPrimitive.Root.Props) {
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
       data-orientation={orientation}
-      className={cn(`group/${groupName} flex gap-2 data-horizontal:flex-col`, className)}
+      className={cn("group/tabs flex gap-2 data-horizontal:flex-col", className)}
       {...props}
     />
   );
