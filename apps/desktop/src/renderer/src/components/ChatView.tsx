@@ -858,9 +858,10 @@ function formatRuntimeSummary(
 /* ---------- 鑷姩鏍囬鐢熸垚 ---------- */
 
 /**
- * 褰撴湰杞?user + assistant 瀹屾暣鍑虹幇鍚庯紝璋冪敤 /api/title 鐢熸垚鏍囬
+ * 褰撴湰杞?user + assistant 瀹屾暣鍑虹幉鍚庯紝璋冪敤 /api/title 鐢熸垚鏍囬
  *  - 浠呴娆★紙宸茬敓鎴愯繃鐨勫璇濅笉鍐嶇敓鎴愶級
- *  - 浠呭湪瀵硅瘽鐨勫墠 2 鏉℃秷鎭负 user + assistant 涓斿綋鍓嶆鍦ㄥ畬鎴愮涓€涓?assistant 鏃?
+ *  - 镓惧埌绗竴𨱒?user 娑堟伅鍙婂叾钖庨潬镄勭涓€𨱒?assistant 娑堟伅浣滀负鎹?锛?
+ *    涓嶅己姘旗被鍨嬩綅缃纸鍏铡嗗彶/绯荤粺娑堟伅鍓|銆佹。搴忓彉鍖栵级锛岃€屼笉鏄镆?messages[0]/messages[1]銆?
  */
 function tryAutoTitle(
   conversationId: string,
@@ -869,14 +870,27 @@ function tryAutoTitle(
   titledRef: React.MutableRefObject<Set<string>>,
 ): void {
   if (titledRef.current.has(conversationId)) return;
-  if (messages.length < 2) return;
-  const first = messages[0];
-  const second = messages[1];
-  if (!first || !second) return;
-  if (first.role !== "user" || second.role !== "assistant") return;
+  if (messages.length < 1) return;
 
-  // 鍙栫涓€涓?user + 绗竴涓?assistant 鐨勭函鏂囨湰浣滀负 prompt
-  const excerpt: UIMessage[] = [first, second];
+  // 找到第一条 user 消息，以及紧随其后的第一条 assistant 消息。
+  // 不严格要求位于 messages[0]/messages[1]，兼容历史/系统消息前置、顺序变化等场景，
+  // 否则会因角色/位置不匹配而永远跳过标题生成。
+  let userMsg: UIMessage | undefined;
+  let assistantMsg: UIMessage | undefined;
+  for (const m of messages) {
+    if (m.role === "user" && !userMsg) {
+      userMsg = m;
+      continue;
+    }
+    if (userMsg && m.role === "assistant" && !assistantMsg) {
+      assistantMsg = m;
+      break;
+    }
+  }
+  if (!userMsg) return;
+
+  // 取第一个 user（+ 紧随其后的 assistant）的纯文本作为 prompt
+  const excerpt: UIMessage[] = assistantMsg ? [userMsg, assistantMsg] : [userMsg];
   void api.server
     .info()
     .then((info) => {
