@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState, type SVGProps } from "react";
-import { Button, Chip, Popover, Tabs, TabsList, TabsTrigger, Tooltip } from "./ui";
+import {
+  Button,
+  Chip,
+  Popover,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "./ui";
 import {
   CHAT_TOOL_IDS,
   isChatToolId,
@@ -118,7 +128,7 @@ export function ToolSelector({
   return (
     <Popover>
       <Tooltip>
-        <Tooltip.Trigger>
+        <TooltipTrigger>
           <Popover.Trigger>
             <Button
               type="button"
@@ -140,8 +150,8 @@ export function ToolSelector({
               ) : null}
             </Button>
           </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Tooltip.Content>{summary}</Tooltip.Content>
+        </TooltipTrigger>
+        <TooltipContent>{summary}</TooltipContent>
       </Tooltip>
 
       <Popover.Content

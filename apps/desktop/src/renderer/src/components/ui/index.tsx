@@ -767,34 +767,7 @@ export const Popover = Object.assign(PopoverRoot, {
   Heading: PopoverHeading,
 });
 
-function TooltipRoot({ children }: { children: ReactNode }): React.JSX.Element {
-  return <span className="group/tooltip relative inline-flex">{children}</span>;
-}
-
-function TooltipTrigger({ children }: { children: ReactNode }): React.JSX.Element {
-  return <>{children}</>;
-}
-
-function TooltipContent({
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement>): React.JSX.Element {
-  return (
-    <span
-      role="tooltip"
-      className={cn(
-        "pointer-events-none absolute bottom-full left-1/2 z-[1001] mb-2 hidden max-w-xs -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-lg group-hover/tooltip:block",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-export const Tooltip = Object.assign(TooltipRoot, {
-  Trigger: TooltipTrigger,
-  Content: TooltipContent,
-});
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./tooltip";
 
 interface ColorValue {
   value: string;

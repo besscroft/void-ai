@@ -15,6 +15,8 @@ import {
   TextArea,
   TextField,
   Tooltip,
+  TooltipTrigger,
+  TooltipContent,
   ToggleButton,
   ToggleButtonGroup,
 } from "./ui";
@@ -2143,7 +2145,7 @@ function ProviderModelWorkbench({
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Tooltip>
-                    <Tooltip.Trigger>
+                    <TooltipTrigger>
                       <Button
                         type="button"
                         isIconOnly
@@ -2155,8 +2157,8 @@ function ProviderModelWorkbench({
                       >
                         <IconZap className="size-4" />
                       </Button>
-                    </Tooltip.Trigger>
-                    <Tooltip.Content>{t("model.provider.test")}</Tooltip.Content>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("model.provider.test")}</TooltipContent>
                   </Tooltip>
                   <Button
                     variant="secondary"
@@ -2378,7 +2380,7 @@ function ProviderModelWorkbench({
                               </Switch.Content>
                             </Switch>
                             <Tooltip>
-                              <Tooltip.Trigger>
+                              <TooltipTrigger>
                                 <Button
                                   type="button"
                                   isIconOnly
@@ -2395,8 +2397,8 @@ function ProviderModelWorkbench({
                                 >
                                   <IconSliders className="size-4" />
                                 </Button>
-                              </Tooltip.Trigger>
-                              <Tooltip.Content>{t("model.options.title")}</Tooltip.Content>
+                              </TooltipTrigger>
+                              <TooltipContent>{t("model.options.title")}</TooltipContent>
                             </Tooltip>
                             <Button
                               type="button"
