@@ -50,7 +50,7 @@ const MEMORY_SCOPES: MemoryScope[] = ["global", "agent", "conversation"];
 const MEMORY_KINDS: MemoryKind[] = ["fact", "preference", "episode", "profile", "skill"];
 
 export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Element {
-  const { t } = useT();
+  useT();
   const [data, setData] = useState<PanelData>({
     agents: [],
     runtimeEvents: [],
@@ -84,17 +84,6 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
   return (
     <main className="min-h-0 flex-1 overflow-y-auto p-6">
       <div className="mx-auto flex h-full max-w-6xl flex-col gap-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold">{t(`main.title.${section}`)}</h1>
-            <p className="mt-1 text-sm text-foreground/50">{t(`main.subtitle.${section}`)}</p>
-          </div>
-          <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
-            <IconRotateCcw className={cn("size-4", refreshing && "animate-spin")} />
-            {t("main.refresh")}
-          </Button>
-        </div>
-
         {section === "agents" && (
           <AgentsPanel
             agents={data.agents}
