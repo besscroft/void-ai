@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { UIMessage } from "ai";
-import { getMessageActivityStatus } from "./MessageList";
+import { getMessageActivityStatus, getReasoningDisplay } from "./MessageList";
 
 function assistant(parts: UIMessage["parts"]): UIMessage[] {
   return [{ id: "assistant", role: "assistant", parts }];
@@ -60,5 +60,32 @@ void describe("chat message activity", () => {
       getMessageActivityStatus(assistant([{ type: "text", text: "Done" }]), false, "ready"),
       null,
     );
+  });
+});
+
+void describe("reasoning display", () => {
+  void it("keeps the original reasoning text and streaming state", () => {
+    const display = getReasoningDisplay(
+      [
+        { type: "reasoning", text: "first thought", state: "done" },
+        { type: "reasoning", text: "second thought", state: "streaming" },
+      ],
+      true,
+    );
+
+    assert.deepEqual(display, {
+      text: "first thought\n\nsecond thought",
+      isStreaming: true,
+    });
+  });
+
+  void it("marks completed reasoning as no longer streaming", () => {
+    const display = getReasoningDisplay(
+      [{ type: "reasoning", text: "final thought", state: "done" }],
+      false,
+    );
+
+    assert.equal(display?.text, "final thought");
+    assert.equal(display?.isStreaming, false);
   });
 });

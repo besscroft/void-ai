@@ -11,7 +11,7 @@
  *  - 鏍囬鑷姩鐢熸垚锛氶娆?user + assistant 瀹屾暣鍑虹幇鍚庤皟鐢?/api/title
  *  - 娑堟伅鍔ㄤ綔锛圗dit / Resend / Delete锛夌敱鏈粍浠跺疄鐜帮紝浼犻€掔粰 MessageList
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -781,6 +781,14 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       <ChatHeader
         status={statusKind}
         runtimeSummary={formatRuntimeSummary(runtimeSnapshot, conversationId, t)}
+        runtimePanel={
+          <AgentStatusWidget
+            conversationId={conversationId}
+            snapshot={runtimeSnapshot}
+            chatStatus={statusKind}
+            isChatActive={isChatLoading}
+          />
+        }
       />
 
       {isEmpty ? (
@@ -825,14 +833,6 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         onMediaSettingsChange={handleMediaSettingsChange}
         contextMetrics={contextMetrics}
       />
-
-      {/* 右上角悬浮工作流状态框：当前会话有活动 / 终态 run 时出现 */}
-      <AgentStatusWidget
-        conversationId={conversationId}
-        snapshot={runtimeSnapshot}
-        chatStatus={statusKind}
-        isChatActive={isChatLoading}
-      />
     </div>
   );
 }
@@ -842,34 +842,40 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 interface ChatHeaderProps {
   status: ConversationStatusKind;
   runtimeSummary?: string;
+  runtimePanel?: ReactNode;
 }
 
 /**
  * 澶撮儴鍙睍绀?瀵硅瘽鍚?+ 鐘舵€佸窘绔?锛涗笂涓嬫枃鐢ㄩ噺宸茶縼鑷宠緭鍏ユ鐨?ContextPopover銆?
  */
-function ChatHeader({ status, runtimeSummary }: ChatHeaderProps): React.JSX.Element {
+function ChatHeader({ status, runtimeSummary, runtimePanel }: ChatHeaderProps): React.JSX.Element {
   const { t } = useT();
   return (
     <header
-      className="flex shrink-0 items-center justify-between gap-3 border-b border-foreground/10 px-4 py-3 sm:px-6"
+      className="relative z-30 grid shrink-0 grid-cols-1 items-start gap-2 border-b border-foreground/10 px-4 py-2.5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,34rem)] lg:items-center lg:gap-4"
       data-streaming={status === "streaming" || status === "submitted"}
     >
-      <div className="flex items-center gap-2.5">
+      <div className="flex min-w-0 items-center gap-2.5 lg:min-h-9">
         <span
-          className="flex size-2 rounded-full bg-success/80 ring-2 ring-success/20"
+          className="flex size-2 shrink-0 rounded-full bg-success/80 ring-2 ring-success/20"
           aria-hidden
         />
-        <h1 className="text-sm font-medium text-foreground/80">{t("chat.header.title")}</h1>
+        <h1 className="shrink-0 text-sm font-medium text-foreground/80">
+          {t("chat.header.title")}
+        </h1>
         <ConversationStatus status={status} />
         {runtimeSummary ? (
-          <span className="hidden max-w-[32rem] truncate text-xs text-foreground/50 sm:inline">
+          <span className="hidden min-w-0 truncate text-xs text-foreground/50 sm:inline">
             {runtimeSummary}
           </span>
         ) : null}
       </div>
-      <span className="text-[10.5px] uppercase tracking-wider text-foreground/40">
-        {t("chat.header.runtime")}
-      </span>
+      <div className="flex min-w-0 items-start gap-2 lg:justify-end">
+        <span className="hidden shrink-0 pt-2.5 text-[10.5px] uppercase tracking-wider text-foreground/40 xl:inline">
+          {t("chat.header.runtime")}
+        </span>
+        <div className="min-w-0 flex-1">{runtimePanel}</div>
+      </div>
     </header>
   );
 }

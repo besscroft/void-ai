@@ -95,4 +95,23 @@ void describe("agent activity selection", () => {
     assert.equal(activity?.active, false);
     assert.equal(activity?.agents[0]?.status, "succeeded");
   });
+
+  void it("keeps a terminal run visible without a retention timeout", () => {
+    const data = snapshot();
+    data.runtimeRuns[0] = {
+      ...data.runtimeRuns[0],
+      status: "succeeded",
+      finished_at: 200,
+    };
+    data.conversationAgentStates[0] = {
+      ...data.conversationAgentStates[0],
+      current_run_id: null,
+      status: "idle",
+    };
+
+    const activity = selectAgentActivity(data, "conversation-1", "ready", false, 1_000_000);
+
+    assert.equal(activity?.runId, "run-1");
+    assert.equal(activity?.active, false);
+  });
 });

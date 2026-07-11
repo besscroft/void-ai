@@ -226,6 +226,11 @@ export type MessageActivityStatus =
   | "waiting-approval"
   | "responding";
 
+export interface ReasoningDisplay {
+  text: string;
+  isStreaming: boolean;
+}
+
 function MessageActivity({ status }: { status: MessageActivityStatus }): React.JSX.Element {
   const { t } = useT();
   const activity = {
@@ -285,6 +290,22 @@ export function getMessageActivityStatus(
   return "thinking";
 }
 
+export function getReasoningDisplay(
+  parts: UIMessage["parts"],
+  messageStreaming: boolean,
+): ReasoningDisplay | null {
+  const reasoningParts = parts.filter(isReasoningPart);
+  if (reasoningParts.length === 0) return null;
+
+  const lastReasoningPart = reasoningParts.at(-1);
+  return {
+    text: reasoningParts.map((part) => part.text).join("\n\n"),
+    isStreaming:
+      reasoningParts.some((part) => part.state === "streaming") ||
+      (messageStreaming && lastReasoningPart?.state !== "done"),
+  };
+}
+
 interface MessageItemProps {
   message: UIMessage;
   isLastMessage: boolean;
@@ -321,9 +342,9 @@ function MessageItem({
   const parts = message.parts ?? [];
   const messageStreaming = isLastMessage && isStreaming;
   const reasoningParts = parts.filter(isReasoningPart);
-  const reasoningText = reasoningParts.map((part) => part.text).join("\n\n");
-  const lastPart = parts.at(-1);
-  const isReasoningStreaming = messageStreaming && lastPart?.type === "reasoning";
+  const reasoningDisplay = getReasoningDisplay(parts, messageStreaming);
+  const reasoningText = reasoningDisplay?.text ?? "";
+  const isReasoningStreaming = reasoningDisplay?.isStreaming ?? false;
   const fileParts = parts.filter(isAttachmentPart) as unknown as FilePartLike[];
   const sourceParts = parts.filter(isSourcePart);
   const imageParts = fileParts.filter((p) => (p.mediaType ?? "").startsWith("image/"));
@@ -430,7 +451,7 @@ function MessageItem({
         {(reasoningParts.length > 0 || sourceParts.length > 0 || imageParts.length > 0) && (
           <ChainOfThought
             active={isReasoningStreaming}
-            defaultOpen={isReasoningStreaming}
+            defaultOpen={reasoningParts.length > 0}
             title={isReasoningStreaming ? t("msg.cot.reasoningActive") : t("msg.cot.reasoning")}
           >
             {reasoningParts.length > 0 ? (
@@ -443,7 +464,16 @@ function MessageItem({
                     ? t("msg.cot.chars", { count: f.number(reasoningText.length) })
                     : undefined
                 }
-              />
+              >
+                {reasoningText ? (
+                  <p
+                    data-slot="reasoning-text"
+                    className="whitespace-pre-wrap break-words rounded-md border border-foreground/10 bg-background/65 px-2.5 py-2 font-mono text-[11px] leading-5 text-foreground/70"
+                  >
+                    {reasoningText}
+                  </p>
+                ) : null}
+              </ChainOfThoughtStep>
             ) : null}
 
             {sourceParts.length > 0 ? (

@@ -14,7 +14,6 @@ import {
   IconCircleCheck,
   IconCircleDashed,
   IconCircleX,
-  IconClose,
   IconCpu,
 } from "./icons";
 
@@ -66,8 +65,6 @@ const ACTIVE_WORKFLOW_STATUSES = new Set([
   "waiting_approval",
   "waiting_handoff",
 ]);
-const TERMINAL_WORKFLOW_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
-const TERMINAL_VISIBLE_MS = 5_000;
 const POLL_INTERVAL_MS = 1_500;
 
 export function selectAgentActivity(
@@ -124,10 +121,6 @@ export function selectAgentActivity(
     .sort((a, b) => a.created_at - b.created_at)
     .map(toActivityItem);
 
-  if (!active && runtimeRun?.finished_at && now - runtimeRun.finished_at > TERMINAL_VISIBLE_MS) {
-    return null;
-  }
-
   return {
     runId,
     active,
@@ -161,8 +154,8 @@ export function AgentStatusWidget({
 }: AgentStatusWidgetProps): React.JSX.Element | null {
   const { t } = useT();
   const [workflow, setWorkflow] = useState<ActiveWorkflowRunSnapshot | null>(null);
+  const [retainedActivity, setRetainedActivity] = useState<AgentActivityModel | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [dismissedTerminalKey, setDismissedTerminalKey] = useState<string | null>(null);
   const [, setClock] = useState(0);
   const activity = useMemo(
     () => selectAgentActivity(snapshot, conversationId, chatStatus, isChatActive),
@@ -174,7 +167,7 @@ export function AgentStatusWidget({
     const load = async (): Promise<void> => {
       try {
         const next = await api.workflows.activeRunForConversation(conversationId);
-        if (!cancelled) setWorkflow(next);
+        if (!cancelled && next) setWorkflow(next);
       } catch (error) {
         console.error("[agent-status] failed to load workflow:", error);
       }
@@ -193,6 +186,10 @@ export function AgentStatusWidget({
   }, [conversationId, isChatActive]);
 
   useEffect(() => {
+    if (activity) setRetainedActivity(activity);
+  }, [activity]);
+
+  useEffect(() => {
     if (!activity?.active && !workflow) return;
     const timer = window.setInterval(() => setClock((value) => value + 1), 1_000);
     return () => window.clearInterval(timer);
@@ -204,30 +201,8 @@ export function AgentStatusWidget({
   }, [activity?.agents.length, activity?.failed, activity?.waitingApproval]);
 
   const workflowActive = workflow ? ACTIVE_WORKFLOW_STATUSES.has(workflow.status) : false;
-  const workflowTerminal = workflow ? TERMINAL_WORKFLOW_STATUSES.has(workflow.status) : false;
-  const workflowRecent =
-    workflow?.finishedAt == null || Date.now() - workflow.finishedAt <= TERMINAL_VISIBLE_MS;
-  const terminalKey = !activity?.active
-    ? activity?.runId
-      ? `agent:${activity.runId}`
-      : workflowTerminal && workflow
-        ? `workflow:${workflow.id}`
-        : null
-    : null;
-
-  useEffect(() => {
-    if (!terminalKey || dismissedTerminalKey === terminalKey) return;
-    const timer = window.setTimeout(
-      () => setDismissedTerminalKey(terminalKey),
-      TERMINAL_VISIBLE_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [dismissedTerminalKey, terminalKey]);
-
-  const visibleActivity =
-    activity && (activity.active || dismissedTerminalKey !== terminalKey) ? activity : null;
-  const visibleWorkflow =
-    workflow && (workflowActive || (workflowTerminal && workflowRecent)) ? workflow : null;
+  const visibleActivity = activity ?? retainedActivity;
+  const visibleWorkflow = workflow;
   if (!visibleActivity && !visibleWorkflow) return null;
 
   const agents = visibleActivity?.agents ?? [];
@@ -245,23 +220,20 @@ export function AgentStatusWidget({
       ? t("agentStatus.workflowRunning")
       : t("agentStatus.workflowCompleted");
 
-  const dismiss = (): void => {
-    if (terminalKey) setDismissedTerminalKey(terminalKey);
-    if (workflow && !workflowActive) setWorkflow(null);
-  };
-
   return (
     <aside
       role="status"
       aria-live="polite"
       className={cn(
-        "pointer-events-auto absolute top-16 right-3 z-40 w-[min(340px,calc(100%-24px))] overflow-hidden rounded-lg border border-border/70 bg-background/95 shadow-lg",
-        "transition-[transform,opacity] duration-200 ease-out",
+        "relative w-full min-w-0 rounded-md border border-border/70 bg-background/90",
+        "transition-[border-color,background-color,border-radius] duration-200 ease-out",
+        isChatActive && "border-accent/25 bg-accent/[0.025]",
+        expanded && "rounded-b-none",
       )}
     >
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-foreground/5"
+        className="flex min-h-9 w-full items-center gap-2 px-3 py-2 text-left hover:bg-foreground/5"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
       >
@@ -277,7 +249,7 @@ export function AgentStatusWidget({
       </button>
 
       {expanded ? (
-        <div className="max-h-[min(420px,55vh)] overflow-y-auto border-t border-border/50 p-2">
+        <div className="absolute top-[calc(100%-1px)] right-[-1px] z-50 max-h-[min(420px,55vh)] w-[calc(100%+2px)] overflow-y-auto rounded-b-md border border-border/70 bg-background/98 p-2 shadow-lg">
           <div className="space-y-1">
             {agents.map((agent) => (
               <AgentRow key={agent.id} agent={agent} />
@@ -307,20 +279,6 @@ export function AgentStatusWidget({
                   </Button>
                 </div>
               ) : null}
-            </div>
-          ) : null}
-
-          {!visibleActivity?.active && !workflowActive ? (
-            <div className="flex justify-end border-t border-border/50 px-2 pt-2">
-              <Button
-                size="sm"
-                isIconOnly
-                variant="ghost"
-                onPress={dismiss}
-                aria-label={t("common.close")}
-              >
-                <IconClose className="size-3.5" />
-              </Button>
             </div>
           ) : null}
         </div>
