@@ -6,8 +6,29 @@
  */
 
 import { eq } from "drizzle-orm";
-import { getDb, schema, insertRuntimeEvent } from "./db";
-import type { MemoryKind, MemoryRecord } from "../../shared/types";
+import { isStepCount, ToolLoopAgent } from "ai";
+import {
+  buildAgentSystemPrompt,
+  getAgent,
+  getDb,
+  getSetting,
+  insertRuntimeEvent,
+  saveAgentInstance,
+  saveCollaborationMessage,
+  schema,
+} from "./db";
+import {
+  DEFAULT_AGENT_RUNTIME_CONFIG,
+  DEFAULT_AGENT_TOOL_POLICY,
+  SettingKey,
+  normalizeAgentRuntimeConfig,
+  normalizeAgentToolPolicy,
+  type MemoryKind,
+  type MemoryRecord,
+} from "../../shared/types";
+import { AgentCoordinator } from "./agent-coordinator";
+import { buildChatToolRuntime } from "./chat-tools";
+import { resolveModel } from "./providers";
 
 export interface DefaultEngineDepsOptions {
   conversationId?: string | null;
@@ -43,7 +64,7 @@ export function buildDefaultEngineDeps(opts: DefaultEngineDepsOptions) {
       payload: { task: string; expectedOutput?: string },
       mode: "handoff" | "consult",
     ) =>
-      dispatchChildAgentStub({
+      dispatchWorkflowChildAgent({
         targetAgentId,
         task: payload.task,
         expectedOutput: payload.expectedOutput,
@@ -180,8 +201,7 @@ function writeMemoryForWorkflow(
 function resolveModelRefForAgent(_agentId?: string | null): string | null {
   // v1: 不解析 agentId -> model_ref，直接由节点显式提供；
   // 留作未来扩展。返回 null 会让 prompt 节点显式抛错。
-  void _agentId;
-  return null;
+  return (_agentId ? getAgent(_agentId)?.model_ref : null) ?? getSetting(SettingKey.SelectedModel);
 }
 
 async function dispatchSkillTool(skillId: string, input: unknown): Promise<unknown> {
@@ -223,12 +243,9 @@ async function dispatchChatTool(toolId: string, input: unknown): Promise<unknown
   return { tool: toolId, dispatched: true, stub: true };
 }
 
-// ---------- 内部：handoff / consult 占位派发 ----------
-//
-// v1 实现：把 handoff/consult 节点当作"调度意图"记录到 step_run.metadata_json，
-// 实际把控制权转移给子代理的逻辑由 v2 接入。这里返回结构化结果，让工作流引擎
-// 仍可正常推进并被 UI 观察。
-async function dispatchChildAgentStub(opts: {
+const workflowCoordinators = new Map<string, AgentCoordinator>();
+
+async function dispatchWorkflowChildAgent(opts: {
   targetAgentId: string;
   task: string;
   expectedOutput?: string;
@@ -238,31 +255,119 @@ async function dispatchChildAgentStub(opts: {
   workflowRunId: string;
 }): Promise<{ output: string; durationMs: number }> {
   const started = Date.now();
-  // 校验目标代理存在
-  const agent = getDb()
-    .select()
-    .from(schema.agents)
-    .where(eq(schema.agents.id, opts.targetAgentId))
-    .get();
-  if (!agent) {
-    throw new Error(`Target agent '${opts.targetAgentId}' not found.`);
+  const agent = getAgent(opts.targetAgentId);
+  if (!agent) throw new Error(`Target agent '${opts.targetAgentId}' not found.`);
+
+  const coordinatorKey = opts.runtimeRunId ?? `workflow:${opts.workflowRunId}`;
+  let coordinator = workflowCoordinators.get(coordinatorKey);
+  if (!coordinator) {
+    coordinator = new AgentCoordinator({
+      runId: coordinatorKey,
+      maxConcurrentSubagents: normalizeAgentRuntimeConfig(agent.runtime_config_json)
+        .maxConcurrentSubagents,
+      onEvent: (event) =>
+        insertRuntimeEvent({
+          runId: opts.runtimeRunId,
+          conversationId: opts.conversationId,
+          agentId: event.agentPath === "/root" ? null : agent.id,
+          eventType: event.type,
+          agentPath: event.agentPath,
+          parentAgentPath: event.parentAgentPath,
+          sequence: event.sequence,
+          kind: event.type === "ownership.changed" ? "handoff" : "diagnostic",
+          status: event.phase === "error" ? "failed" : "running",
+          title: event.type,
+          detail: event.payload,
+        }),
+    });
+    workflowCoordinators.set(coordinatorKey, coordinator);
   }
-  // 记录到 runtime_events，便于 UI/日志追踪
+
+  const modelRef = resolveModelRefForAgent(agent.id);
+  if (!modelRef) throw new Error(`No model configured for agent '${agent.name}'.`);
+  const runtimeConfig = normalizeAgentRuntimeConfig(agent.runtime_config_json);
+  const instance = coordinator.spawnAgent({
+    agentId: agent.id,
+    parentPath: "/root",
+    taskName: agent.name,
+    message: opts.task,
+    execute: async ({ instance: runningInstance, abortSignal }) => {
+      if (opts.runtimeRunId) saveAgentInstance({ ...runningInstance, run_id: opts.runtimeRunId });
+      const resolved = resolveModel(modelRef);
+      const toolPolicy = normalizeAgentToolPolicy(
+        agent.tool_policy_json,
+        DEFAULT_AGENT_TOOL_POLICY,
+      );
+      const allowed = toolPolicy.allowedToolIds.filter(
+        (id) => !toolPolicy.requireApprovalToolIds.includes(id),
+      );
+      const toolRuntime = buildChatToolRuntime({
+        selection: { mode: allowed.length ? "manual" : "off", selectedToolIds: allowed },
+        model: {
+          providerId: resolved.providerId,
+          providerKind: resolved.providerKind,
+          modelId: resolved.modelId,
+          capabilities: resolved.capabilities,
+          nativeTools: resolved.nativeTools,
+        },
+        conversationId: opts.conversationId ?? undefined,
+        agentId: agent.id,
+      });
+      const child = new ToolLoopAgent({
+        id: runningInstance.agent_path,
+        model: resolved.model,
+        instructions: [
+          await buildAgentSystemPrompt(agent.id, opts.conversationId ?? undefined),
+          "You are executing a bounded workflow task. Return a complete result to the workflow.",
+          opts.expectedOutput ? `Expected output: ${opts.expectedOutput}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        tools: toolRuntime.tools ?? {},
+        activeTools: toolRuntime.activeTools,
+        toolChoice: toolRuntime.toolChoice,
+        stopWhen: isStepCount(runtimeConfig.maxTurns ?? DEFAULT_AGENT_RUNTIME_CONFIG.maxTurns),
+        temperature: runtimeConfig.temperature ?? resolved.temperature,
+        topP: runtimeConfig.topP ?? resolved.topP,
+        maxOutputTokens: runtimeConfig.maxOutputTokens ?? resolved.maxOutputTokens,
+        providerOptions: resolved.providerOptions,
+      });
+      const result = await child.generate({
+        prompt: opts.task,
+        abortSignal,
+        timeout: { totalMs: runtimeConfig.totalTimeoutMs },
+      });
+      return result.text;
+    },
+  });
+
+  if (opts.mode === "handoff") coordinator.transferOwnership(instance.agent_path);
+  if (opts.runtimeRunId) saveAgentInstance({ ...instance, run_id: opts.runtimeRunId });
   insertRuntimeEvent({
+    runId: opts.runtimeRunId,
+    conversationId: opts.conversationId,
+    agentId: agent.id,
+    agentPath: instance.agent_path,
+    eventType: "collaboration.call",
     kind: "handoff",
     title: `${opts.mode === "handoff" ? "Handoff" : "Consult"} to ${agent.name}`,
-    status: "succeeded",
+    status: "running",
     detail: {
       workflowRunId: opts.workflowRunId,
-      agentId: opts.targetAgentId,
       task: opts.task,
       expectedOutput: opts.expectedOutput ?? null,
-      stub: true,
       mode: opts.mode,
     },
   });
-  const output =
-    `[${opts.mode === "handoff" ? "Handoff" : "Consult"} stub] ` +
-    `target=${agent.name}, task=${opts.task}`;
+
+  const output = await coordinator.waitAgent(instance.agent_path);
+  if (opts.runtimeRunId) {
+    for (const record of coordinator.listAgents()) {
+      saveAgentInstance({ ...record, run_id: opts.runtimeRunId });
+    }
+    for (const message of coordinator.listMessages()) {
+      saveCollaborationMessage({ ...message, run_id: opts.runtimeRunId });
+    }
+  }
   return { output, durationMs: Date.now() - started };
 }

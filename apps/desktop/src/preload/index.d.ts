@@ -108,6 +108,9 @@ export interface VoidAIApi {
         | "sandboxSnapshots"
         | "sandboxArtifacts"
         | "runtimeEvents"
+        | "agentInstances"
+        | "collaborationMessages"
+        | "contextCheckpoints"
       >
     >;
     save: (agent: AgentProfile) => Promise<boolean>;

@@ -60,9 +60,21 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
 
   const refresh = (): void => {
     setRefreshing(true);
-    void Promise.all([api.agents.list(), api.runtime.events.list()])
-      .then(([agents, runtimeEvents]) => {
-        setData({ agents, runtimeEvents });
+    void Promise.allSettled([api.agents.list(), api.runtime.events.list()])
+      .then(([agentsResult, runtimeEventsResult]) => {
+        setData((current) => ({
+          agents: agentsResult.status === "fulfilled" ? agentsResult.value : current.agents,
+          runtimeEvents:
+            runtimeEventsResult.status === "fulfilled"
+              ? runtimeEventsResult.value
+              : current.runtimeEvents,
+        }));
+        if (agentsResult.status === "rejected") {
+          console.error("[agents] Failed to load agent profiles", agentsResult.reason);
+        }
+        if (runtimeEventsResult.status === "rejected") {
+          console.error("[agents] Failed to load runtime events", runtimeEventsResult.reason);
+        }
       })
       .finally(() => {
         setLoading(false);

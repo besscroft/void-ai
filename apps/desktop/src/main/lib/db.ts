@@ -15,9 +15,12 @@ import {
 } from "./runtime-defaults";
 import {
   agentPolicies,
+  agentInstances,
   agents,
   apiKeys,
   conversations,
+  collaborationMessages,
+  contextCheckpoints,
   interactionProfiles,
   memories,
   memoryJobs,
@@ -37,6 +40,9 @@ import {
   tools,
   workflows,
   type AgentPolicy as DbAgentPolicy,
+  type AgentInstance as DbAgentInstance,
+  type CollaborationMessage as DbCollaborationMessage,
+  type ContextCheckpoint as DbContextCheckpoint,
   type AgentProfile as DbAgentProfile,
   type NewMemoryJob,
   type NewRuntimeEvent,
@@ -73,6 +79,9 @@ import {
   normalizeAgentToolPolicy,
   normalizeDesktopPetConfig,
   type AgentInput,
+  type AgentCollaborationMessage,
+  type AgentContextCheckpoint,
+  type AgentInstanceRecord,
   type AgentProfile,
   type AgentRuntimeState,
   type AgentRuntimeStatus,
@@ -841,6 +850,13 @@ export function insertRuntimeEvent(input: {
   detail_json?: string;
   duration_ms?: number | null;
   durationMs?: number | null;
+  event_type?: RuntimeEvent["event_type"];
+  eventType?: RuntimeEvent["event_type"];
+  agent_path?: string | null;
+  agentPath?: string | null;
+  parent_agent_path?: string | null;
+  parentAgentPath?: string | null;
+  sequence?: number | null;
   created_at?: number;
 }): RuntimeEvent {
   const row: NewRuntimeEvent = {
@@ -858,10 +874,86 @@ export function insertRuntimeEvent(input: {
     title: input.title,
     detail_json: input.detail_json ?? JSON.stringify(redactDetail(input.detail ?? {})),
     duration_ms: input.duration_ms ?? input.durationMs ?? null,
+    event_type: input.event_type ?? input.eventType ?? null,
+    agent_path: input.agent_path ?? input.agentPath ?? null,
+    parent_agent_path: input.parent_agent_path ?? input.parentAgentPath ?? null,
+    sequence: input.sequence ?? null,
     created_at: input.created_at ?? Date.now(),
   };
   getDb().insert(runtimeEvents).values(row).run();
   return toRuntimeEvent(row as DbRuntimeEvent);
+}
+
+export function saveAgentInstance(record: AgentInstanceRecord): AgentInstanceRecord {
+  getDb()
+    .insert(agentInstances)
+    .values(record)
+    .onConflictDoUpdate({
+      target: agentInstances.id,
+      set: {
+        status: record.status,
+        task_summary: record.task_summary,
+        turn_count: record.turn_count,
+        last_message: record.last_message,
+        error: record.error,
+        started_at: record.started_at,
+        finished_at: record.finished_at,
+        updated_at: record.updated_at,
+      },
+    })
+    .run();
+  return record;
+}
+
+export function listAgentInstances(limit = 300): AgentInstanceRecord[] {
+  return getDb()
+    .select()
+    .from(agentInstances)
+    .orderBy(desc(agentInstances.updated_at))
+    .limit(limit)
+    .all()
+    .map((row: DbAgentInstance) => row as AgentInstanceRecord);
+}
+
+export function saveCollaborationMessage(
+  message: AgentCollaborationMessage,
+): AgentCollaborationMessage {
+  getDb()
+    .insert(collaborationMessages)
+    .values(message)
+    .onConflictDoUpdate({
+      target: collaborationMessages.id,
+      set: { delivered_at: message.delivered_at, content: message.content },
+    })
+    .run();
+  return message;
+}
+
+export function listCollaborationMessages(limit = 500): AgentCollaborationMessage[] {
+  return getDb()
+    .select()
+    .from(collaborationMessages)
+    .orderBy(desc(collaborationMessages.created_at))
+    .limit(limit)
+    .all()
+    .map((row: DbCollaborationMessage) => row as AgentCollaborationMessage);
+}
+
+export function createContextCheckpoint(
+  checkpoint: AgentContextCheckpoint,
+): AgentContextCheckpoint {
+  getDb().insert(contextCheckpoints).values(checkpoint).run();
+  return checkpoint;
+}
+
+export function listContextCheckpoints(limit = 200): AgentContextCheckpoint[] {
+  return getDb()
+    .select()
+    .from(contextCheckpoints)
+    .orderBy(desc(contextCheckpoints.created_at))
+    .limit(limit)
+    .all()
+    .map((row: DbContextCheckpoint) => row as AgentContextCheckpoint);
 }
 
 export function listagentRuntimeStates(): AgentRuntimeState[] {
@@ -901,6 +993,10 @@ export function listConversationAgentStates(): ConversationAgentState[] {
   return [...conversationAgentStates.values()].sort((a, b) => b.updated_at - a.updated_at);
 }
 
+export function getConversationAgentState(conversationId: string): ConversationAgentState | null {
+  return conversationAgentStates.get(conversationId) ?? null;
+}
+
 export function upsertConversationAgentState(
   patch: Partial<ConversationAgentState> & { conversation_id: string },
 ): ConversationAgentState {
@@ -937,6 +1033,9 @@ export function runtimeSnapshot(): Pick<
   | "sandboxSnapshots"
   | "sandboxArtifacts"
   | "runtimeEvents"
+  | "agentInstances"
+  | "collaborationMessages"
+  | "contextCheckpoints"
 > {
   return {
     runtimeRuns: listRuntimeRuns(),
@@ -947,6 +1046,9 @@ export function runtimeSnapshot(): Pick<
     sandboxSnapshots: listSandboxSnapshots(),
     sandboxArtifacts: listSandboxArtifacts(),
     runtimeEvents: listRuntimeEvents(),
+    agentInstances: listAgentInstances(),
+    collaborationMessages: listCollaborationMessages(),
+    contextCheckpoints: listContextCheckpoints(),
   };
 }
 
@@ -2023,6 +2125,9 @@ export function getRuntimeSnapshot(): RuntimeSnapshot {
     workflows: listWorkflows(),
     workflowRuns: listWorkflowRuns(),
     runtimeEvents: listRuntimeEvents(),
+    agentInstances: listAgentInstances(),
+    collaborationMessages: listCollaborationMessages(),
+    contextCheckpoints: listContextCheckpoints(),
     interactionProfiles: listInteractionProfiles(),
     syncState: getSyncState(),
   };

@@ -17,7 +17,9 @@ import {
   isChatToolReference,
   normalizeChatToolSelection,
   type AgentHandoffConfig,
+  type AgentContextPolicy,
   type AgentProfile,
+  type AgentRuntimeProtocolEvent,
   type AgentRuntimeConfig,
   type AgentRuntimeStatus,
   type AgentToolPolicy,
@@ -37,7 +39,12 @@ import {
 } from "./chat-tools";
 import { commandLooksDangerous, inputHasPathEscape } from "./approval-policy";
 import { loadAgentGraph } from "./agent-graph";
+import type { AgentGraph } from "./agent-graph";
+import { AgentCoordinator } from "./agent-coordinator";
+import { AgentContextManager } from "./agent-context-manager";
 import {
+  createContextCheckpoint,
+  getConversationAgentState,
   upsertAgentRuntimeState,
   upsertConversationAgentState,
   createRuntimeRun,
@@ -45,6 +52,8 @@ import {
   updateRuntimeRun,
   updateRuntimeStep,
   insertRuntimeEvent,
+  saveAgentInstance,
+  saveCollaborationMessage,
 } from "./db";
 import {
   createSandboxSnapshot,
@@ -75,12 +84,15 @@ export interface RunAgentChatOptions {
   toolSelection?: ChatToolSelectionRequest;
   buildAgentSystemPrompt: (agentId?: string | null, conversationId?: string) => Promise<string>;
   resolveModel?: (modelRef: string) => ResolvedChatModel;
+  abortSignal?: AbortSignal;
 }
 
 interface RuntimeContext {
   runId: string;
   rootAgent: AgentProfile;
   enabledChildren: AgentProfile[];
+  agentGraph: AgentGraph;
+  coordinator: AgentCoordinator;
   modelRef: string;
   resolved: ResolvedChatModel;
   modelContext: ChatToolModelContext;
@@ -94,6 +106,8 @@ interface RuntimeContext {
   finalAgentId: string;
   sandbox?: SandboxContext;
   approvalRequested: boolean;
+  abortSignal?: AbortSignal;
+  protocolRecorder: (event: AgentRuntimeProtocolEvent) => void;
 }
 
 const DEFAULT_MODEL_CAPABILITIES: ModelCapabilities = {
@@ -137,7 +151,17 @@ const consultInputSchema = jsonSchema<{ task: string; expectedOutput?: string }>
 
 export async function runAgentChat(options: RunAgentChatOptions): Promise<Response> {
   const resolveModel = options.resolveModel ?? (await import("./providers")).resolveModel;
-  const { rootAgent, enabledChildren } = loadAgentGraph(DEFAULT_AGENT_ID);
+  const agentGraph = loadAgentGraph(DEFAULT_AGENT_ID);
+  const { rootAgent, enabledChildren } = agentGraph;
+  const resolvedPreferredAgentId =
+    options.preferredAgentId ??
+    (options.conversationId
+      ? getConversationAgentState(options.conversationId)?.active_agent_id
+      : null);
+  const preferredAgentId =
+    resolvedPreferredAgentId && resolvedPreferredAgentId !== DEFAULT_AGENT_ID
+      ? resolvedPreferredAgentId
+      : null;
 
   const rootModelRef = rootAgent.model_ref || options.modelRef;
   const rootResolved =
@@ -146,6 +170,13 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
   const resolved = applyRuntimeConfig(rootResolved, rootRuntimeConfig);
   const modelContext = toChatToolModelContext(rootModelRef, resolved);
   const runId = randomUUID();
+  const protocolRecorder = createProtocolRecorder(runId, options.conversationId);
+  const coordinator = new AgentCoordinator({
+    runId,
+    maxConcurrentSubagents: rootRuntimeConfig.maxConcurrentSubagents,
+    onEvent: protocolRecorder,
+  });
+  options.abortSignal?.addEventListener("abort", () => coordinator.interruptAll(), { once: true });
   createRuntimeRun({
     id: runId,
     conversation_id: options.conversationId ?? null,
@@ -199,12 +230,14 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
     runId,
     rootAgent,
     enabledChildren,
+    agentGraph,
+    coordinator,
     modelRef: rootModelRef,
     resolved,
     modelContext,
     messages: options.messages,
     conversationId: options.conversationId,
-    preferredAgentId: options.preferredAgentId,
+    preferredAgentId,
     reasoning: rootRuntimeConfig.reasoning
       ? normalizeRuntimeReasoning(rootRuntimeConfig.reasoning)
       : options.reasoning,
@@ -216,7 +249,10 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
     resolveModel,
     finalAgentId: DEFAULT_AGENT_ID,
     approvalRequested: false,
+    abortSignal: options.abortSignal,
+    protocolRecorder,
   };
+  emitProtocol(context, "agent.lifecycle", "/root", null, "start", { status: "running" });
 
   try {
     const toolRuntime = await buildRootToolRuntime(context);
@@ -236,11 +272,20 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
       reasoning: context.reasoning,
       toolRuntime,
       messageStepRecorder: tracker.recordModelStep,
+      contextManager: createContextManager(context, {
+        agentPath: "/root",
+        modelRef: rootModelRef,
+        resolved,
+        runtimeConfig: rootRuntimeConfig,
+      }),
+      protocol: { context, agentPath: "/root", parentAgentPath: null },
     });
 
     return await createAgentUIStreamResponse({
       agent,
       uiMessages: options.messages,
+      abortSignal: options.abortSignal,
+      timeout: { totalMs: rootRuntimeConfig.totalTimeoutMs },
       sendReasoning: true,
       sendSources: true,
       messageMetadata: tracker.messageMetadata,
@@ -296,12 +341,12 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
     const slug = toolSlug(child);
     if (handoff.mode === "consult" || handoff.mode === "both") {
       const toolName = "consult_" + slug;
-      assignTool(tools, toolName, createConsultTool(context, child));
+      assignTool(tools, toolName, createConsultTool(context, child, "/root"));
       activeTools.add(toolName);
     }
     if (handoff.mode === "handoff" || handoff.mode === "both") {
       const toolName = "handoff_" + slug;
-      assignTool(tools, toolName, createHandoffTool(context, child));
+      assignTool(tools, toolName, createHandoffTool(context, child, "/root"));
       activeTools.add(toolName);
     }
   }
@@ -339,6 +384,8 @@ function createToolLoopAgent({
   reasoning,
   toolRuntime,
   messageStepRecorder,
+  contextManager,
+  protocol,
 }: {
   id: string;
   modelRef: string;
@@ -349,6 +396,12 @@ function createToolLoopAgent({
   reasoning?: StreamTextOptions["reasoning"];
   toolRuntime: ChatToolRuntimeConfig;
   messageStepRecorder?: () => void;
+  contextManager?: AgentContextManager;
+  protocol?: {
+    context: RuntimeContext;
+    agentPath: string;
+    parentAgentPath: string | null;
+  };
 }): ToolLoopAgent<never, ToolSet> {
   return new ToolLoopAgent<never, ToolSet>({
     id,
@@ -364,6 +417,41 @@ function createToolLoopAgent({
     maxOutputTokens: runtimeConfig.maxOutputTokens ?? resolved.maxOutputTokens,
     providerOptions: resolved.providerOptions,
     reasoning,
+    prepareStep: contextManager
+      ? async ({ messages: stepMessages }) => {
+          const messages = await contextManager.prepare(stepMessages);
+          return messages ? { messages } : undefined;
+        }
+      : undefined,
+    onToolExecutionStart: protocol
+      ? ({ toolCall }) => {
+          emitProtocol(
+            protocol.context,
+            "tool.call",
+            protocol.agentPath,
+            protocol.parentAgentPath,
+            "progress",
+            { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName },
+          );
+        }
+      : undefined,
+    onToolExecutionEnd: protocol
+      ? ({ toolCall, toolExecutionMs, toolOutput }) => {
+          emitProtocol(
+            protocol.context,
+            "tool.result",
+            protocol.agentPath,
+            protocol.parentAgentPath,
+            toolOutput.type === "tool-error" ? "error" : "progress",
+            {
+              toolCallId: toolCall.toolCallId,
+              toolName: toolCall.toolName,
+              durationMs: toolExecutionMs,
+              outcome: toolOutput.type,
+            },
+          );
+        }
+      : undefined,
     onStepEnd: (event) => {
       messageStepRecorder?.();
       return toolRuntime.onStepEnd?.(event);
@@ -371,19 +459,33 @@ function createToolLoopAgent({
   });
 }
 
-function createConsultTool(context: RuntimeContext, child: AgentProfile): ToolSet[string] {
+function createConsultTool(
+  context: RuntimeContext,
+  child: AgentProfile,
+  parentPath: string,
+): ToolSet[string] {
   return tool({
     description: "Consult " + child.name + " while Void keeps ownership of the response.",
     inputSchema: consultInputSchema,
-    execute: async (input) => runChildAgent(context, child, "consult", input),
+    execute: async function* (input) {
+      yield { mode: "consult", agentId: child.id, agentName: child.name, status: "running" };
+      yield await runChildAgent(context, child, "consult", input, parentPath);
+    },
   });
 }
 
-function createHandoffTool(context: RuntimeContext, child: AgentProfile): ToolSet[string] {
+function createHandoffTool(
+  context: RuntimeContext,
+  child: AgentProfile,
+  parentPath: string,
+): ToolSet[string] {
   return tool({
     description: "Transfer task ownership to " + child.name + " and run that child agent.",
     inputSchema: handoffInputSchema,
-    execute: async (input) => runChildAgent(context, child, "handoff", input),
+    execute: async function* (input) {
+      yield { mode: "handoff", agentId: child.id, agentName: child.name, status: "running" };
+      yield await runChildAgent(context, child, "handoff", input, parentPath);
+    },
   });
 }
 
@@ -490,8 +592,10 @@ async function runChildAgent(
   child: AgentProfile,
   mode: "consult" | "handoff",
   input: { task?: string; taskSummary?: string; expectedOutput?: string; reason?: string },
+  parentPath = "/root",
 ): Promise<Record<string, unknown>> {
   const started = Date.now();
+  const task = input.taskSummary ?? input.task ?? "";
   const step = createRuntimeStep({
     run_id: context.runId,
     agent_id: child.id,
@@ -500,8 +604,60 @@ async function runChildAgent(
     title: (mode === "handoff" ? "Handoff to " : "Consult ") + child.name,
     detail: { input },
   });
+  const instance = context.coordinator.spawnAgent({
+    agentId: child.id,
+    parentPath,
+    taskName: child.name,
+    message: task,
+    execute: async ({ instance: runningInstance, abortSignal }) => {
+      saveAgentInstance(runningInstance);
+      const childModelRef = child.model_ref || context.modelRef;
+      const childResolved = applyRuntimeConfig(
+        child.model_ref ? context.resolveModel(childModelRef) : context.resolved,
+        readRuntimeConfig(child.runtime_config_json),
+      );
+      const childModelContext = toChatToolModelContext(childModelRef, childResolved);
+      const childConfig = readRuntimeConfig(child.runtime_config_json);
+      const childRuntime = buildSafeChildToolRuntime(
+        context,
+        child,
+        childModelContext,
+        runningInstance.agent_path,
+      );
+      const childAgent = createToolLoopAgent({
+        id: runningInstance.agent_path,
+        modelRef: childModelRef,
+        resolved: childResolved,
+        instructions: await createChildInstructions(context, child, mode),
+        messages: [],
+        runtimeConfig: childConfig,
+        reasoning: normalizeRuntimeReasoning(childConfig.reasoning),
+        toolRuntime: childRuntime,
+        contextManager: createContextManager(context, {
+          agentPath: runningInstance.agent_path,
+          agentInstanceId: runningInstance.id,
+          modelRef: childModelRef,
+          resolved: childResolved,
+          runtimeConfig: childConfig,
+        }),
+        protocol: {
+          context,
+          agentPath: runningInstance.agent_path,
+          parentAgentPath: runningInstance.parent_agent_path,
+        },
+      });
+      const result = await childAgent.generate({
+        prompt: createChildPrompt(context, child, mode, input),
+        abortSignal,
+        timeout: { totalMs: childConfig.totalTimeoutMs },
+      });
+      return summarizeText(result.text, 6_000);
+    },
+  });
+  saveAgentInstance(instance);
   if (mode === "handoff") {
     context.finalAgentId = child.id;
+    context.coordinator.transferOwnership(instance.agent_path);
     recordState({
       agentId: DEFAULT_AGENT_ID,
       status: "handoff",
@@ -521,29 +677,8 @@ async function runChildAgent(
   });
 
   try {
-    const childModelRef = child.model_ref || context.modelRef;
-    const childResolved = applyRuntimeConfig(
-      child.model_ref ? context.resolveModel(childModelRef) : context.resolved,
-      readRuntimeConfig(child.runtime_config_json),
-    );
-    const childModelContext = toChatToolModelContext(childModelRef, childResolved);
-    const childRuntime = buildSafeChildToolRuntime(context, child, childModelContext);
-    const childConfig = readRuntimeConfig(child.runtime_config_json);
-    const childAgent = createToolLoopAgent({
-      id: child.id,
-      modelRef: childModelRef,
-      resolved: childResolved,
-      instructions: await createChildInstructions(context, child, mode),
-      messages: [],
-      runtimeConfig: childConfig,
-      reasoning: normalizeRuntimeReasoning(childConfig.reasoning),
-      toolRuntime: childRuntime,
-    });
-    const result = await childAgent.generate({
-      prompt: createChildPrompt(context, child, mode, input),
-      timeout: { totalMs: 120_000 },
-    });
-    const output = summarizeText(result.text, 6_000);
+    const output = await context.coordinator.waitAgent(instance.agent_path);
+    persistCoordinatorState(context);
     updateRuntimeStep(step.id, {
       status: "succeeded",
       detail: { input, output, durationMs: Date.now() - started },
@@ -567,10 +702,13 @@ async function runChildAgent(
       mode,
       agentId: child.id,
       agentName: child.name,
+      agentPath: instance.agent_path,
+      ownerPath: context.coordinator.currentOwnerPath(),
       output,
       durationMs: Date.now() - started,
     };
   } catch (error) {
+    persistCoordinatorState(context);
     const message = error instanceof Error ? error.message : String(error);
     updateRuntimeStep(step.id, {
       status: "failed",
@@ -595,6 +733,7 @@ function buildSafeChildToolRuntime(
   context: RuntimeContext,
   child: AgentProfile,
   model: ChatToolModelContext,
+  agentPath: string,
 ): ChatToolRuntimeConfig {
   if (!model.capabilities.toolCalling) {
     return { descriptors: [], toolChoice: "none" };
@@ -603,12 +742,34 @@ function buildSafeChildToolRuntime(
   const allowed = selectedBaseToolIds(context.toolSelection, policy).filter(
     (id) => !policy.requireApprovalToolIds.includes(id),
   );
-  return buildChatToolRuntime({
+  const base = buildChatToolRuntime({
     selection: { mode: allowed.length ? "manual" : "off", selectedToolIds: allowed },
     model,
     conversationId: context.conversationId,
     agentId: child.id,
   });
+  const tools: ToolSet = { ...base.tools };
+  const activeTools = new Set(base.activeTools ?? []);
+  for (const descendant of context.agentGraph.childrenOf(child.id)) {
+    const handoff = readHandoffConfig(descendant.handoff_config_json);
+    const slug = toolSlug(descendant);
+    if (handoff.mode === "consult" || handoff.mode === "both") {
+      const name = "consult_" + slug;
+      assignTool(tools, name, createConsultTool(context, descendant, agentPath));
+      activeTools.add(name);
+    }
+    if (handoff.mode === "handoff" || handoff.mode === "both") {
+      const name = "handoff_" + slug;
+      assignTool(tools, name, createHandoffTool(context, descendant, agentPath));
+      activeTools.add(name);
+    }
+  }
+  return {
+    ...base,
+    tools,
+    activeTools: [...activeTools],
+    toolChoice: activeTools.size > 0 ? "auto" : "none",
+  };
 }
 
 function createSandboxTools(context: RuntimeContext, enabledIds: ChatToolId[]): ToolSet {
@@ -1009,6 +1170,17 @@ function finishRun(
     status: extra.error ? "failed" : finalStatus === "running" ? "running" : "succeeded",
     detail: { runId: context.runId, finalAgentId: context.finalAgentId, ...extra },
   });
+  context.protocolRecorder({
+    id: randomUUID(),
+    runId: context.runId,
+    sequence: 0,
+    type: extra.error ? "run.failed" : "run.completed",
+    agentPath: context.coordinator.currentOwnerPath(),
+    parentAgentPath: null,
+    phase: extra.error ? "error" : "end",
+    createdAt: finishedAt,
+    payload: { finalAgentId: context.finalAgentId, error: extra.error ?? null },
+  });
 }
 
 function createExecutionTracker({
@@ -1043,7 +1215,8 @@ function createExecutionTracker({
       finishedAt,
       durationMs: Math.max(0, finishedAt - startedAt),
       model: modelRef,
-      agentId,
+      agentId: context.finalAgentId || agentId,
+      agentPath: context.coordinator.currentOwnerPath(),
       finishReason: String(part.finishReason),
       inputTokens: readTokenTotal(part.totalUsage, "inputTokens"),
       outputTokens: readTokenTotal(part.totalUsage, "outputTokens"),
@@ -1098,10 +1271,11 @@ async function createRootInstructions(
     "Decide whether to answer directly, consult a child agent, or hand off ownership to a child agent.",
     "When a child agent is disabled, draft, archived, or locked, it is not available and must not be used.",
     "Use consult tools for specialist advice while you keep ownership. Use handoff tools when the child agent should own the result.",
+    "After a successful handoff, return the handoff result's output verbatim as the final answer. Do not summarize it, add a preface, or continue using tools.",
     context.preferredAgentId
-      ? "The user selected " +
+      ? "The conversation is currently owned by " +
         context.preferredAgentId +
-        " as a routing preference. Treat it as a hint."
+        ". Continue with that agent using handoff unless the current task explicitly requires root ownership."
       : "",
     childLines.length
       ? "Enabled child agents:\n" + childLines.join("\n")
@@ -1372,6 +1546,105 @@ function toolNameToChatToolId(toolName: string): ChatToolId | null {
 
 function assignTool(toolSet: ToolSet, name: string, value: unknown): void {
   (toolSet as Record<string, ToolSet[string]>)[name] = value as ToolSet[string];
+}
+
+function createContextManager(
+  context: RuntimeContext,
+  input: {
+    agentPath: string;
+    agentInstanceId?: string;
+    modelRef: string;
+    resolved: ResolvedChatModel;
+    runtimeConfig: AgentRuntimeConfig;
+  },
+): AgentContextManager | undefined {
+  const policy: AgentContextPolicy =
+    input.runtimeConfig.contextPolicy ?? DEFAULT_AGENT_RUNTIME_CONFIG.contextPolicy!;
+  if (policy.mode === "off") return undefined;
+  let compactionModel = input.resolved.model;
+  if (input.runtimeConfig.compactionModelRef) {
+    try {
+      compactionModel = context.resolveModel(input.runtimeConfig.compactionModelRef).model;
+    } catch (error) {
+      console.warn("[agent-runtime] compaction model unavailable, using active model:", error);
+    }
+  }
+  return new AgentContextManager({
+    runId: context.runId,
+    conversationId: context.conversationId,
+    agentInstanceId: input.agentInstanceId,
+    agentPath: input.agentPath,
+    modelRef: input.modelRef,
+    model: input.resolved.model,
+    compactionModel,
+    contextWindow: input.resolved.contextWindow ?? 32_000,
+    policy,
+    onCheckpoint: createContextCheckpoint,
+    onEvent: context.protocolRecorder,
+  });
+}
+
+function persistCoordinatorState(context: RuntimeContext): void {
+  for (const instance of context.coordinator.listAgents()) saveAgentInstance(instance);
+  for (const message of context.coordinator.listMessages()) saveCollaborationMessage(message);
+}
+
+function createProtocolRecorder(
+  runId: string,
+  conversationId?: string,
+): (event: AgentRuntimeProtocolEvent) => void {
+  let sequence = 0;
+  return (event) => {
+    const assignedSequence = ++sequence;
+    insertRuntimeEvent({
+      runId,
+      conversationId: conversationId ?? null,
+      eventType: event.type,
+      agentPath: event.agentPath,
+      parentAgentPath: event.parentAgentPath,
+      sequence: assignedSequence,
+      kind: protocolEventKind(event.type),
+      status:
+        event.phase === "error"
+          ? "failed"
+          : event.phase === "start" || event.phase === "progress"
+            ? "running"
+            : "succeeded",
+      severity: event.phase === "error" ? "error" : "info",
+      title: event.type,
+      detail: { ...event.payload, phase: event.phase, sourceEventId: event.id },
+      created_at: event.createdAt,
+    });
+  };
+}
+
+function emitProtocol(
+  context: RuntimeContext,
+  type: AgentRuntimeProtocolEvent["type"],
+  agentPath: string,
+  parentAgentPath: string | null,
+  phase: AgentRuntimeProtocolEvent["phase"],
+  payload: AgentRuntimeProtocolEvent["payload"],
+): void {
+  context.protocolRecorder({
+    id: randomUUID(),
+    runId: context.runId,
+    sequence: 0,
+    type,
+    agentPath,
+    parentAgentPath,
+    phase,
+    createdAt: Date.now(),
+    payload,
+  });
+}
+
+function protocolEventKind(type: AgentRuntimeProtocolEvent["type"]): string {
+  if (type.startsWith("tool.")) return "tool";
+  if (type === "ownership.changed") return "handoff";
+  if (type === "context.compacted") return "memory";
+  if (type === "run.failed") return "error";
+  return "diagnostic";
 }
 
 function extractTranscript(messages: UIMessage[], limit: number): string {

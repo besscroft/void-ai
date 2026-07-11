@@ -5,11 +5,15 @@ import { isRoutableAgent } from "./agent-routing";
 export interface AgentGraph {
   rootAgent: AgentProfile;
   enabledChildren: AgentProfile[];
+  enabledAgents: AgentProfile[];
+  childrenOf(agentId: string): AgentProfile[];
 }
 
 export function loadAgentGraph(rootAgentId = DEFAULT_AGENT_ID): AgentGraph {
   const rootAgent = getAgent(rootAgentId);
   if (!rootAgent) throw new Error("Root agent profile is missing.");
-  const enabledChildren = listAgents().filter(isRoutableAgent);
-  return { rootAgent, enabledChildren };
+  const enabledAgents = listAgents().filter(isRoutableAgent);
+  const childrenOf = (agentId: string): AgentProfile[] =>
+    enabledAgents.filter((agent) => (agent.parent_agent_id ?? rootAgentId) === agentId);
+  return { rootAgent, enabledChildren: childrenOf(rootAgentId), enabledAgents, childrenOf };
 }

@@ -311,6 +311,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
         buildAgentSystemPrompt: async (agentId, conversationId) =>
           body.system ?? (await buildAgentSystemPrompt(agentId, conversationId)),
         resolveModel,
+        abortSignal: c.req.raw.signal,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

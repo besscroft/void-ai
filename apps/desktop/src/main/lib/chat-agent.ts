@@ -30,6 +30,7 @@ export interface ResolvedChatModel {
   temperature: number;
   topP: number;
   maxOutputTokens: number;
+  contextWindow?: number;
   providerOptions?: StreamTextOptions["providerOptions"];
   nativeTools?: NativeChatTool[];
 }

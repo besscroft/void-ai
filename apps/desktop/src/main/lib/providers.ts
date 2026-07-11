@@ -68,6 +68,7 @@ export interface ResolvedModelConfig {
   temperature: number;
   topP: number;
   maxOutputTokens: number;
+  contextWindow: number;
   providerOptions?: ProviderOptions;
   nativeTools: NativeChatTool[];
 }
@@ -1155,6 +1156,7 @@ export function resolveModel(modelRef: string): ResolvedModelConfig {
     temperature: model.temperature,
     topP: model.topP,
     maxOutputTokens: model.maxOutputTokens,
+    contextWindow: model.contextWindow,
     providerOptions: model.providerOptions as ProviderOptions,
     nativeTools: createNativeChatTools(config, apiKey),
   };

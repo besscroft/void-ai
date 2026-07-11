@@ -124,6 +124,9 @@ export const api = {
         | "sandboxSnapshots"
         | "sandboxArtifacts"
         | "runtimeEvents"
+        | "agentInstances"
+        | "collaborationMessages"
+        | "contextCheckpoints"
       >
     > => assertApi().agents.runtimeSnapshot(),
     save: (agent: AgentProfile): Promise<boolean> => assertApi().agents.save(agent),

@@ -21,7 +21,9 @@ import {
   normalizeAgentRuntimeConfig,
   normalizeAgentToolPolicy,
   type AgentHandoffConfig,
+  type AgentContextCheckpoint,
   type AgentInput,
+  type AgentInstanceRecord,
   type AgentProfile,
   type AgentRuntimeConfig,
   type AgentRuntimeState,
@@ -35,6 +37,7 @@ import {
   type RuntimeStep,
 } from "@shared/types";
 import { api } from "../lib/api";
+import { getVisibleAgents, type AgentListTab } from "../lib/agent-list";
 import { createClientChatToolDescriptors } from "../lib/chat-tools";
 import { useT, type TranslationKey } from "../lib/i18n";
 import { notify } from "../lib/toast";
@@ -49,7 +52,7 @@ import {
   IconRotateCcw,
 } from "./icons";
 
-type AgentPanelTab = "active" | "draft";
+type AgentPanelTab = AgentListTab;
 type AgentDetailTab = "overview" | "instructions" | "runtime" | "tools";
 type AgentEditorTab = "basics" | "runtime" | "routing" | "tools";
 
@@ -65,6 +68,8 @@ interface RuntimeSnapshotState {
   runtimeSteps: RuntimeStep[];
   agentRuntimeStates: AgentRuntimeState[];
   runtimeEvents: RuntimeEvent[];
+  agentInstances: AgentInstanceRecord[];
+  contextCheckpoints: AgentContextCheckpoint[];
 }
 
 interface AgentFormState {
@@ -138,6 +143,12 @@ const PRIORITY_KEYS: Record<AgentHandoffConfig["priority"], TranslationKey> = {
   normal: "agents.option.priority.normal",
 };
 
+const CONTEXT_MODE_KEYS: Record<"off" | "prune" | "semantic", TranslationKey> = {
+  off: "agents.option.context.off",
+  prune: "agents.option.context.prune",
+  semantic: "agents.option.context.semantic",
+};
+
 export function AgentsPanel({
   agents,
   events,
@@ -162,17 +173,26 @@ export function AgentsPanel({
     runtimeSteps: [],
     agentRuntimeStates: [],
     runtimeEvents: [],
+    agentInstances: [],
+    contextCheckpoints: [],
   });
 
   const refreshRuntime = (): void => {
-    void api.agents.runtimeSnapshot().then((snapshot) =>
-      setRuntime({
-        runtimeRuns: snapshot.runtimeRuns,
-        runtimeSteps: snapshot.runtimeSteps,
-        agentRuntimeStates: snapshot.agentRuntimeStates,
-        runtimeEvents: snapshot.runtimeEvents,
-      }),
-    );
+    void api.agents
+      .runtimeSnapshot()
+      .then((snapshot) =>
+        setRuntime({
+          runtimeRuns: snapshot.runtimeRuns,
+          runtimeSteps: snapshot.runtimeSteps,
+          agentRuntimeStates: snapshot.agentRuntimeStates,
+          runtimeEvents: snapshot.runtimeEvents,
+          agentInstances: snapshot.agentInstances,
+          contextCheckpoints: snapshot.contextCheckpoints,
+        }),
+      )
+      .catch((error: unknown) => {
+        console.error("[agents] Failed to load runtime diagnostics", error);
+      });
   };
 
   useEffect(() => {
@@ -214,26 +234,7 @@ export function AgentsPanel({
   const activeChildren = agents.filter(
     (agent) => agent.kind === "child" && agent.status === "active" && agent.enabled !== 0,
   );
-  const visibleAgents = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return agents
-      .filter((agent) => {
-        // 已归档的智能体现在只在回收站中显示，列表里隐藏
-        if (agent.status === "archived") return false;
-        if (tab === "draft" && agent.status !== "draft") return false;
-        if (tab === "active" && agent.status === "draft") return false;
-        if (!normalizedQuery) return true;
-        return [agent.name, agent.role, agent.description, agent.model_ref ?? ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedQuery);
-      })
-      .sort((a, b) => {
-        if (a.id === DEFAULT_AGENT_ID) return -1;
-        if (b.id === DEFAULT_AGENT_ID) return 1;
-        return b.updated_at - a.updated_at;
-      });
-  }, [agents, query, tab]);
+  const visibleAgents = useMemo(() => getVisibleAgents(agents, tab, query), [agents, query, tab]);
 
   const runAction = async (action: () => Promise<unknown>, success: string): Promise<void> => {
     setBusy(true);
@@ -353,6 +354,14 @@ export function AgentsPanel({
         runs={selected ? runsForAgent(runtime.runtimeRuns, selected.id) : []}
         steps={selected ? stepsForAgent(runtime.runtimeSteps, selected.id) : []}
         events={selected ? eventsForAgent([...runtime.runtimeEvents, ...events], selected.id) : []}
+        instances={
+          selected ? runtime.agentInstances.filter((item) => item.agent_id === selected.id) : []
+        }
+        checkpoints={
+          selected
+            ? checkpointsForAgent(runtime.contextCheckpoints, runtime.agentInstances, selected.id)
+            : []
+        }
         onEdit={() => selected && openEdit(selected)}
         onClose={() => setDetailOpen(false)}
       />
@@ -469,6 +478,8 @@ function AgentDetailModal({
   runs,
   steps,
   events,
+  instances,
+  checkpoints,
   onEdit,
   onClose,
 }: {
@@ -480,6 +491,8 @@ function AgentDetailModal({
   runs: RuntimeRun[];
   steps: RuntimeStep[];
   events: RuntimeEvent[];
+  instances: AgentInstanceRecord[];
+  checkpoints: AgentContextCheckpoint[];
   onEdit: () => void;
   onClose: () => void;
 }): React.JSX.Element | null {
@@ -580,6 +593,18 @@ function AgentDetailModal({
                   ],
                   [t("agents.field.maxTurns"), String(runtimeConfig.maxTurns)],
                   [
+                    t("agents.field.maxConcurrentSubagents"),
+                    String(runtimeConfig.maxConcurrentSubagents ?? 3),
+                  ],
+                  [
+                    t("agents.field.totalTimeoutMs"),
+                    String(runtimeConfig.totalTimeoutMs ?? 120_000),
+                  ],
+                  [
+                    t("agents.field.contextMode"),
+                    t(CONTEXT_MODE_KEYS[runtimeConfig.contextPolicy?.mode ?? "semantic"]),
+                  ],
+                  [
                     t("agents.field.reviewPolicy"),
                     labelFor(
                       t,
@@ -617,6 +642,24 @@ function AgentDetailModal({
                   id: step.id,
                   title: step.title,
                   detail: `${step.kind} / ${labelFor(t, RUNTIME_STATUS_KEYS, step.status)}`,
+                }))}
+              />
+              <MiniList
+                title={t("agents.section.instances")}
+                empty={t("agents.noInstances")}
+                items={instances.slice(0, 8).map((instance) => ({
+                  id: instance.id,
+                  title: instance.agent_path,
+                  detail: `${instance.status} / ${instance.task_name}`,
+                }))}
+              />
+              <MiniList
+                title={t("agents.section.checkpoints")}
+                empty={t("agents.noCheckpoints")}
+                items={checkpoints.slice(0, 5).map((checkpoint) => ({
+                  id: checkpoint.id,
+                  title: `${checkpoint.agent_path} / v${checkpoint.version}`,
+                  detail: `${checkpoint.estimated_tokens_before} -> ${checkpoint.estimated_tokens_after} tokens`,
                 }))}
               />
             </div>
@@ -695,6 +738,15 @@ function AgentEditorModal({
   const patch = (value: Partial<AgentFormState>): void => setForm({ ...form, ...value });
   const patchRuntime = (value: Partial<AgentRuntimeConfig>): void =>
     patch({ runtimeConfig: { ...form.runtimeConfig, ...value } });
+  const patchContextPolicy = (
+    value: Partial<NonNullable<AgentRuntimeConfig["contextPolicy"]>>,
+  ): void =>
+    patchRuntime({
+      contextPolicy: {
+        ...(form.runtimeConfig.contextPolicy ?? DEFAULT_AGENT_RUNTIME_CONFIG.contextPolicy!),
+        ...value,
+      },
+    });
   const patchHandoff = (value: Partial<AgentHandoffConfig>): void =>
     patch({ handoffConfig: { ...form.handoffConfig, ...value } });
   const patchTools = (value: Partial<AgentToolPolicy>): void =>
@@ -849,6 +901,113 @@ function AgentEditorModal({
                     </select>
                   </Field>
                 </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Field label={t("agents.field.maxConcurrentSubagents")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.maxConcurrentSubagents ?? 3)}
+                      onChange={(event) =>
+                        patchRuntime({
+                          maxConcurrentSubagents: clampInteger(event.target.value, 1, 16, 3),
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label={t("agents.field.totalTimeoutMs")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.totalTimeoutMs ?? 120000)}
+                      onChange={(event) =>
+                        patchRuntime({
+                          totalTimeoutMs: clampInteger(event.target.value, 10000, 900000, 120000),
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label={t("agents.field.contextMode")}>
+                    <select
+                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      value={form.runtimeConfig.contextPolicy?.mode ?? "semantic"}
+                      onChange={(event) =>
+                        patchRuntime({
+                          contextPolicy: {
+                            ...(form.runtimeConfig.contextPolicy ??
+                              DEFAULT_AGENT_RUNTIME_CONFIG.contextPolicy!),
+                            mode: event.target.value as "off" | "prune" | "semantic",
+                          },
+                        })
+                      }
+                    >
+                      {Object.entries(CONTEXT_MODE_KEYS).map(([value, key]) => (
+                        <option key={value} value={value}>
+                          {t(key)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <Field label={t("agents.field.pruneThreshold")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.contextPolicy?.pruneThreshold ?? 0.6)}
+                      onChange={(event) =>
+                        patchContextPolicy({
+                          pruneThreshold: optionalNumber(event.target.value, 0.3, 0.9) ?? 0.6,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label={t("agents.field.compactThreshold")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.contextPolicy?.compactThreshold ?? 0.75)}
+                      onChange={(event) =>
+                        patchContextPolicy({
+                          compactThreshold: optionalNumber(event.target.value, 0.35, 0.98) ?? 0.75,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label={t("agents.field.targetRatio")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.contextPolicy?.targetRatio ?? 0.5)}
+                      onChange={(event) =>
+                        patchContextPolicy({
+                          targetRatio: optionalNumber(event.target.value, 0.2, 0.9) ?? 0.5,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label={t("agents.field.keepRecentTokens")}>
+                    <Input
+                      type="number"
+                      value={String(form.runtimeConfig.contextPolicy?.keepRecentTokens ?? 20000)}
+                      onChange={(event) =>
+                        patchContextPolicy({
+                          keepRecentTokens: clampInteger(event.target.value, 1000, 200000, 20000),
+                        })
+                      }
+                    />
+                  </Field>
+                </div>
+                <Field label={t("agents.field.compactionModel")}>
+                  <select
+                    className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                    value={form.runtimeConfig.compactionModelRef ?? ""}
+                    onChange={(event) =>
+                      patchRuntime({ compactionModelRef: event.target.value || undefined })
+                    }
+                  >
+                    <option value="">{t("agents.option.compactionModel.active")}</option>
+                    {managedModels.map((model) => (
+                      <option key={model.ref} value={model.ref}>
+                        {model.modelLabel} / {model.providerLabel}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
                 <div className="grid gap-3 md:grid-cols-3">
                   <Field label={t("agents.field.temperature")}>
                     <Input
@@ -1274,6 +1433,21 @@ function eventsForAgent(events: RuntimeEvent[], agentId: string): RuntimeEvent[]
     if (match) seen.add(event.id);
     return match;
   });
+}
+
+function checkpointsForAgent(
+  checkpoints: AgentContextCheckpoint[],
+  instances: AgentInstanceRecord[],
+  agentId: string,
+): AgentContextCheckpoint[] {
+  const instanceIds = new Set(
+    instances.filter((instance) => instance.agent_id === agentId).map((instance) => instance.id),
+  );
+  return checkpoints.filter(
+    (checkpoint) =>
+      (checkpoint.agent_instance_id !== null && instanceIds.has(checkpoint.agent_instance_id)) ||
+      (agentId === DEFAULT_AGENT_ID && checkpoint.agent_path === "/root"),
+  );
 }
 
 function firstToolCallingModelRef(

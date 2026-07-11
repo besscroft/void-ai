@@ -29,6 +29,13 @@
       "when": 1783785600000,
       "tag": "0003_inner_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783872000000,
+      "tag": "0004_boring_selene",
+      "breakpoints": true
     }
   ]
 }

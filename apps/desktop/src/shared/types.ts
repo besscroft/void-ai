@@ -60,6 +60,10 @@ export interface AgentHandoffConfig {
 
 export interface AgentRuntimeConfig {
   maxTurns: number;
+  maxConcurrentSubagents?: number;
+  totalTimeoutMs?: number;
+  contextPolicy?: AgentContextPolicy;
+  compactionModelRef?: string;
   temperature?: number;
   topP?: number;
   maxOutputTokens?: number;
@@ -67,6 +71,115 @@ export interface AgentRuntimeConfig {
   reviewPolicy?: AgentReviewPolicy;
   sandboxPolicy?: AgentSandboxPolicy;
   notes?: string;
+}
+
+export type AgentContextMode = "off" | "prune" | "semantic";
+
+export interface AgentContextPolicy {
+  mode: AgentContextMode;
+  pruneThreshold: number;
+  compactThreshold: number;
+  targetRatio: number;
+  keepRecentTokens: number;
+}
+
+export type AgentInstanceStatus =
+  | "queued"
+  | "running"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "interrupted";
+
+export type AgentCollaborationAction =
+  | "spawn_agent"
+  | "send_message"
+  | "followup_task"
+  | "wait_agent"
+  | "interrupt_agent"
+  | "list_agents";
+
+export type AgentRuntimeEventType =
+  | "agent.lifecycle"
+  | "agent.text.delta"
+  | "tool.call"
+  | "tool.result"
+  | "collaboration.call"
+  | "collaboration.result"
+  | "agent.message"
+  | "ownership.changed"
+  | "context.compacted"
+  | "run.completed"
+  | "run.failed";
+
+export interface AgentInstanceRecord {
+  id: string;
+  run_id: string;
+  agent_id: string;
+  agent_path: string;
+  parent_instance_id: string | null;
+  parent_agent_path: string | null;
+  status: AgentInstanceStatus;
+  task_name: string;
+  task_summary: string;
+  turn_count: number;
+  last_message: string | null;
+  error: string | null;
+  started_at: number | null;
+  finished_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AgentCollaborationMessage {
+  id: string;
+  run_id: string;
+  author_path: string;
+  recipient_path: string;
+  kind: "task" | "message" | "final_answer";
+  content: string;
+  created_at: number;
+  delivered_at: number | null;
+}
+
+export interface AgentContextCheckpoint {
+  id: string;
+  run_id: string | null;
+  conversation_id: string | null;
+  agent_instance_id: string | null;
+  agent_path: string;
+  version: number;
+  reason: "threshold" | "overflow" | "manual";
+  summary: string;
+  source_message_count: number;
+  retained_message_count: number;
+  estimated_tokens_before: number;
+  estimated_tokens_after: number;
+  model_ref: string | null;
+  created_at: number;
+}
+
+export interface AgentRuntimeProtocolEvent {
+  id: string;
+  runId: string;
+  sequence: number;
+  type: AgentRuntimeEventType;
+  agentPath: string;
+  parentAgentPath: string | null;
+  phase?: "start" | "progress" | "final_answer" | "end" | "error";
+  createdAt: number;
+  payload: JsonObject;
+}
+
+export interface AgentBackendCapabilities {
+  provider: "ai-sdk" | "openai-responses-multi-agent" | "harness";
+  hostedCollaboration: boolean;
+  perAgentToolPolicies: boolean;
+  httpOutputItemReplay: boolean;
+  batchPendingFunctionCalls: boolean;
+  websocketInjection: boolean;
+  injectionAcknowledgements: boolean;
+  responseCompletedContinuation: boolean;
 }
 
 export interface AgentProfile {
@@ -452,6 +565,10 @@ export interface RuntimeEvent {
   detail_json: string;
   duration_ms: number | null;
   created_at: number;
+  event_type?: AgentRuntimeEventType | null;
+  agent_path?: string | null;
+  parent_agent_path?: string | null;
+  sequence?: number | null;
 }
 
 export type SandboxIsolationMode = "docker" | "local";
@@ -672,6 +789,7 @@ export interface ChatExecutionMetadata {
   durationMs?: number;
   model?: string;
   agentId?: string | null;
+  agentPath?: string | null;
   finishReason?: string;
   inputTokens?: number;
   outputTokens?: number;
@@ -776,6 +894,15 @@ export const DEFAULT_AGENT_HANDOFF_CONFIG: AgentHandoffConfig = {
 
 export const DEFAULT_AGENT_RUNTIME_CONFIG: AgentRuntimeConfig = {
   maxTurns: 8,
+  maxConcurrentSubagents: 3,
+  totalTimeoutMs: 120_000,
+  contextPolicy: {
+    mode: "semantic",
+    pruneThreshold: 0.6,
+    compactThreshold: 0.75,
+    targetRatio: 0.5,
+    keepRecentTokens: 20_000,
+  },
   reviewPolicy: "review_sensitive",
   sandboxPolicy: "local",
 };
@@ -820,6 +947,16 @@ export function normalizeAgentRuntimeConfig(
   const value = readAgentConfigObject(raw);
   const config: AgentRuntimeConfig = {
     maxTurns: Math.round(clampFiniteNumber(value?.maxTurns, fallback.maxTurns, 1, 20)),
+    maxConcurrentSubagents: Math.round(
+      clampFiniteNumber(value?.maxConcurrentSubagents, fallback.maxConcurrentSubagents ?? 3, 1, 16),
+    ),
+    totalTimeoutMs: Math.round(
+      clampFiniteNumber(value?.totalTimeoutMs, fallback.totalTimeoutMs ?? 120_000, 10_000, 900_000),
+    ),
+    contextPolicy: normalizeAgentContextPolicy(
+      value?.contextPolicy,
+      fallback.contextPolicy ?? DEFAULT_AGENT_RUNTIME_CONFIG.contextPolicy!,
+    ),
     reviewPolicy: isAgentReviewPolicy(value?.reviewPolicy)
       ? value.reviewPolicy
       : fallback.reviewPolicy,
@@ -860,7 +997,45 @@ export function normalizeAgentRuntimeConfig(
     config.notes = fallback.notes;
   }
 
+  if (typeof value?.compactionModelRef === "string" && value.compactionModelRef.trim()) {
+    config.compactionModelRef = value.compactionModelRef.trim();
+  } else if (fallback.compactionModelRef !== undefined) {
+    config.compactionModelRef = fallback.compactionModelRef;
+  }
+
   return config;
+}
+
+function normalizeAgentContextPolicy(
+  raw: unknown,
+  fallback: AgentContextPolicy,
+): AgentContextPolicy {
+  const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
+  const mode: AgentContextMode =
+    value?.mode === "off" || value?.mode === "prune" || value?.mode === "semantic"
+      ? value.mode
+      : fallback.mode;
+  const pruneThreshold = clampFiniteNumber(
+    value?.pruneThreshold,
+    fallback.pruneThreshold,
+    0.3,
+    0.9,
+  );
+  const compactThreshold = clampFiniteNumber(
+    value?.compactThreshold,
+    fallback.compactThreshold,
+    Math.min(0.95, pruneThreshold + 0.05),
+    0.98,
+  );
+  return {
+    mode,
+    pruneThreshold,
+    compactThreshold,
+    targetRatio: clampFiniteNumber(value?.targetRatio, fallback.targetRatio, 0.2, pruneThreshold),
+    keepRecentTokens: Math.round(
+      clampFiniteNumber(value?.keepRecentTokens, fallback.keepRecentTokens, 1_000, 200_000),
+    ),
+  };
 }
 
 export function isChatToolId(value: unknown): value is ChatToolId {
@@ -1748,6 +1923,9 @@ export interface RuntimeSnapshot {
   workflows: WorkflowDefinition[];
   workflowRuns: WorkflowRun[];
   runtimeEvents: RuntimeEvent[];
+  agentInstances: AgentInstanceRecord[];
+  collaborationMessages: AgentCollaborationMessage[];
+  contextCheckpoints: AgentContextCheckpoint[];
   interactionProfiles: InteractionProfile[];
   syncState: SyncState;
 }

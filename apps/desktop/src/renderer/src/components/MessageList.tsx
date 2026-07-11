@@ -554,6 +554,14 @@ function MessageItem({
           {t("msg.executionTime", { duration: executionTime })}
         </span>
       )}
+      {message.role === "assistant" &&
+      !messageStreaming &&
+      metadata.execution?.agentPath &&
+      metadata.execution.agentPath !== "/root" ? (
+        <span className="mt-1 text-[10.5px] leading-none text-foreground/45">
+          {t("msg.agentOwner", { path: metadata.execution.agentPath })}
+        </span>
+      ) : null}
 
       <AnimatePresence initial={false}>
         {message.role === "assistant" && !messageStreaming && copyState === "copied" ? (

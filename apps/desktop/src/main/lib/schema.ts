@@ -117,6 +117,87 @@ export const runtimeRuns = sqliteTable(
   ],
 );
 
+export const agentInstances = sqliteTable(
+  "agent_instances",
+  {
+    id: text("id").primaryKey(),
+    run_id: text("run_id")
+      .notNull()
+      .references(() => runtimeRuns.id, { onDelete: "cascade" }),
+    agent_id: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    agent_path: text("agent_path").notNull(),
+    parent_instance_id: text("parent_instance_id"),
+    parent_agent_path: text("parent_agent_path"),
+    status: text("status", {
+      enum: ["queued", "running", "waiting", "completed", "failed", "interrupted"],
+    }).notNull(),
+    task_name: text("task_name").notNull(),
+    task_summary: text("task_summary").notNull(),
+    turn_count: integer("turn_count").notNull().default(0),
+    last_message: text("last_message"),
+    error: text("error"),
+    started_at: integer("started_at"),
+    finished_at: integer("finished_at"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_agent_instances_run").on(table.run_id),
+    index("idx_agent_instances_path").on(table.run_id, table.agent_path),
+    index("idx_agent_instances_status").on(table.status),
+  ],
+);
+
+export const collaborationMessages = sqliteTable(
+  "agent_collaboration_messages",
+  {
+    id: text("id").primaryKey(),
+    run_id: text("run_id")
+      .notNull()
+      .references(() => runtimeRuns.id, { onDelete: "cascade" }),
+    author_path: text("author_path").notNull(),
+    recipient_path: text("recipient_path").notNull(),
+    kind: text("kind", { enum: ["task", "message", "final_answer"] }).notNull(),
+    content: text("content").notNull(),
+    created_at: integer("created_at").notNull(),
+    delivered_at: integer("delivered_at"),
+  },
+  (table) => [
+    index("idx_agent_messages_run").on(table.run_id),
+    index("idx_agent_messages_recipient").on(table.run_id, table.recipient_path),
+  ],
+);
+
+export const contextCheckpoints = sqliteTable(
+  "agent_context_checkpoints",
+  {
+    id: text("id").primaryKey(),
+    run_id: text("run_id").references(() => runtimeRuns.id, { onDelete: "set null" }),
+    conversation_id: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    agent_instance_id: text("agent_instance_id").references(() => agentInstances.id, {
+      onDelete: "set null",
+    }),
+    agent_path: text("agent_path").notNull(),
+    version: integer("version").notNull(),
+    reason: text("reason", { enum: ["threshold", "overflow", "manual"] }).notNull(),
+    summary: text("summary").notNull(),
+    source_message_count: integer("source_message_count").notNull(),
+    retained_message_count: integer("retained_message_count").notNull(),
+    estimated_tokens_before: integer("estimated_tokens_before").notNull(),
+    estimated_tokens_after: integer("estimated_tokens_after").notNull(),
+    model_ref: text("model_ref"),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_context_checkpoints_conversation").on(table.conversation_id, table.created_at),
+    index("idx_context_checkpoints_instance").on(table.agent_instance_id),
+  ],
+);
+
 export const runtimeSteps = sqliteTable(
   "runtime_steps",
   {
@@ -209,6 +290,10 @@ export const runtimeEvents = sqliteTable(
     title: text("title").notNull(),
     detail_json: text("detail_json").notNull().default("{}"),
     duration_ms: integer("duration_ms"),
+    event_type: text("event_type"),
+    agent_path: text("agent_path"),
+    parent_agent_path: text("parent_agent_path"),
+    sequence: integer("sequence"),
     created_at: integer("created_at").notNull(),
   },
   (table) => [
@@ -646,6 +731,9 @@ export const schema = {
   agents,
   agentPolicies,
   runtimeRuns,
+  agentInstances,
+  collaborationMessages,
+  contextCheckpoints,
   runtimeSteps,
   runtimeEvents,
   toolServers,
@@ -676,6 +764,12 @@ export type AgentPolicy = typeof agentPolicies.$inferSelect;
 export type NewAgentPolicy = typeof agentPolicies.$inferInsert;
 export type RuntimeRun = typeof runtimeRuns.$inferSelect;
 export type NewRuntimeRun = typeof runtimeRuns.$inferInsert;
+export type AgentInstance = typeof agentInstances.$inferSelect;
+export type NewAgentInstance = typeof agentInstances.$inferInsert;
+export type CollaborationMessage = typeof collaborationMessages.$inferSelect;
+export type NewCollaborationMessage = typeof collaborationMessages.$inferInsert;
+export type ContextCheckpoint = typeof contextCheckpoints.$inferSelect;
+export type NewContextCheckpoint = typeof contextCheckpoints.$inferInsert;
 export type RuntimeStep = typeof runtimeSteps.$inferSelect;
 export type NewRuntimeStep = typeof runtimeSteps.$inferInsert;
 export type RuntimeEvent = typeof runtimeEvents.$inferSelect;
