@@ -30,6 +30,7 @@ import {
   Paperclip,
   Palette,
   Pencil,
+  Pin,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -56,6 +57,7 @@ function fromLucide(Icon: LucideIcon) {
 
 export const IconPlus = fromLucide(Plus);
 export const IconTrash = fromLucide(Trash2);
+export const IconPin = fromLucide(Pin);
 export const IconSettings = fromLucide(Settings);
 export const IconSun = fromLucide(Sun);
 export const IconMoon = fromLucide(Moon);

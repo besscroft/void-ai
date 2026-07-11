@@ -32,6 +32,7 @@ import {
   IconSearch,
   IconTrash,
   IconX,
+  IconPin,
 } from "./icons";
 import { cn } from "../lib/utils";
 
@@ -94,8 +95,8 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
   }
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto p-6">
-      <div className="mx-auto flex h-full max-w-6xl flex-col gap-5">
+    <main className="flex min-h-0 flex-1 overflow-hidden p-6">
+      <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-5">
         {section === "agents" && (
           <AgentsPanel
             agents={data.agents}
@@ -173,9 +174,9 @@ function MemoryPanel(): React.JSX.Element {
   ];
 
   return (
-    <div className="flex h-full items-start gap-4">
+    <div className="flex h-full gap-4 overflow-hidden">
       {/* 左侧记忆导航 */}
-      <div className="flex w-56 shrink-0 flex-col gap-2 self-stretch rounded-lg border border-border bg-card p-3">
+      <div className="flex w-56 shrink-0 flex-col gap-2 self-stretch overflow-y-auto rounded-lg border border-border bg-card p-3">
         <h2 className="px-1 py-1 text-sm font-semibold">{t("main.title.memory")}</h2>
 
         <div className="flex flex-col gap-1">
@@ -213,7 +214,7 @@ function MemoryPanel(): React.JSX.Element {
       </div>
 
       {/* 右侧内容区域 */}
-      <div className="min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {activeTab === "entries" && <MemoryEntriesPanel />}
         {activeTab !== "entries" && memoryFiles && (
           <MemoryFilePanel
@@ -367,6 +368,7 @@ function MemoryEntriesPanel(): React.JSX.Element {
   const [sortBy, setSortBy] = useState<"salience" | "updated" | "created">("salience");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingMemory, setEditingMemory] = useState<MemoryRecord | null>(null);
@@ -407,6 +409,26 @@ function MemoryEntriesPanel(): React.JSX.Element {
   }, [load]);
 
   const pinnedCount = useMemo(() => memories.filter((m) => m.pinned === 1).length, [memories]);
+
+  const activeMemory = useMemo(
+    () => memories.find((m) => m.id === selectedId) ?? null,
+    [memories, selectedId],
+  );
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (
+      memories.length > 0 &&
+      (selectedId === null || !memories.some((m) => m.id === selectedId))
+    ) {
+      setSelectedId(memories[0].id);
+    }
+  }, [memories, selectedId]);
+
+  const handleTogglePin = async (memory: MemoryRecord): Promise<void> => {
+    await api.memories.updateBatch([memory.id], { pinned: memory.pinned === 1 ? 0 : 1 });
+    await load();
+  };
 
   const toggleSelection = (id: string): void => {
     setSelectedIds((prev) => {
@@ -476,9 +498,9 @@ function MemoryEntriesPanel(): React.JSX.Element {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex h-full flex-col gap-4 overflow-hidden">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">{t("main.memory.search")}</h2>
           <span className="text-sm text-muted-foreground">
@@ -498,7 +520,7 @@ function MemoryEntriesPanel(): React.JSX.Element {
       </div>
 
       {/* Search & Filters */}
-      <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+      <div className="flex shrink-0 flex-col gap-3 rounded-lg border border-border bg-card p-4">
         <div className="relative">
           <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -577,7 +599,7 @@ function MemoryEntriesPanel(): React.JSX.Element {
 
       {/* Bulk actions */}
       {selectedIds.size > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onPress={clearSelection}>
               <IconX className="size-4" />
@@ -614,27 +636,55 @@ function MemoryEntriesPanel(): React.JSX.Element {
         </div>
       )}
 
-      {/* Main grid */}
-      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        <Card>
-          <Card.Content className="space-y-4 p-4">
+      {/* Master-detail */}
+      <div className="flex min-h-0 flex-1 gap-4">
+        {/* Left: minimal list */}
+        <div className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
+          <div className="flex items-center justify-between px-4 pt-4">
+            <span className="text-sm font-medium">{t("main.memory.tab.entries")}</span>
+            <span className="text-xs text-muted-foreground">{memories.length}</span>
+          </div>
+          <div className="flex items-center gap-6 px-4 py-3">
             <Metric label={t("main.metric.memories")} value={memories.length} />
             <Metric label={t("main.metric.pinned", { count: pinnedCount })} value={pinnedCount} />
-          </Card.Content>
-        </Card>
-        <div className="grid gap-3 md:grid-cols-2">
-          {memories.map((memory) => (
-            <MemoryCard
-              key={memory.id}
-              memory={memory}
-              selected={selectedIds.has(memory.id)}
-              onToggleSelect={() => toggleSelection(memory.id)}
-              onEdit={() => openEditMemory(memory)}
-              onDelete={() => setDeleteTarget(memory)}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            {memories.map((memory) => (
+              <MemoryListRow
+                key={memory.id}
+                memory={memory}
+                active={memory.id === selectedId}
+                selected={selectedIds.has(memory.id)}
+                onSelect={() => setSelectedId(memory.id)}
+                onToggleSelect={() => toggleSelection(memory.id)}
+                onEdit={() => openEditMemory(memory)}
+                onDelete={() => setDeleteTarget(memory)}
+              />
+            ))}
+            {isLoading && memories.length === 0 && (
+              <div className="space-y-2 px-1 py-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="h-12 animate-pulse rounded-md bg-muted/40" />
+                ))}
+              </div>
+            )}
+            {memories.length === 0 && !isLoading && (
+              <EmptyState icon={<IconDatabase />} title={t("main.title.memory")} />
+            )}
+          </div>
+        </div>
+
+        {/* Right: detail */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border bg-card p-5">
+          {activeMemory ? (
+            <MemoryDetail
+              memory={activeMemory}
+              onEdit={() => openEditMemory(activeMemory)}
+              onDelete={() => setDeleteTarget(activeMemory)}
+              onTogglePin={() => handleTogglePin(activeMemory)}
             />
-          ))}
-          {memories.length === 0 && !isLoading && (
-            <EmptyState icon={<IconDatabase />} title={t("main.title.memory")} />
+          ) : (
+            !isLoading && <EmptyState icon={<IconDatabase />} title={t("main.title.memory")} />
           )}
         </div>
       </div>
@@ -678,73 +728,149 @@ function MemoryEntriesPanel(): React.JSX.Element {
   );
 }
 
-function MemoryCard({
+function MemoryListRow({
   memory,
+  active,
   selected,
+  onSelect,
   onToggleSelect,
   onEdit,
   onDelete,
 }: {
   memory: MemoryRecord;
+  active: boolean;
   selected: boolean;
+  onSelect: () => void;
   onToggleSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }): React.JSX.Element {
   const { t } = useT();
   return (
-    <Card className={cn("transition", selected && "border-ring/50 bg-muted/30")}>
-      <Card.Header>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-start gap-2">
-            <input
-              type="checkbox"
-              checked={selected}
-              onChange={onToggleSelect}
-              className="mt-1 size-4 shrink-0 rounded border-border"
-              aria-label={t("main.memory.selected", { count: 1 })}
-            />
-            <div className="min-w-0 flex-1">
-              <Card.Title className="truncate">{memory.title}</Card.Title>
-              <Card.Description>
-                <span className="inline-flex flex-wrap gap-1">
-                  <Chip size="sm" variant="soft">
-                    {t(`main.memory.scope.${memory.scope}`)}
-                  </Chip>
-                  <Chip size="sm" variant="secondary">
-                    {t(`main.memory.kind.${memory.kind}`)}
-                  </Chip>
-                  {memory.pinned !== 0 && (
-                    <Chip size="sm" variant="soft">
-                      {t("main.metric.pinned", { count: 1 })}
-                    </Chip>
-                  )}
-                </span>
-              </Card.Description>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button variant="tertiary" size="sm" isIconOnly onPress={onEdit}>
-              <IconEdit className="size-4" />
-            </Button>
-            <Button variant="tertiary" size="sm" isIconOnly onPress={onDelete}>
-              <IconTrash className="size-4" />
-            </Button>
+    <div
+      className={cn(
+        "group flex gap-2 rounded-md px-2 py-2.5 transition",
+        active ? "bg-muted/50" : "hover:bg-muted/30",
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggleSelect}
+        onClick={(e) => e.stopPropagation()}
+        className="mt-1 size-4 shrink-0 rounded border-border"
+        aria-label={t("main.memory.selected", { count: 1 })}
+      />
+      <button type="button" onClick={onSelect} className="min-w-0 flex-1 text-left">
+        <div className="flex items-center gap-1.5">
+          {memory.pinned !== 0 && (
+            <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+          )}
+          <span className="truncate text-sm font-medium">{memory.title}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap gap-1">
+          <Chip size="sm" variant="soft">
+            {t(`main.memory.scope.${memory.scope}`)}
+          </Chip>
+          <Chip size="sm" variant="secondary">
+            {t(`main.memory.kind.${memory.kind}`)}
+          </Chip>
+        </div>
+        <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{memory.content}</p>
+      </button>
+      <div className="flex shrink-0 flex-col items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="rounded p-1 text-foreground/50 hover:bg-foreground/10 hover:text-foreground"
+          aria-label={t("main.memory.edit")}
+        >
+          <IconEdit className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="rounded p-1 text-foreground/50 hover:bg-danger/10 hover:text-danger"
+          aria-label={t("main.memory.delete")}
+        >
+          <IconTrash className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MemoryDetail({
+  memory,
+  onEdit,
+  onDelete,
+  onTogglePin,
+}: {
+  memory: MemoryRecord;
+  onEdit: () => void;
+  onDelete: () => void;
+  onTogglePin: () => void;
+}): React.JSX.Element {
+  const { t, f } = useT();
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-xl font-semibold">{memory.title}</h3>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Chip size="sm" variant="soft">
+              {t(`main.memory.scope.${memory.scope}`)}
+            </Chip>
+            <Chip size="sm" variant="secondary">
+              {t(`main.memory.kind.${memory.kind}`)}
+            </Chip>
+            {memory.pinned !== 0 && (
+              <Chip size="sm" variant="soft">
+                {t("main.metric.pinned", { count: 1 })}
+              </Chip>
+            )}
+            {memory.origin && (
+              <Chip size="sm" variant="default">
+                {t(`main.memory.origin.${memory.origin}`)}
+              </Chip>
+            )}
           </div>
         </div>
-      </Card.Header>
-      <Card.Content>
-        <p className="line-clamp-4 text-sm text-foreground/60">{memory.content}</p>
-        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>
-            {t("main.memory.field.salience")}: {memory.salience}
-          </span>
-          <span>
-            {memory.updated_at === memory.created_at ? "" : t("main.memory.sort.updated")}
-          </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="tertiary" size="sm" isIconOnly onPress={onTogglePin}>
+            <IconPin className={cn("size-4", memory.pinned !== 0 && "text-primary")} />
+          </Button>
+          <Button variant="secondary" size="sm" onPress={onEdit}>
+            <IconEdit className="size-4" />
+            {t("main.memory.edit")}
+          </Button>
+          <Button variant="danger" size="sm" isIconOnly onPress={onDelete}>
+            <IconTrash className="size-4" />
+          </Button>
         </div>
-      </Card.Content>
-    </Card>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-md border border-border bg-background/50 p-4 text-xs sm:grid-cols-3">
+        <MetaItem label={t("main.memory.field.salience")} value={String(memory.salience)} />
+        <MetaItem label={t("main.memory.sort.created")} value={f.dateTime(memory.created_at)} />
+        <MetaItem label={t("main.memory.sort.updated")} value={f.dateTime(memory.updated_at)} />
+      </div>
+
+      <div className="rounded-md border border-border bg-background p-4">
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+          {memory.content}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MetaItem({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div>
+      <p className="text-foreground/45">{label}</p>
+      <p className="mt-0.5 font-medium text-foreground/80">{value}</p>
+    </div>
   );
 }
 
