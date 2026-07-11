@@ -58,6 +58,12 @@ const api = {
       ipcRenderer.invoke("agents:queueLearning", conversationId),
     runtimeSnapshot: () => ipcRenderer.invoke("agents:runtimeSnapshot"),
     save: (agent: unknown) => ipcRenderer.invoke("agents:save", agent),
+    memoryFiles: {
+      list: () => ipcRenderer.invoke("agents:memoryFiles:list"),
+      save: (kind: string, content: string) =>
+        ipcRenderer.invoke("agents:memoryFiles:save", kind, content),
+      reload: (kind: string) => ipcRenderer.invoke("agents:memoryFiles:reload", kind),
+    },
   },
   memories: {
     list: () => ipcRenderer.invoke("memories:list"),
@@ -68,13 +74,6 @@ const api = {
     deleteBatch: (ids: string[]) => ipcRenderer.invoke("memories:deleteBatch", ids),
     updateBatch: (ids: string[], patch: unknown) =>
       ipcRenderer.invoke("memories:updateBatch", ids, patch),
-    pending: {
-      list: () => ipcRenderer.invoke("memories:pending:list"),
-      confirm: (id: string) => ipcRenderer.invoke("memories:pending:confirm", id),
-      reject: (id: string) => ipcRenderer.invoke("memories:pending:reject", id),
-      confirmAll: () => ipcRenderer.invoke("memories:pending:confirmAll"),
-      rejectAll: () => ipcRenderer.invoke("memories:pending:rejectAll"),
-    },
   },
   workflows: {
     // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）

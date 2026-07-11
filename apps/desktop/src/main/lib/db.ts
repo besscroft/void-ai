@@ -1829,7 +1829,6 @@ export function updateVoidLearningState(input: {
   status: AgentRuntimeStatus;
   lastLearningAt?: number;
   lastError?: string | null;
-  soulPromptAppend?: string;
 }): void {
   upsertAgentRuntimeState({
     agent_id: DEFAULT_AGENT_ID,
@@ -1837,15 +1836,6 @@ export function updateVoidLearningState(input: {
     last_learning_at: input.lastLearningAt,
     last_error: input.lastError,
   });
-  if (input.soulPromptAppend?.trim()) {
-    const agent = getAgent(DEFAULT_AGENT_ID);
-    if (agent) {
-      updateAgent(DEFAULT_AGENT_ID, {
-        ...agent,
-        soul_prompt: [agent.soul_prompt, input.soulPromptAppend].filter(Boolean).join("\n"),
-      });
-    }
-  }
 }
 
 export async function buildAgentSystemPrompt(
@@ -1855,28 +1845,32 @@ export async function buildAgentSystemPrompt(
   const agent = getAgent(agentId || DEFAULT_AGENT_ID) ?? getAgent(DEFAULT_AGENT_ID);
   if (!agent) return "You are Void, a local AI assistant.";
 
-  // 从最近用户消息提取查询词，用于 Mem0 语义搜索
+  // 从文件层加载有界冻结快照；首次启动时从 agent.instructions 初始化
+  const { buildMemoryFilePromptBlock, ensureMemoryFiles } = await import("./agent-memory-files");
+  ensureMemoryFiles(agent);
+  const fileBlock = buildMemoryFilePromptBlock();
+
+  // 可选：语义搜索补充最近 3 条相关记忆
   const recentMessages = conversationId ? listMessages(conversationId) : [];
   const lastUserMsg = [...recentMessages].reverse().find((m) => m.role === "user");
-  const query = lastUserMsg ? extractMessageTextFromContent(lastUserMsg.content).slice(0, 200) : "";
+  let extraMemories = "";
+  if (lastUserMsg) {
+    const query = extractMessageTextFromContent(lastUserMsg.content).slice(0, 200);
+    const { searchMemoriesSemantic } = await import("./mem0-service");
+    const hits = await searchMemoriesSemantic(query, agent.id, conversationId, 3);
+    if (hits.length > 0) {
+      extraMemories =
+        "\n\nRecently relevant memories:\n" +
+        hits.map((memory) => `- ${memory.title}: ${memory.content}`).join("\n");
+    }
+  }
 
-  // 语义搜索记忆（降级到全量过滤）
-  const { searchMemoriesSemantic } = await import("./mem0-service");
-  const memories = query
-    ? await searchMemoriesSemantic(query, agent.id, conversationId, 8)
-    : listMemories()
-        .filter((memory) => memory.scope === "global" || memory.agent_id === agent.id)
-        .slice(0, 8);
-
-  const memoriesForPrompt = memories
-    .map((memory) => `- ${memory.title}: ${memory.content}`)
-    .join("\n");
   return [
     `You are ${agent.name}.`,
     `Role: ${agent.role}`,
     agent.personality ? `Persona: ${agent.personality}` : "",
-    agent.soul_prompt,
-    memoriesForPrompt ? `Relevant memory:\n${memoriesForPrompt}` : "",
+    fileBlock,
+    extraMemories,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -2053,7 +2047,7 @@ function seedBuiltinTools(now: number): void {
         category: seed.category,
         reference: seed.id,
         enabled: 1,
-        auto_use: seed.requiresApproval ? 0 : 1,
+        auto_use: seed.defaultAuto,
         requires_approval: seed.requiresApproval,
         input_schema_json: "{}",
         output_schema_json: "{}",

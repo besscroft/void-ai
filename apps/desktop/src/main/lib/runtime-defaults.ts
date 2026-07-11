@@ -44,6 +44,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Search the live web when the model/provider supports it.",
     category: "web",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "current_time",
@@ -51,6 +52,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Read the current system time and timezone.",
     category: "system",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "memory_search",
@@ -58,6 +60,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Search local memory records.",
     category: "memory",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "runtime_snapshot",
@@ -65,6 +68,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Read a compact local runtime summary.",
     category: "runtime",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "model_capabilities",
@@ -72,6 +76,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Inspect selected model capabilities.",
     category: "model",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "conversation_search",
@@ -79,6 +84,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Search local conversation history.",
     category: "conversation",
     requiresApproval: 1,
+    defaultAuto: 0,
   },
   {
     id: "memory_save",
@@ -86,6 +92,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Persist a new local memory.",
     category: "memory",
     requiresApproval: 0,
+    defaultAuto: 0,
   },
   {
     id: "memory_update",
@@ -93,6 +100,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Update an existing local memory.",
     category: "memory",
     requiresApproval: 0,
+    defaultAuto: 0,
   },
   {
     id: "memory_delete",
@@ -100,6 +108,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Delete an existing local memory.",
     category: "memory",
     requiresApproval: 0,
+    defaultAuto: 0,
   },
   {
     id: "sandbox_list_files",
@@ -107,6 +116,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "List files in the active sandbox.",
     category: "sandbox",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "sandbox_read_file",
@@ -114,6 +124,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Read text from the active sandbox.",
     category: "sandbox",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "sandbox_write_file",
@@ -121,6 +132,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Write a file in the active sandbox.",
     category: "sandbox",
     requiresApproval: 1,
+    defaultAuto: 0,
   },
   {
     id: "sandbox_run_command",
@@ -128,6 +140,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Run a command in the active sandbox.",
     category: "sandbox",
     requiresApproval: 1,
+    defaultAuto: 0,
   },
   {
     id: "sandbox_snapshot",
@@ -135,6 +148,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Save a restorable sandbox snapshot.",
     category: "sandbox",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "sandbox_restore",
@@ -142,6 +156,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Restore a sandbox snapshot.",
     category: "sandbox",
     requiresApproval: 1,
+    defaultAuto: 0,
   },
   {
     id: "sandbox_list_artifacts",
@@ -149,6 +164,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "List exported sandbox artifacts.",
     category: "sandbox",
     requiresApproval: 0,
+    defaultAuto: 1,
   },
   {
     id: "sandbox_preview_port",
@@ -156,5 +172,6 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Expose a local sandbox preview port.",
     category: "sandbox",
     requiresApproval: 1,
+    defaultAuto: 0,
   },
 ] as const;

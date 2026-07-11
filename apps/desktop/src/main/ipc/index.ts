@@ -1,4 +1,4 @@
-import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain } from "electron";
 import { getServerInfo, getServerPort } from "../server";
 import {
   listConversations,
@@ -91,14 +91,13 @@ import type {
   MessageRow,
   ToolServerInput,
 } from "../../shared/types";
+import { queueAgentLearning } from "../lib/agent-learning";
 import {
-  queueAgentLearning,
-  listPendingMemories,
-  confirmPendingMemory,
-  rejectPendingMemory,
-  confirmAllPendingMemories,
-  rejectAllPendingMemories,
-} from "../lib/agent-learning";
+  getMemoryFileSnapshot,
+  reloadMemoryFile,
+  writeMemoryFile,
+  type MemoryFileKind,
+} from "../lib/agent-memory-files";
 import { closeMcpClient, discoverMcpServer, testMcpServer } from "../lib/mcp-manager";
 import { runToolSkill } from "../lib/skill-runtime";
 import { generateSkillDraft } from "../lib/skill-drafts";
@@ -117,7 +116,7 @@ import { getActiveWorkflowRunForConversation } from "../lib/workflow-runs";
  *  - providers:list      鑾峰彇 provider 鍒楄〃锛堝惈妯″瀷銆乭elpUrl锛?
  */
 
-export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
+export function registerIpcHandlers(): void {
   // ---------- 浼氳瘽鍘嗗彶 ----------
   ipcMain.handle("conversations:list", () => listConversations());
 
@@ -240,24 +239,17 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
       updateMemoriesBatch(ids, patch),
   );
 
-  // 待确认记忆队列
-  ipcMain.handle("memories:pending:list", () => listPendingMemories());
-  ipcMain.handle("memories:pending:confirm", (_e, id: string) => {
-    confirmPendingMemory(id);
-    return true;
+  // 有界记忆文件（SOUL / USER / MEMORY）查看与编辑
+  ipcMain.handle("agents:memoryFiles:list", () => ({
+    soul: getMemoryFileSnapshot("soul"),
+    user: getMemoryFileSnapshot("user"),
+    memory: getMemoryFileSnapshot("memory"),
+  }));
+  ipcMain.handle("agents:memoryFiles:save", (_e, kind: MemoryFileKind, content: string) => {
+    writeMemoryFile(kind, content, { userLocked: true });
+    return getMemoryFileSnapshot(kind);
   });
-  ipcMain.handle("memories:pending:reject", (_e, id: string) => {
-    rejectPendingMemory(id);
-    return true;
-  });
-  ipcMain.handle("memories:pending:confirmAll", () => {
-    confirmAllPendingMemories();
-    return true;
-  });
-  ipcMain.handle("memories:pending:rejectAll", () => {
-    rejectAllPendingMemories();
-    return true;
-  });
+  ipcMain.handle("agents:memoryFiles:reload", (_e, kind: MemoryFileKind) => reloadMemoryFile(kind));
 
   // 工作流编排：仅暴露 chat 页面悬浮状态框需要的能力 —— 取消运行 + 按会话查最近一次 run
   ipcMain.handle("workflowRuns:cancel", (_e, runId: string) => cancelWorkflowRun(runId));

@@ -205,7 +205,7 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     description: "Save a new local memory.",
     kind: "host",
     category: "memory",
-    defaultAuto: true,
+    defaultAuto: false,
     requiresApproval: false,
   },
   memory_update: {
@@ -214,7 +214,7 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     description: "Update an existing local memory.",
     kind: "host",
     category: "memory",
-    defaultAuto: true,
+    defaultAuto: false,
     requiresApproval: false,
   },
   memory_delete: {
@@ -223,7 +223,7 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     description: "Delete an existing local memory.",
     kind: "host",
     category: "memory",
-    defaultAuto: true,
+    defaultAuto: false,
     requiresApproval: false,
   },
   sandbox_list_files: {

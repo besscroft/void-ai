@@ -1,5 +1,6 @@
 import type {
   AgentInput,
+  AgentMemoryFileSnapshot,
   AgentProfile,
   Conversation,
   CustomModelInput,
@@ -7,6 +8,7 @@ import type {
   DesktopPetConfig,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
+  MemoryFileKind,
   SkillDraftRequest,
   SkillDraftResult,
   ToolSecretInput,
@@ -19,7 +21,6 @@ import type {
   LocalServerInfo,
   ManagedModelInfo,
   MemoryKind,
-  MemoryPendingSuggestion,
   MemoryRecord,
   MemoryScope,
   MessageRow,
@@ -126,6 +127,14 @@ export const api = {
       >
     > => assertApi().agents.runtimeSnapshot(),
     save: (agent: AgentProfile): Promise<boolean> => assertApi().agents.save(agent),
+    memoryFiles: {
+      list: (): Promise<Record<MemoryFileKind, AgentMemoryFileSnapshot>> =>
+        assertApi().agents.memoryFiles.list(),
+      save: (kind: MemoryFileKind, content: string): Promise<AgentMemoryFileSnapshot> =>
+        assertApi().agents.memoryFiles.save(kind, content),
+      reload: (kind: MemoryFileKind): Promise<AgentMemoryFileSnapshot> =>
+        assertApi().agents.memoryFiles.reload(kind),
+    },
   },
   memories: {
     list: (): Promise<MemoryRecord[]> => assertApi().memories.list(),
@@ -148,13 +157,6 @@ export const api = {
       ids: string[],
       patch: Partial<Pick<MemoryRecord, "pinned" | "salience" | "kind" | "scope">>,
     ): Promise<number> => assertApi().memories.updateBatch(ids, patch),
-    pending: {
-      list: (): Promise<MemoryPendingSuggestion[]> => assertApi().memories.pending.list(),
-      confirm: (id: string): Promise<boolean> => assertApi().memories.pending.confirm(id),
-      reject: (id: string): Promise<boolean> => assertApi().memories.pending.reject(id),
-      confirmAll: (): Promise<boolean> => assertApi().memories.pending.confirmAll(),
-      rejectAll: (): Promise<boolean> => assertApi().memories.pending.rejectAll(),
-    },
   },
   workflows: {
     // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）
@@ -286,12 +288,14 @@ export const api = {
 
 export type {
   AgentInput,
+  AgentMemoryFileSnapshot,
   AgentProfile,
   Conversation,
   CustomModelInput,
   CustomProviderInput,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
+  MemoryFileKind,
   ToolSecretInput,
   ToolSecretPublic,
   ToolSkill,
@@ -301,7 +305,6 @@ export type {
   InteractionProfile,
   LocalServerInfo,
   MemoryKind,
-  MemoryPendingSuggestion,
   MemoryRecord,
   MemoryScope,
   MessageRow,

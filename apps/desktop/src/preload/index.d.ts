@@ -1,6 +1,7 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
 import type {
   AgentInput,
+  AgentMemoryFileSnapshot,
   AgentProfile,
   Conversation,
   CustomModelInput,
@@ -8,6 +9,7 @@ import type {
   DesktopPetConfig,
   DesktopPetConfigPatch,
   DesktopPetSnapshot,
+  MemoryFileKind,
   SkillDraftRequest,
   SkillDraftResult,
   ToolSecretInput,
@@ -20,7 +22,6 @@ import type {
   LocalServerInfo,
   ManagedModelInfo,
   MemoryKind,
-  MemoryPendingSuggestion,
   MemoryRecord,
   MemoryScope,
   MessageRow,
@@ -110,6 +111,11 @@ export interface VoidAIApi {
       >
     >;
     save: (agent: AgentProfile) => Promise<boolean>;
+    memoryFiles: {
+      list: () => Promise<Record<MemoryFileKind, AgentMemoryFileSnapshot>>;
+      save: (kind: MemoryFileKind, content: string) => Promise<AgentMemoryFileSnapshot>;
+      reload: (kind: MemoryFileKind) => Promise<AgentMemoryFileSnapshot>;
+    };
   };
   memories: {
     list: () => Promise<MemoryRecord[]>;
@@ -132,13 +138,6 @@ export interface VoidAIApi {
       ids: string[],
       patch: Partial<Pick<MemoryRecord, "pinned" | "salience" | "kind" | "scope">>,
     ) => Promise<number>;
-    pending: {
-      list: () => Promise<MemoryPendingSuggestion[]>;
-      confirm: (id: string) => Promise<boolean>;
-      reject: (id: string) => Promise<boolean>;
-      confirmAll: () => Promise<boolean>;
-      rejectAll: () => Promise<boolean>;
-    };
   };
   workflows: {
     // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）

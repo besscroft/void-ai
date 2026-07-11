@@ -124,7 +124,7 @@ export async function searchMemoriesSemantic(
 /**
  * 通过 Mem0 LLM 抽取记忆。
  * - persist=true（默认）：双写到向量索引 + SQLite，返回数量与记录。
- * - persist=false：仅做抽取并返回记录，不写入 SQLite，供 pending 队列使用。
+ * - persist=false：仅做抽取并返回记录，不写入 SQLite。
  * Mem0 不可用时返回空数组（由调用方回退到正则）。
  */
 export async function addMemoriesFromConversation(
@@ -139,22 +139,24 @@ export async function addMemoriesFromConversation(
   const result = await memory.add(messages, {
     userId: agentId ?? DEFAULT_AGENT_ID,
     runId: conversationId ?? undefined,
+    metadata: { source: "auto-learning", agentId: agentId ?? DEFAULT_AGENT_ID },
   });
 
   const extracted = result?.results ?? [];
   const records: MemoryRecord[] = [];
   for (const item of extracted) {
     if (!item.memory) continue;
+    const inferred = inferMemoryKind(item.memory);
     const record: MemoryRecord = {
       id: item.id,
       scope: "agent",
-      kind: "fact",
+      kind: inferred.kind,
       title: item.memory.slice(0, 33) + (item.memory.length > 33 ? "..." : ""),
       content: item.memory,
       agent_id: agentId ?? DEFAULT_AGENT_ID,
       conversation_id: null,
       source_run_id: null,
-      salience: 70,
+      salience: inferred.salience,
       pinned: 0,
       created_at: Date.now(),
       updated_at: Date.now(),
@@ -163,6 +165,46 @@ export async function addMemoriesFromConversation(
     if (persist) saveMemory(record);
   }
   return { count: records.length, records };
+}
+
+/**
+ * 根据记忆内容推断 kind 与重要性。
+ * 用于提升自动保存后文件层分类的准确性。
+ */
+function inferMemoryKind(text: string): { kind: MemoryRecord["kind"]; salience: number } {
+  const lower = text.toLowerCase();
+  const userMarkers = [
+    "i prefer",
+    "i like",
+    "i want",
+    "i need",
+    "i dislike",
+    "i hate",
+    "my name",
+    "my role",
+    "my job",
+    "my team",
+    "my project",
+    "i work",
+    "i use",
+    "i am",
+    "i'm",
+    "my workflow",
+    "my style",
+  ];
+  const isUser = userMarkers.some((m) => lower.includes(m));
+  if (isUser) return { kind: "preference", salience: 85 };
+
+  const profileMarkers = ["user is", "user works as", "user's name", "user's role", "user speaks"];
+  if (profileMarkers.some((m) => lower.includes(m))) return { kind: "profile", salience: 90 };
+
+  const skillMarkers = ["how to", "steps to", "guide to", "recipe for", "pattern for"];
+  if (skillMarkers.some((m) => lower.includes(m))) return { kind: "skill", salience: 80 };
+
+  const episodeMarkers = ["yesterday", "last week", "recently", "earlier", "today i", "then we"];
+  if (episodeMarkers.some((m) => lower.includes(m))) return { kind: "episode", salience: 65 };
+
+  return { kind: "fact", salience: 70 };
 }
 
 /**

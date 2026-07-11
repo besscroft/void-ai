@@ -12,9 +12,10 @@ import {
 } from "./ui";
 import {
   api,
+  type AgentMemoryFileSnapshot,
   type AgentProfile,
+  type MemoryFileKind,
   type MemoryKind,
-  type MemoryPendingSuggestion,
   type MemoryRecord,
   type MemoryScope,
   type RuntimeEvent,
@@ -24,8 +25,6 @@ import { AgentsPanel } from "./AgentsPanel";
 import { ToolsPanel } from "./ToolsPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
-  IconCheck,
-  IconClock,
   IconDatabase,
   IconEdit,
   IconPlus,
@@ -71,6 +70,7 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
       });
   };
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(refresh, []);
 
   if (section === "tools") {
@@ -83,7 +83,7 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
 
   return (
     <main className="min-h-0 flex-1 overflow-y-auto p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-5">
+      <div className="mx-auto flex h-full max-w-6xl flex-col gap-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold">{t(`main.title.${section}`)}</h1>
@@ -109,10 +109,253 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
   );
 }
 
+type MemoryPanelTab = "entries" | MemoryFileKind;
+
 function MemoryPanel(): React.JSX.Element {
   const { t, f } = useT();
+  const [activeTab, setActiveTab] = useState<MemoryPanelTab>("entries");
+  const [memoryFiles, setMemoryFiles] = useState<Record<
+    MemoryFileKind,
+    AgentMemoryFileSnapshot
+  > | null>(null);
+
+  const loadFiles = useCallback(async () => {
+    const files = await api.agents.memoryFiles.list();
+    setMemoryFiles(files);
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadFiles();
+  }, [loadFiles]);
+
+  const sidebarItems: {
+    key: MemoryPanelTab;
+    label: string;
+    meta?: string;
+    status?: string;
+  }[] = [
+    { key: "entries", label: t("main.memory.tab.entries") },
+    {
+      key: "soul",
+      label: t("main.memory.tab.soul"),
+      meta: memoryFiles
+        ? t("main.memory.file.charCount", {
+            count: f.number(memoryFiles.soul.charCount),
+            limit: f.number(memoryFiles.soul.charLimit),
+          })
+        : undefined,
+      status: memoryFiles?.soul.userLocked ? t("main.memory.file.locked") : undefined,
+    },
+    {
+      key: "user",
+      label: t("main.memory.tab.user"),
+      meta: memoryFiles
+        ? t("main.memory.file.charCount", {
+            count: f.number(memoryFiles.user.charCount),
+            limit: f.number(memoryFiles.user.charLimit),
+          })
+        : undefined,
+      status: memoryFiles?.user.userLocked ? t("main.memory.file.locked") : undefined,
+    },
+    {
+      key: "memory",
+      label: t("main.memory.tab.memory"),
+      meta: memoryFiles
+        ? t("main.memory.file.charCount", {
+            count: f.number(memoryFiles.memory.charCount),
+            limit: f.number(memoryFiles.memory.charLimit),
+          })
+        : undefined,
+      status: memoryFiles?.memory.userLocked ? t("main.memory.file.locked") : undefined,
+    },
+  ];
+
+  return (
+    <div className="flex h-full items-start gap-4">
+      {/* 左侧记忆导航 */}
+      <div className="flex w-56 shrink-0 flex-col gap-2 self-stretch rounded-lg border border-border bg-card p-3">
+        <h2 className="px-1 py-1 text-sm font-semibold">{t("main.title.memory")}</h2>
+
+        <div className="flex flex-col gap-1">
+          {sidebarItems.map((item) => {
+            const isActive = activeTab === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setActiveTab(item.key)}
+                className={cn(
+                  "flex flex-col items-start gap-0.5 rounded-md px-3 py-2.5 text-left text-sm transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground/80 hover:bg-muted hover:text-foreground",
+                )}
+              >
+                <span className="font-medium">{item.label}</span>
+                {(item.meta || item.status) && (
+                  <span
+                    className={cn(
+                      "text-xs",
+                      isActive ? "text-primary-foreground/70" : "text-muted-foreground",
+                    )}
+                  >
+                    {item.meta}
+                    {item.meta && item.status && " · "}
+                    {item.status}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 右侧内容区域 */}
+      <div className="min-w-0 flex-1">
+        {activeTab === "entries" && <MemoryEntriesPanel />}
+        {activeTab !== "entries" && memoryFiles && (
+          <MemoryFilePanel
+            kind={activeTab}
+            snapshot={memoryFiles[activeTab]}
+            onRefresh={loadFiles}
+          />
+        )}
+        {activeTab !== "entries" && !memoryFiles && (
+          <EmptyState icon={<IconDatabase />} title={t("main.title.memory")} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MemoryFilePanel({
+  kind,
+  snapshot,
+  onRefresh,
+}: {
+  kind: MemoryFileKind;
+  snapshot: AgentMemoryFileSnapshot;
+  onRefresh: () => void;
+}): React.JSX.Element {
+  const { t, f } = useT();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(snapshot.content);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDraft(snapshot.content);
+    setError(null);
+  }, [snapshot.content, snapshot.updatedAt]);
+
+  const isOverLimit = draft.length > snapshot.charLimit;
+
+  const handleSave = async (): Promise<void> => {
+    if (isOverLimit) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      await api.agents.memoryFiles.save(kind, draft);
+      setIsEditing(false);
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleReload = async (): Promise<void> => {
+    try {
+      await api.agents.memoryFiles.reload(kind);
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold uppercase">{kind}.md</h2>
+          {snapshot.userLocked && (
+            <Chip size="sm" variant="soft">
+              {t("main.memory.file.locked")}
+            </Chip>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onPress={handleReload} isDisabled={isSaving}>
+            <IconRotateCcw className="size-4" />
+            {t("main.memory.file.refresh")}
+          </Button>
+          {isEditing ? (
+            <>
+              <Button
+                variant="tertiary"
+                size="sm"
+                onPress={() => setIsEditing(false)}
+                isDisabled={isSaving}
+              >
+                {t("main.memory.file.done")}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onPress={handleSave}
+                isPending={isSaving}
+                isDisabled={isOverLimit}
+              >
+                {t("main.memory.file.save")}
+              </Button>
+            </>
+          ) : (
+            <Button variant="secondary" size="sm" onPress={() => setIsEditing(true)}>
+              <IconEdit className="size-4" />
+              {t("main.memory.file.edit")}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isEditing ? (
+        <TextArea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={18}
+          className="font-mono text-sm"
+        />
+      ) : (
+        <div className="max-h-[480px] overflow-auto rounded-md border border-border bg-background p-3">
+          <pre className="whitespace-pre-wrap font-mono text-sm text-foreground/80">
+            {snapshot.content}
+          </pre>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span className={cn(isOverLimit && "font-medium text-danger")}>
+          {t("main.memory.file.charCount", { count: draft.length, limit: snapshot.charLimit })}
+        </span>
+        <span>{t("main.memory.file.updatedAt", { time: f.dateTime(snapshot.updatedAt) })}</span>
+      </div>
+
+      {isOverLimit && (
+        <p className="text-xs text-danger">
+          {t("main.memory.file.overLimit", { limit: snapshot.charLimit })}
+        </p>
+      )}
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </div>
+  );
+}
+
+function MemoryEntriesPanel(): React.JSX.Element {
+  const { t } = useT();
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
-  const [pending, setPending] = useState<MemoryPendingSuggestion[]>([]);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [filters, setFilters] = useState<{
@@ -138,20 +381,16 @@ function MemoryPanel(): React.JSX.Element {
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [results, pendingList] = await Promise.all([
-        api.memories.search({
-          query: debouncedQuery,
-          scope: filters.scope === "all" ? null : filters.scope,
-          kind: filters.kind === "all" ? null : filters.kind,
-          pinned: filters.pinned,
-          sortBy,
-          sortOrder,
-          limit: 200,
-        }),
-        api.memories.pending.list(),
-      ]);
+      const results = await api.memories.search({
+        query: debouncedQuery,
+        scope: filters.scope === "all" ? null : filters.scope,
+        kind: filters.kind === "all" ? null : filters.kind,
+        pinned: filters.pinned,
+        sortBy,
+        sortOrder,
+        limit: 200,
+      });
       setMemories(results);
-      setPending(pendingList);
       setSelectedIds((prev) => {
         const ids = new Set(results.map((m) => m.id));
         return new Set([...prev].filter((id) => ids.has(id)));
@@ -162,6 +401,7 @@ function MemoryPanel(): React.JSX.Element {
   }, [debouncedQuery, filters, sortBy, sortOrder]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -231,26 +471,6 @@ function MemoryPanel(): React.JSX.Element {
   ): Promise<void> => {
     if (selectedIds.size === 0) return;
     await api.memories.updateBatch([...selectedIds], patch);
-    await load();
-  };
-
-  const handleConfirmPending = async (id: string): Promise<void> => {
-    await api.memories.pending.confirm(id);
-    await load();
-  };
-
-  const handleRejectPending = async (id: string): Promise<void> => {
-    await api.memories.pending.reject(id);
-    await load();
-  };
-
-  const handleConfirmAllPending = async (): Promise<void> => {
-    await api.memories.pending.confirmAll();
-    await load();
-  };
-
-  const handleRejectAllPending = async (): Promise<void> => {
-    await api.memories.pending.rejectAll();
     await load();
   };
 
@@ -399,7 +619,6 @@ function MemoryPanel(): React.JSX.Element {
           <Card.Content className="space-y-4 p-4">
             <Metric label={t("main.metric.memories")} value={memories.length} />
             <Metric label={t("main.metric.pinned", { count: pinnedCount })} value={pinnedCount} />
-            <Metric label={t("main.memory.pending.title")} value={pending.length} />
           </Card.Content>
         </Card>
         <div className="grid gap-3 md:grid-cols-2">
@@ -418,66 +637,6 @@ function MemoryPanel(): React.JSX.Element {
           )}
         </div>
       </div>
-
-      {/* Pending section */}
-      {pending.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold">
-              {t("main.memory.pending.title")} ({pending.length})
-            </h3>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="sm" onPress={handleConfirmAllPending}>
-                <IconCheck className="size-4" />
-                {t("main.memory.pending.confirmAll")}
-              </Button>
-              <Button variant="tertiary" size="sm" onPress={handleRejectAllPending}>
-                <IconX className="size-4" />
-                {t("main.memory.pending.rejectAll")}
-              </Button>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            {pending.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-start justify-between gap-3 rounded-md border border-border p-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{item.title}</span>
-                    <Chip size="sm" variant="soft">
-                      {t(`main.memory.kind.${item.kind}`)}
-                    </Chip>
-                    <Chip size="sm" variant="secondary">
-                      {t(`main.memory.scope.${item.scope}`)}
-                    </Chip>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-foreground/60">{item.content}</p>
-                  <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                    <IconClock className="size-3" />
-                    {f.dateTime(item.suggestedAt)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onPress={() => handleConfirmPending(item.id)}
-                  >
-                    <IconCheck className="size-4" />
-                    {t("main.memory.pending.confirm")}
-                  </Button>
-                  <Button variant="tertiary" size="sm" onPress={() => handleRejectPending(item.id)}>
-                    <IconX className="size-4" />
-                    {t("main.memory.pending.reject")}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Edit modal */}
       {isEditModalOpen && (

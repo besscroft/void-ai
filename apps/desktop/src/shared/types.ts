@@ -193,7 +193,7 @@ export interface MemoryRecord {
   updated_at: number;
 }
 
-/** 智能体自动提取后、等待用户确认的记忆建议 */
+/** 智能体自动提取后、等待用户确认的记忆建议（已废弃，保留类型避免旧数据反序列化失败） */
 export interface MemoryPendingSuggestion {
   id: string;
   title: string;
@@ -204,6 +204,19 @@ export interface MemoryPendingSuggestion {
   suggestedAt: number;
   sourceConversationId: string;
   sourceAgentId: string | null;
+}
+
+/** 有界记忆文件类型 */
+export type MemoryFileKind = "soul" | "user" | "memory";
+
+/** 记忆文件快照，供渲染层记忆页面展示 */
+export interface AgentMemoryFileSnapshot {
+  kind: MemoryFileKind;
+  content: string;
+  charLimit: number;
+  charCount: number;
+  updatedAt: number;
+  userLocked: boolean;
 }
 
 export type WorkflowStatus = "enabled" | "paused" | "draft";
