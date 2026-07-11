@@ -88,7 +88,7 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
 
   if (section === "tools") {
     return (
-      <main className="min-h-0 flex-1 overflow-y-auto p-6">
+      <main className="flex min-h-0 flex-1 overflow-hidden p-6">
         <ToolsPanel />
       </main>
     );
@@ -96,7 +96,7 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
 
   return (
     <main className="flex min-h-0 flex-1 overflow-hidden p-6">
-      <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-5">
+      <div className="flex h-full w-full flex-col gap-5">
         {section === "agents" && (
           <AgentsPanel
             agents={data.agents}
@@ -362,18 +362,12 @@ function MemoryEntriesPanel(): React.JSX.Element {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [filters, setFilters] = useState<{
     scope: MemoryScope | "all";
-    kind: MemoryKind | "all";
-    pinned: boolean | null;
-  }>({ scope: "all", kind: "all", pinned: null });
-  const [sortBy, setSortBy] = useState<"salience" | "updated" | "created">("salience");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  }>({ scope: "all" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingMemory, setEditingMemory] = useState<MemoryRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MemoryRecord | null>(null);
-  const [deleteBatchIds, setDeleteBatchIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -387,28 +381,22 @@ function MemoryEntriesPanel(): React.JSX.Element {
       const results = await api.memories.search({
         query: debouncedQuery,
         scope: filters.scope === "all" ? null : filters.scope,
-        kind: filters.kind === "all" ? null : filters.kind,
-        pinned: filters.pinned,
-        sortBy,
-        sortOrder,
+        kind: null,
+        pinned: null,
+        sortBy: "salience",
+        sortOrder: "desc",
         limit: 200,
       });
       setMemories(results);
-      setSelectedIds((prev) => {
-        const ids = new Set(results.map((m) => m.id));
-        return new Set([...prev].filter((id) => ids.has(id)));
-      });
     } finally {
       setIsLoading(false);
     }
-  }, [debouncedQuery, filters, sortBy, sortOrder]);
+  }, [debouncedQuery, filters]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
-
-  const pinnedCount = useMemo(() => memories.filter((m) => m.pinned === 1).length, [memories]);
 
   const activeMemory = useMemo(
     () => memories.find((m) => m.id === selectedId) ?? null,
@@ -428,19 +416,6 @@ function MemoryEntriesPanel(): React.JSX.Element {
   const handleTogglePin = async (memory: MemoryRecord): Promise<void> => {
     await api.memories.updateBatch([memory.id], { pinned: memory.pinned === 1 ? 0 : 1 });
     await load();
-  };
-
-  const toggleSelection = (id: string): void => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const clearSelection = (): void => {
-    setSelectedIds(new Set());
   };
 
   const handleRefresh = (): void => {
@@ -482,171 +457,26 @@ function MemoryEntriesPanel(): React.JSX.Element {
     await load();
   };
 
-  const handleDeleteBatch = async (): Promise<void> => {
-    if (deleteBatchIds.length === 0) return;
-    await api.memories.deleteBatch(deleteBatchIds);
-    setDeleteBatchIds([]);
-    await load();
-  };
-
-  const handleUpdateBatch = async (
-    patch: Partial<Pick<MemoryRecord, "pinned" | "kind" | "scope">>,
-  ): Promise<void> => {
-    if (selectedIds.size === 0) return;
-    await api.memories.updateBatch([...selectedIds], patch);
-    await load();
-  };
-
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden">
-      {/* Header */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold">{t("main.memory.search")}</h2>
-          <span className="text-sm text-muted-foreground">
-            {t("main.memory.selected", { count: selectedIds.size })}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" onPress={handleRefresh} isDisabled={isLoading}>
-            <IconRotateCcw className={cn("size-4", isLoading && "animate-spin")} />
-            {t("main.refresh")}
-          </Button>
-          <Button variant="primary" size="sm" onPress={openNewMemory}>
-            <IconPlus className="size-4" />
-            {t("main.memory.new")}
-          </Button>
-        </div>
-      </div>
-
-      {/* Search & Filters */}
-      <div className="flex shrink-0 flex-col gap-3 rounded-lg border border-border bg-card p-4">
-        <div className="relative">
-          <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder={t("main.memory.search.placeholder")}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <FilterSelect
-            label={t("main.memory.filter.scope")}
-            value={filters.scope}
-            onChange={(scope) =>
-              setFilters((prev) => ({ ...prev, scope: scope as typeof prev.scope }))
-            }
-            options={[
-              { value: "all", label: t("main.memory.filter.all") },
-              ...MEMORY_SCOPES.map((s) => ({ value: s, label: t(`main.memory.scope.${s}`) })),
-            ]}
-          />
-          <FilterSelect
-            label={t("main.memory.filter.kind")}
-            value={filters.kind}
-            onChange={(kind) => setFilters((prev) => ({ ...prev, kind: kind as typeof prev.kind }))}
-            options={[
-              { value: "all", label: t("main.memory.filter.all") },
-              ...MEMORY_KINDS.map((k) => ({ value: k, label: t(`main.memory.kind.${k}`) })),
-            ]}
-          />
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">{t("main.memory.filter.pinned")}</span>
-            <ToggleButtonGroup
-              selectedKeys={
-                filters.pinned === null ? ["all"] : filters.pinned ? ["pinned"] : ["unpinned"]
-              }
-              onSelectionChange={(keys) => {
-                const key = [...keys][0];
-                setFilters((prev) => ({
-                  ...prev,
-                  pinned: key === "pinned" ? true : key === "unpinned" ? false : null,
-                }));
-              }}
-              size="sm"
-            >
-              <ToggleButton id="all">{t("main.memory.filter.all")}</ToggleButton>
-              <ToggleButton id="pinned">{t("main.memory.bulk.pin")}</ToggleButton>
-              <ToggleButton id="unpinned">{t("main.memory.bulk.unpin")}</ToggleButton>
-            </ToggleButtonGroup>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">{t("main.memory.sort.by")}</span>
-            <select
-              className="h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-ring"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            >
-              <option value="salience">{t("main.memory.sort.salience")}</option>
-              <option value="updated">{t("main.memory.sort.updated")}</option>
-              <option value="created">{t("main.memory.sort.created")}</option>
-            </select>
-            <ToggleButtonGroup
-              selectedKeys={[sortOrder]}
-              onSelectionChange={(keys) => {
-                const key = [...keys][0];
-                if (key === "asc" || key === "desc") setSortOrder(key);
-              }}
-              size="sm"
-            >
-              <ToggleButton id="desc">{t("main.memory.sort.desc")}</ToggleButton>
-              <ToggleButton id="asc">{t("main.memory.sort.asc")}</ToggleButton>
-            </ToggleButtonGroup>
-          </div>
-        </div>
-      </div>
-
-      {/* Bulk actions */}
-      {selectedIds.size > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onPress={clearSelection}>
-              <IconX className="size-4" />
-              {t("common.cancel")}
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              {t("main.memory.selected", { count: selectedIds.size })}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" size="sm" onPress={() => handleUpdateBatch({ pinned: 1 })}>
-              {t("main.memory.bulk.pin")}
-            </Button>
-            <Button variant="secondary" size="sm" onPress={() => handleUpdateBatch({ pinned: 0 })}>
-              {t("main.memory.bulk.unpin")}
-            </Button>
-            <BulkSelect
-              value=""
-              placeholder={t("main.memory.filter.kind")}
-              options={MEMORY_KINDS.map((k) => ({ value: k, label: t(`main.memory.kind.${k}`) }))}
-              onChange={(kind) => handleUpdateBatch({ kind: kind as MemoryKind })}
-            />
-            <BulkSelect
-              value=""
-              placeholder={t("main.memory.filter.scope")}
-              options={MEMORY_SCOPES.map((s) => ({ value: s, label: t(`main.memory.scope.${s}`) }))}
-              onChange={(scope) => handleUpdateBatch({ scope: scope as MemoryScope })}
-            />
-            <Button variant="danger" size="sm" onPress={() => setDeleteBatchIds([...selectedIds])}>
-              <IconTrash className="size-4" />
-              {t("main.memory.bulk.delete")}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Master-detail */}
+      {/* Two columns */}
       <div className="flex min-h-0 flex-1 gap-4">
-        {/* Left: minimal list */}
+        {/* Left: search + list */}
         <div className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
-          <div className="flex items-center justify-between px-4 pt-4">
+          <div className="border-b border-border p-4">
+            <div className="relative">
+              <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder={t("main.memory.search.placeholder")}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between px-4 pt-4 pb-3">
             <span className="text-sm font-medium">{t("main.memory.tab.entries")}</span>
             <span className="text-xs text-muted-foreground">{memories.length}</span>
-          </div>
-          <div className="flex items-center gap-6 px-4 py-3">
-            <Metric label={t("main.metric.memories")} value={memories.length} />
-            <Metric label={t("main.metric.pinned", { count: pinnedCount })} value={pinnedCount} />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             {memories.map((memory) => (
@@ -654,11 +484,7 @@ function MemoryEntriesPanel(): React.JSX.Element {
                 key={memory.id}
                 memory={memory}
                 active={memory.id === selectedId}
-                selected={selectedIds.has(memory.id)}
                 onSelect={() => setSelectedId(memory.id)}
-                onToggleSelect={() => toggleSelection(memory.id)}
-                onEdit={() => openEditMemory(memory)}
-                onDelete={() => setDeleteTarget(memory)}
               />
             ))}
             {isLoading && memories.length === 0 && (
@@ -674,18 +500,41 @@ function MemoryEntriesPanel(): React.JSX.Element {
           </div>
         </div>
 
-        {/* Right: detail */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border bg-card p-5">
-          {activeMemory ? (
-            <MemoryDetail
-              memory={activeMemory}
-              onEdit={() => openEditMemory(activeMemory)}
-              onDelete={() => setDeleteTarget(activeMemory)}
-              onTogglePin={() => handleTogglePin(activeMemory)}
+        {/* Right: actions + detail */}
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <div className="flex shrink-0 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+            <FilterSelect
+              label=""
+              value={filters.scope}
+              onChange={(scope) =>
+                setFilters((prev) => ({ ...prev, scope: scope as typeof prev.scope }))
+              }
+              options={[
+                { value: "all", label: t("main.memory.filter.all") },
+                ...MEMORY_SCOPES.map((s) => ({ value: s, label: t(`main.memory.scope.${s}`) })),
+              ]}
             />
-          ) : (
-            !isLoading && <EmptyState icon={<IconDatabase />} title={t("main.title.memory")} />
-          )}
+            <Button variant="secondary" size="sm" onPress={handleRefresh} isDisabled={isLoading}>
+              <IconRotateCcw className={cn("size-4", isLoading && "animate-spin")} />
+              {t("main.refresh")}
+            </Button>
+            <Button variant="primary" size="sm" onPress={openNewMemory}>
+              <IconPlus className="size-4" />
+              {t("main.memory.new")}
+            </Button>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border bg-card p-5">
+            {activeMemory ? (
+              <MemoryDetail
+                memory={activeMemory}
+                onEdit={() => openEditMemory(activeMemory)}
+                onDelete={() => setDeleteTarget(activeMemory)}
+                onTogglePin={() => handleTogglePin(activeMemory)}
+              />
+            ) : (
+              !isLoading && <EmptyState icon={<IconDatabase />} title={t("main.title.memory")} />
+            )}
+          </div>
         </div>
       </div>
 
@@ -714,16 +563,6 @@ function MemoryEntriesPanel(): React.JSX.Element {
         confirmLabel={t("common.confirm")}
         cancelLabel={t("common.cancel")}
       />
-      <ConfirmDialog
-        open={deleteBatchIds.length > 0}
-        title={t("main.memory.delete")}
-        message={t("main.memory.deleteBatchConfirm", { count: deleteBatchIds.length })}
-        danger
-        onConfirm={handleDeleteBatch}
-        onClose={() => setDeleteBatchIds([])}
-        confirmLabel={t("common.confirm")}
-        cancelLabel={t("common.cancel")}
-      />
     </div>
   );
 }
@@ -731,37 +570,21 @@ function MemoryEntriesPanel(): React.JSX.Element {
 function MemoryListRow({
   memory,
   active,
-  selected,
   onSelect,
-  onToggleSelect,
-  onEdit,
-  onDelete,
 }: {
   memory: MemoryRecord;
   active: boolean;
-  selected: boolean;
   onSelect: () => void;
-  onToggleSelect: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
 }): React.JSX.Element {
   const { t } = useT();
   return (
     <div
       className={cn(
-        "group flex gap-2 rounded-md px-2 py-2.5 transition",
+        "rounded-md px-2 py-2.5 transition",
         active ? "bg-muted/50" : "hover:bg-muted/30",
       )}
     >
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={onToggleSelect}
-        onClick={(e) => e.stopPropagation()}
-        className="mt-1 size-4 shrink-0 rounded border-border"
-        aria-label={t("main.memory.selected", { count: 1 })}
-      />
-      <button type="button" onClick={onSelect} className="min-w-0 flex-1 text-left">
+      <button type="button" onClick={onSelect} className="w-full text-left">
         <div className="flex items-center gap-1.5">
           {memory.pinned !== 0 && (
             <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -778,24 +601,6 @@ function MemoryListRow({
         </div>
         <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{memory.content}</p>
       </button>
-      <div className="flex shrink-0 flex-col items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="rounded p-1 text-foreground/50 hover:bg-foreground/10 hover:text-foreground"
-          aria-label={t("main.memory.edit")}
-        >
-          <IconEdit className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="rounded p-1 text-foreground/50 hover:bg-danger/10 hover:text-danger"
-          aria-label={t("main.memory.delete")}
-        >
-          <IconTrash className="size-3.5" />
-        </button>
-      </div>
     </div>
   );
 }
@@ -1064,49 +869,8 @@ function FilterSelect({
   );
 }
 
-function BulkSelect({
-  value,
-  placeholder,
-  options,
-  onChange,
-}: {
-  value: string;
-  placeholder: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-}): React.JSX.Element {
-  return (
-    <select
-      className="h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-ring"
-      value={value}
-      onChange={(e) => {
-        if (e.target.value) {
-          onChange(e.target.value);
-          e.target.value = "";
-        }
-      }}
-    >
-      <option value="">{placeholder}</option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 function Label({ children }: { children: ReactNode }): React.JSX.Element {
   return <span className="text-sm font-medium">{children}</span>;
-}
-
-function Metric({ label, value }: { label: string; value: number }): React.JSX.Element {
-  return (
-    <div>
-      <p className="text-xs text-foreground/45">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
-    </div>
-  );
 }
 
 function EmptyState({ icon, title }: { icon: ReactNode; title: string }): React.JSX.Element {

@@ -128,8 +128,8 @@ export function ToolsPanel(): React.JSX.Element {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex h-full w-full flex-col gap-5">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold">{t("main.title.tools")}</h2>
           <p className="mt-1 line-clamp-2 text-sm text-foreground/50">{t("main.subtitle.tools")}</p>
@@ -154,62 +154,93 @@ export function ToolsPanel(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid shrink-0 gap-3 sm:grid-cols-3">
         <MetricCard label={t("tools.metric.tools")} value={snapshot?.toolRecords.length ?? 0} />
         <MetricCard label={t("tools.metric.mcp")} value={mcpServers.length} />
         <MetricCard label={t("tools.metric.skills")} value={snapshot?.skills.length ?? 0} />
       </div>
 
-      <Tabs value={tab} onValueChange={(key) => setTab(toToolsTab(key))}>
-        <TabsList aria-label={t("tools.tabs.label")}>
-          <TabsTrigger value="registry">{t("tools.tab.registry")}</TabsTrigger>
-          <TabsTrigger value="mcp">{t("tools.tab.mcp")}</TabsTrigger>
-          <TabsTrigger value="skills">{t("tools.tab.skills")}</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="shrink-0">
+        <Tabs value={tab} onValueChange={(key) => setTab(toToolsTab(key))}>
+          <TabsList aria-label={t("tools.tabs.label")}>
+            <TabsTrigger value="registry">{t("tools.tab.registry")}</TabsTrigger>
+            <TabsTrigger value="mcp">{t("tools.tab.mcp")}</TabsTrigger>
+            <TabsTrigger value="skills">{t("tools.tab.skills")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
 
-      {loading && !snapshot ? (
-        <div className="rounded-md border border-dashed border-foreground/15 px-4 py-16 text-center text-sm text-foreground/45">
-          {t("main.loading")}
+      {tab === "registry" && snapshot ? (
+        <div className="grid shrink-0 gap-2 md:grid-cols-[minmax(0,1fr)_180px_180px]">
+          <label className="relative min-w-0">
+            <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-foreground/35" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("tools.search.placeholder")}
+              className="pl-9"
+            />
+          </label>
+          <select
+            className="h-10 min-w-0 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+            value={kind}
+            onChange={(event) => setKind(event.target.value as ToolKindFilter)}
+          >
+            <option value="all">{t("tools.filter.allKinds")}</option>
+            <option value="builtin">{t("tools.kind.builtin")}</option>
+            <option value="mcp">{t("tools.kind.mcp")}</option>
+            <option value="skill">{t("tools.kind.skill")}</option>
+            <option value="sandbox">{t("tools.kind.sandbox")}</option>
+          </select>
+          <select
+            className="h-10 min-w-0 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+            value={status}
+            onChange={(event) => setStatus(event.target.value as ToolStatusFilter)}
+          >
+            <option value="all">{t("tools.filter.allStatus")}</option>
+            <option value="enabled">{t("tools.filter.enabled")}</option>
+            <option value="approval">{t("tools.filter.approval")}</option>
+          </select>
         </div>
       ) : null}
 
-      {tab === "registry" && snapshot ? (
-        <RegistrySection
-          rows={rows}
-          query={query}
-          setQuery={setQuery}
-          kind={kind}
-          setKind={setKind}
-          status={status}
-          setStatus={setStatus}
-        />
-      ) : null}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {loading && !snapshot ? (
+          <div className="rounded-md border border-dashed border-foreground/15 px-4 py-16 text-center text-sm text-foreground/45">
+            {t("main.loading")}
+          </div>
+        ) : null}
 
-      {tab === "mcp" && snapshot ? (
-        <McpSection
-          servers={mcpServers}
-          toolsByServer={mcpToolsByServer}
-          busy={busy}
-          onAdd={() => setMcpOpen(true)}
-          onDelete={(server) => setDeleteTarget({ type: "mcp", item: server })}
-          onToggle={(server, enabled) =>
-            runAction(() => api.tools.mcp.setEnabled(server.id, enabled), t("tools.toast.saved"))
-          }
-        />
-      ) : null}
+        {tab === "registry" && snapshot ? <RegistrySection rows={rows} /> : null}
 
-      {tab === "skills" && snapshot ? (
-        <SkillsSection
-          skills={snapshot.skills}
-          busy={busy}
-          onAdd={() => setSkillOpen(true)}
-          onDelete={(skill) => setDeleteTarget({ type: "skill", item: skill })}
-          onToggle={(skill, enabled) =>
-            runAction(() => api.tools.skills.setEnabled(skill.id, enabled), t("tools.toast.saved"))
-          }
-        />
-      ) : null}
+        {tab === "mcp" && snapshot ? (
+          <McpSection
+            servers={mcpServers}
+            toolsByServer={mcpToolsByServer}
+            busy={busy}
+            onAdd={() => setMcpOpen(true)}
+            onDelete={(server) => setDeleteTarget({ type: "mcp", item: server })}
+            onToggle={(server, enabled) =>
+              runAction(() => api.tools.mcp.setEnabled(server.id, enabled), t("tools.toast.saved"))
+            }
+          />
+        ) : null}
+
+        {tab === "skills" && snapshot ? (
+          <SkillsSection
+            skills={snapshot.skills}
+            busy={busy}
+            onAdd={() => setSkillOpen(true)}
+            onDelete={(skill) => setDeleteTarget({ type: "skill", item: skill })}
+            onToggle={(skill, enabled) =>
+              runAction(
+                () => api.tools.skills.setEnabled(skill.id, enabled),
+                t("tools.toast.saved"),
+              )
+            }
+          />
+        ) : null}
+      </div>
 
       <AddMcpModal
         open={mcpOpen}
@@ -250,58 +281,10 @@ export function ToolsPanel(): React.JSX.Element {
   );
 }
 
-function RegistrySection({
-  rows,
-  query,
-  setQuery,
-  kind,
-  setKind,
-  status,
-  setStatus,
-}: {
-  rows: ToolRecord[];
-  query: string;
-  setQuery: (query: string) => void;
-  kind: ToolKindFilter;
-  setKind: (kind: ToolKindFilter) => void;
-  status: ToolStatusFilter;
-  setStatus: (status: ToolStatusFilter) => void;
-}): React.JSX.Element {
+function RegistrySection({ rows }: { rows: ToolRecord[] }): React.JSX.Element {
   const { t } = useT();
   return (
-    <section className="space-y-3">
-      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_180px_180px]">
-        <label className="relative min-w-0">
-          <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-foreground/35" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t("tools.search.placeholder")}
-            className="pl-9"
-          />
-        </label>
-        <select
-          className="h-10 min-w-0 rounded-md border border-foreground/10 bg-background px-3 text-sm"
-          value={kind}
-          onChange={(event) => setKind(event.target.value as ToolKindFilter)}
-        >
-          <option value="all">{t("tools.filter.allKinds")}</option>
-          <option value="builtin">{t("tools.kind.builtin")}</option>
-          <option value="mcp">{t("tools.kind.mcp")}</option>
-          <option value="skill">{t("tools.kind.skill")}</option>
-          <option value="sandbox">{t("tools.kind.sandbox")}</option>
-        </select>
-        <select
-          className="h-10 min-w-0 rounded-md border border-foreground/10 bg-background px-3 text-sm"
-          value={status}
-          onChange={(event) => setStatus(event.target.value as ToolStatusFilter)}
-        >
-          <option value="all">{t("tools.filter.allStatus")}</option>
-          <option value="enabled">{t("tools.filter.enabled")}</option>
-          <option value="approval">{t("tools.filter.approval")}</option>
-        </select>
-      </div>
-
+    <>
       {rows.length === 0 ? (
         <EmptyTools message={t("tools.registry.empty")} />
       ) : (
@@ -347,7 +330,7 @@ function RegistrySection({
           ))}
         </div>
       )}
-    </section>
+    </>
   );
 }
 
