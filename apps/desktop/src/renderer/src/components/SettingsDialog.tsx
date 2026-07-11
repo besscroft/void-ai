@@ -333,8 +333,8 @@ function ResettableTabHeader({
   const { t } = useT();
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
-      <h3 className="text-sm font-medium text-foreground/70">{title}</h3>
+    <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <h3 className="text-base font-semibold">{title}</h3>
       <div className="flex items-center gap-2">
         <Button variant="tertiary" size="sm" onPress={onResetDefaults}>
           <IconRotateCcw className="mr-1 size-3.5" />
@@ -342,7 +342,7 @@ function ResettableTabHeader({
         </Button>
         {resetDone && <span className="text-xs text-success">{t("settings.reset.done")}</span>}
       </div>
-    </div>
+    </header>
   );
 }
 
@@ -2015,7 +2015,7 @@ function ProviderModelWorkbench({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4">
-      <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <h3 className="text-base font-semibold">{t("settings.tab.model")}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -3100,13 +3100,6 @@ function TrashTab(): React.JSX.Element {
     return t("trash.item.skill");
   };
 
-  const trashDescription = (): string => {
-    if (trashKind === "conversations") return t("trash.desc");
-    if (trashKind === "agents") return t("trash.agents.desc");
-    if (trashKind === "mcp") return t("trash.mcp.desc");
-    return t("trash.skills.desc");
-  };
-
   const emptyMessage = (): string => {
     if (trashKind === "conversations") return t("trash.empty");
     if (trashKind === "agents") return t("trash.agents.empty");
@@ -3232,14 +3225,8 @@ function TrashTab(): React.JSX.Element {
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground/70">
-            <IconTrash className="size-4 shrink-0" />
-            <span className="truncate">{t("trash.title")}</span>
-          </h3>
-          <p className="mt-1 max-w-3xl text-xs text-foreground/50">{trashDescription()}</p>
-        </div>
+      <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <h3 className="text-base font-semibold">{t("trash.title")}</h3>
         <ToggleButtonGroup
           selectionMode="single"
           disallowEmptySelection
@@ -3263,7 +3250,7 @@ function TrashTab(): React.JSX.Element {
           <ToggleButton id="mcp">{t("trash.tab.mcp")}</ToggleButton>
           <ToggleButton id="skills">{t("trash.tab.skills")}</ToggleButton>
         </ToggleButtonGroup>
-      </div>
+      </header>
 
       {trashKind === "agents" ? (
         agentItems.length === 0 ? (

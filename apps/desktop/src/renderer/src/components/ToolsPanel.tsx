@@ -132,7 +132,6 @@ export function ToolsPanel(): React.JSX.Element {
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold">{t("main.title.tools")}</h2>
-          <p className="mt-1 line-clamp-2 text-sm text-foreground/50">{t("main.subtitle.tools")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
