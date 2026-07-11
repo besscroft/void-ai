@@ -32,6 +32,10 @@ import {
   listMemories,
   saveMemory,
   deleteMemory,
+  getMemoryById,
+  searchMemories,
+  deleteMemoriesBatch,
+  updateMemoriesBatch,
   listRuntimeEvents,
   listInteractionProfiles,
   getSyncState,
@@ -87,7 +91,14 @@ import type {
   MessageRow,
   ToolServerInput,
 } from "../../shared/types";
-import { queueAgentLearning } from "../lib/agent-learning";
+import {
+  queueAgentLearning,
+  listPendingMemories,
+  confirmPendingMemory,
+  rejectPendingMemory,
+  confirmAllPendingMemories,
+  rejectAllPendingMemories,
+} from "../lib/agent-learning";
 import { closeMcpClient, discoverMcpServer, testMcpServer } from "../lib/mcp-manager";
 import { runToolSkill } from "../lib/skill-runtime";
 import { generateSkillDraft } from "../lib/skill-drafts";
@@ -210,6 +221,10 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     return true;
   });
   ipcMain.handle("memories:list", () => listMemories());
+  ipcMain.handle("memories:search", (_e, filters: Parameters<typeof searchMemories>[0]) =>
+    searchMemories(filters),
+  );
+  ipcMain.handle("memories:get", (_e, id: string) => getMemoryById(id));
   ipcMain.handle("memories:save", (_e, memory: MemoryRecord) => {
     saveMemory(memory);
     return true;
@@ -218,6 +233,32 @@ export function registerIpcHandlers(_mainWindow: BrowserWindow): void {
     deleteMemory(id);
     return true;
   });
+  ipcMain.handle("memories:deleteBatch", (_e, ids: string[]) => deleteMemoriesBatch(ids));
+  ipcMain.handle(
+    "memories:updateBatch",
+    (_e, ids: string[], patch: Parameters<typeof updateMemoriesBatch>[1]) =>
+      updateMemoriesBatch(ids, patch),
+  );
+
+  // 待确认记忆队列
+  ipcMain.handle("memories:pending:list", () => listPendingMemories());
+  ipcMain.handle("memories:pending:confirm", (_e, id: string) => {
+    confirmPendingMemory(id);
+    return true;
+  });
+  ipcMain.handle("memories:pending:reject", (_e, id: string) => {
+    rejectPendingMemory(id);
+    return true;
+  });
+  ipcMain.handle("memories:pending:confirmAll", () => {
+    confirmAllPendingMemories();
+    return true;
+  });
+  ipcMain.handle("memories:pending:rejectAll", () => {
+    rejectAllPendingMemories();
+    return true;
+  });
+
   // 工作流编排：仅暴露 chat 页面悬浮状态框需要的能力 —— 取消运行 + 按会话查最近一次 run
   ipcMain.handle("workflowRuns:cancel", (_e, runId: string) => cancelWorkflowRun(runId));
   // chat 页面右上方悬浮状态框：按会话取最近一次 run（活动优先 / 终态次之）

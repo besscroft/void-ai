@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_AGENT_ID, type MemoryRecord } from "../../shared/types";
+import {
+  DEFAULT_AGENT_ID,
+  type MemoryPendingSuggestion,
+  type MemoryRecord,
+} from "../../shared/types";
 import { insertRuntimeEvent, listMessages, saveMemory, updateVoidLearningState } from "./db";
 import { addMemoriesFromConversation } from "./mem0-service";
 
@@ -11,6 +15,9 @@ let queuedConversationId: string | null = null;
 let timer: NodeJS.Timeout | null = null;
 let worker: Promise<void> = Promise.resolve();
 
+/** 进程级待确认记忆队列（不持久化，重启后清空） */
+const pendingMemories: MemoryPendingSuggestion[] = [];
+
 export function queueAgentLearning(conversationId: string): void {
   queuedConversationId = conversationId;
   if (timer) clearTimeout(timer);
@@ -21,6 +28,71 @@ export function queueAgentLearning(conversationId: string): void {
     if (!nextConversationId) return;
     worker = worker.catch(() => undefined).then(() => runLearning(nextConversationId));
   }, DEBOUNCE_MS);
+}
+
+/** 获取当前待确认记忆列表（副本） */
+export function listPendingMemories(): MemoryPendingSuggestion[] {
+  return pendingMemories.slice();
+}
+
+/** 确认单条待确认记忆：写入 SQLite 并从队列移除 */
+export function confirmPendingMemory(id: string): void {
+  const index = pendingMemories.findIndex((m) => m.id === id);
+  if (index === -1) return;
+  const suggestion = pendingMemories[index];
+  const now = Date.now();
+  const memory: MemoryRecord = {
+    id: suggestion.id,
+    scope: suggestion.scope,
+    kind: suggestion.kind,
+    title: suggestion.title,
+    content: suggestion.content,
+    agent_id: suggestion.sourceAgentId,
+    conversation_id: null,
+    source_run_id: null,
+    salience: suggestion.salience,
+    pinned: 0,
+    created_at: now,
+    updated_at: now,
+  };
+  saveMemory(memory);
+  pendingMemories.splice(index, 1);
+}
+
+/** 拒绝单条待确认记忆：直接从队列移除 */
+export function rejectPendingMemory(id: string): void {
+  const index = pendingMemories.findIndex((m) => m.id === id);
+  if (index !== -1) pendingMemories.splice(index, 1);
+}
+
+/** 确认全部待确认记忆，返回确认数量 */
+export function confirmAllPendingMemories(): number {
+  const items = pendingMemories.splice(0, pendingMemories.length);
+  for (const suggestion of items) {
+    const now = Date.now();
+    saveMemory({
+      id: suggestion.id,
+      scope: suggestion.scope,
+      kind: suggestion.kind,
+      title: suggestion.title,
+      content: suggestion.content,
+      agent_id: suggestion.sourceAgentId,
+      conversation_id: null,
+      source_run_id: null,
+      salience: suggestion.salience,
+      pinned: 0,
+      created_at: now,
+      updated_at: now,
+    });
+  }
+  return items.length;
+}
+
+/** 拒绝全部待确认记忆，返回移除数量 */
+export function rejectAllPendingMemories(): number {
+  const count = pendingMemories.length;
+  pendingMemories.length = 0;
+  return count;
 }
 
 async function runLearning(conversationId: string): Promise<void> {
@@ -45,28 +117,42 @@ async function runLearning(conversationId: string): Promise<void> {
       }))
       .filter((m) => m.content.length > 0);
 
-    // 尝试 Mem0 LLM 抽取（向量嵌入 + 存入内存索引 + 双写 SQLite）
-    let count = 0;
+    // 尝试 Mem0 LLM 抽取，persist=false 先入队待确认
+    let candidates: MemoryPendingSuggestion[] = [];
+    let source = "regex";
     if (mem0Messages.length > 0) {
-      count = await addMemoriesFromConversation(mem0Messages, DEFAULT_AGENT_ID, conversationId);
+      const { records } = await addMemoriesFromConversation(
+        mem0Messages,
+        DEFAULT_AGENT_ID,
+        conversationId,
+        false,
+      );
+      candidates = records.map((record) => recordToPending(record, conversationId));
+      if (candidates.length > 0) source = "mem0";
     }
 
     // 降级：Mem0 不可用时回退到正则抽取
-    if (count === 0) {
-      const candidates = extractMemoryCandidates(messages)
+    if (candidates.length === 0) {
+      candidates = extractMemoryCandidates(messages)
         .slice(0, MAX_MEMORIES_PER_RUN)
-        .map((content) => buildMemory(content));
-      for (const memory of candidates) saveMemory(memory);
-      count = candidates.length;
+        .map((content) => buildMemory(content, conversationId));
+    }
 
-      // 正则降级路径仍需 append 到 soul_prompt（Mem0 路径通过语义搜索注入，无需 append）
+    // 入队待确认，不直接保存
+    for (const candidate of candidates) {
+      if (!pendingMemories.some((m) => m.id === candidate.id)) {
+        pendingMemories.push(candidate);
+      }
+    }
+
+    // 正则降级路径仍需 append 到 soul_prompt（Mem0 路径通过语义搜索注入，无需 append）
+    if (source === "regex" && candidates.length > 0) {
       updateVoidLearningState({
         status: "idle",
         lastLearningAt: Date.now(),
         soulPromptAppend: candidates.map((memory) => memory.content).join(" "),
       });
     } else {
-      // Mem0 路径：记忆已写入 SQLite + 向量索引，buildAgentSystemPrompt 会语义检索
       updateVoidLearningState({
         status: "idle",
         lastLearningAt: Date.now(),
@@ -79,9 +165,9 @@ async function runLearning(conversationId: string): Promise<void> {
       status: "succeeded",
       detail: {
         conversationId,
-        count,
+        count: candidates.length,
         durationMs: Date.now() - started,
-        source: count > 0 && mem0Messages.length > 0 ? "mem0" : "regex",
+        source,
       },
     });
   } catch (error) {
@@ -96,6 +182,23 @@ async function runLearning(conversationId: string): Promise<void> {
   }
 }
 
+function recordToPending(
+  record: MemoryRecord,
+  sourceConversationId: string,
+): MemoryPendingSuggestion {
+  return {
+    id: record.id,
+    title: record.title,
+    content: record.content,
+    scope: record.scope,
+    kind: record.kind,
+    salience: record.salience,
+    suggestedAt: Date.now(),
+    sourceConversationId,
+    sourceAgentId: record.agent_id,
+  };
+}
+
 function extractMemoryCandidates(messages: ReturnType<typeof listMessages>): string[] {
   const transcript = messages
     .filter((message) => message.role === "user")
@@ -104,7 +207,7 @@ function extractMemoryCandidates(messages: ReturnType<typeof listMessages>): str
     .join("\n")
     .slice(-MAX_INPUT_CHARS);
   const lines = transcript
-    .split(/[\n銆?!?锛侊紵]+/)
+    .split(/[\n。?!！？,，]+/)
     .map((line) => line.trim())
     .filter((line) => line.length >= 8 && line.length <= 240);
 
@@ -127,14 +230,14 @@ function isSafeDurableMemory(text: string): boolean {
     "secret",
     "ssn",
     "identity",
-    "瀵嗙爜",
-    "瀵嗛挜",
-    "浠ょ墝",
+    "密码",
+    "密钥",
+    "令牌",
   ];
   return !sensitiveHints.some((hint) => lower.includes(hint));
 }
 
-function buildMemory(content: string): MemoryRecord {
+function buildMemory(content: string, sourceConversationId: string): MemoryPendingSuggestion {
   const now = Date.now();
   return {
     id: randomUUID(),
@@ -142,12 +245,10 @@ function buildMemory(content: string): MemoryRecord {
     kind: "profile",
     title: titleFromContent(content),
     content,
-    agent_id: DEFAULT_AGENT_ID,
-    conversation_id: null,
     salience: 70,
-    pinned: 0,
-    created_at: now,
-    updated_at: now,
+    suggestedAt: now,
+    sourceConversationId,
+    sourceAgentId: DEFAULT_AGENT_ID,
   };
 }
 

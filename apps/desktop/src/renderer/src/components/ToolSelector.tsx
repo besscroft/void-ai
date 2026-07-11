@@ -27,6 +27,7 @@ import {
   IconGlobe,
   IconList,
   IconMessage,
+  IconTrash,
   IconWrench,
 } from "./icons";
 
@@ -46,6 +47,8 @@ const ICONS: Record<ChatToolId, (props: SVGProps<SVGSVGElement>) => React.JSX.El
   model_capabilities: IconCpu,
   conversation_search: IconMessage,
   memory_save: IconWrench,
+  memory_update: IconWrench,
+  memory_delete: IconTrash,
   sandbox_list_files: IconList,
   sandbox_read_file: IconList,
   sandbox_write_file: IconWrench,

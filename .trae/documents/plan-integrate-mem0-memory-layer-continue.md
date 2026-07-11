@@ -8,25 +8,25 @@
 
 ### 已完成（步骤 1-5）
 
-| 步骤 | 文件 | 状态 |
-|------|------|------|
-| 1 | `pnpm-workspace.yaml` + `apps/desktop/package.json` | ✅ mem0ai@3.0.13 已安装 |
-| 2 | `apps/desktop/src/main/lib/mem0-service.ts` | ✅ 完整实现（getMemory/searchMemoriesSemantic/addMemoriesFromConversation/rehydrateFromSQLite） |
-| 3 | `apps/desktop/src/main/lib/agent-learning.ts` | ✅ runLearning 调用 addMemoriesFromConversation + 正则降级 |
-| 4 | `apps/desktop/src/main/lib/db.ts` L1627-1678 | ✅ buildAgentSystemPrompt 已 async + 调用 searchMemoriesSemantic |
-| 5 | `apps/desktop/src/main/lib/agent-runtime.ts` L76/L92/L1079/L1119/L233/L536 | ✅ 类型签名与 createRootInstructions/createChildInstructions 已 async |
+| 步骤 | 文件                                                                       | 状态                                                                                            |
+| ---- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 1    | `pnpm-workspace.yaml` + `apps/desktop/package.json`                        | ✅ mem0ai@3.0.13 已安装                                                                         |
+| 2    | `apps/desktop/src/main/lib/mem0-service.ts`                                | ✅ 完整实现（getMemory/searchMemoriesSemantic/addMemoriesFromConversation/rehydrateFromSQLite） |
+| 3    | `apps/desktop/src/main/lib/agent-learning.ts`                              | ✅ runLearning 调用 addMemoriesFromConversation + 正则降级                                      |
+| 4    | `apps/desktop/src/main/lib/db.ts` L1627-1678                               | ✅ buildAgentSystemPrompt 已 async + 调用 searchMemoriesSemantic                                |
+| 5    | `apps/desktop/src/main/lib/agent-runtime.ts` L76/L92/L1079/L1119/L233/L536 | ✅ 类型签名与 createRootInstructions/createChildInstructions 已 async                           |
 
 ### 待完成（本计划范围）
 
-| 步骤 | 文件 | 待办 |
-|------|------|------|
-| 6a | `apps/desktop/src/main/server/index.ts` L41 | `CreateAppOptions.buildAgentSystemPrompt` 类型签名需改为 `Promise<string>` |
-| 6b | `apps/desktop/src/main/server/index.test.ts` | 4 处 mock 改 async + 3 处断言加 await |
-| 7a | `apps/desktop/src/main/lib/chat-tools.ts` L865-895 | `searchMemories` 改 async + 调用 searchMemoriesSemantic |
-| 7b | `apps/desktop/src/main/lib/chat-tools.ts` L965-996 | `saveChatMemory` 改 async + Mem0 双写 |
-| 7c | `apps/desktop/src/main/lib/chat-tools.ts` L593-599 | `memory_search` 工具 execute 传入 agentId/conversationId + await |
-| 7d | `apps/desktop/src/main/lib/chat-tools.ts` L469-474, L500-501 | `executeChatHostTool` dispatcher 适配 async |
-| 验证 | - | `vp run typecheck` + `vp test` |
+| 步骤 | 文件                                                         | 待办                                                                       |
+| ---- | ------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| 6a   | `apps/desktop/src/main/server/index.ts` L41                  | `CreateAppOptions.buildAgentSystemPrompt` 类型签名需改为 `Promise<string>` |
+| 6b   | `apps/desktop/src/main/server/index.test.ts`                 | 4 处 mock 改 async + 3 处断言加 await                                      |
+| 7a   | `apps/desktop/src/main/lib/chat-tools.ts` L865-895           | `searchMemories` 改 async + 调用 searchMemoriesSemantic                    |
+| 7b   | `apps/desktop/src/main/lib/chat-tools.ts` L965-996           | `saveChatMemory` 改 async + Mem0 双写                                      |
+| 7c   | `apps/desktop/src/main/lib/chat-tools.ts` L593-599           | `memory_search` 工具 execute 传入 agentId/conversationId + await           |
+| 7d   | `apps/desktop/src/main/lib/chat-tools.ts` L469-474, L500-501 | `executeChatHostTool` dispatcher 适配 async                                |
+| 验证 | -                                                            | `vp run typecheck` + `vp test`                                             |
 
 ## 提议的改动
 
@@ -50,15 +50,15 @@ buildAgentSystemPrompt?: (agentId?: string | null, conversationId?: string) => P
 
 需改动 7 处（4 处 mock + 3 处断言）：
 
-| 行号 | 当前 | 改为 |
-|------|------|------|
-| L122 | `buildAgentSystemPrompt: () => "You are a test assistant."` | `buildAgentSystemPrompt: async () => "You are a test assistant."` |
+| 行号 | 当前                                                               | 改为                                                                     |
+| ---- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| L122 | `buildAgentSystemPrompt: () => "You are a test assistant."`        | `buildAgentSystemPrompt: async () => "You are a test assistant."`        |
 | L152 | `captured.value?.buildAgentSystemPrompt("agent-void", "c-stream")` | `await captured.value?.buildAgentSystemPrompt("agent-void", "c-stream")` |
-| L183 | `buildAgentSystemPrompt: () => "Void root prompt"` | `buildAgentSystemPrompt: async () => "Void root prompt"` |
-| L193 | `options.buildAgentSystemPrompt("agent-void", "c-neutral")` | `await options.buildAgentSystemPrompt("agent-void", "c-neutral")` |
-| L240 | `buildAgentSystemPrompt: () => "Base instructions."` | `buildAgentSystemPrompt: async () => "Base instructions."` |
-| L243 | `options.buildAgentSystemPrompt("agent-void", undefined)` | `await options.buildAgentSystemPrompt("agent-void", undefined)` |
-| L284 | `buildAgentSystemPrompt: () => "You are a test assistant."` | `buildAgentSystemPrompt: async () => "You are a test assistant."` |
+| L183 | `buildAgentSystemPrompt: () => "Void root prompt"`                 | `buildAgentSystemPrompt: async () => "Void root prompt"`                 |
+| L193 | `options.buildAgentSystemPrompt("agent-void", "c-neutral")`        | `await options.buildAgentSystemPrompt("agent-void", "c-neutral")`        |
+| L240 | `buildAgentSystemPrompt: () => "Base instructions."`               | `buildAgentSystemPrompt: async () => "Base instructions."`               |
+| L243 | `options.buildAgentSystemPrompt("agent-void", undefined)`          | `await options.buildAgentSystemPrompt("agent-void", undefined)`          |
+| L284 | `buildAgentSystemPrompt: () => "You are a test assistant."`        | `buildAgentSystemPrompt: async () => "You are a test assistant."`        |
 
 **注意**：L152 和 L193 处的 `buildAgentSystemPrompt` 调用本身已在 async 函数体内（`async (options) => {...}` 和外层 `async () => {...}`），可直接加 `await`。
 
@@ -103,6 +103,7 @@ async function searchMemories(
 ```
 
 **说明**：
+
 - 新增 `agentId` 和 `conversationId` 参数，用于 Mem0 过滤
 - 保留 `truncate` 截断逻辑（600 字符上限）
 - 不再需要 `splitTerms` 和 `scoreText`（Mem0 内部用向量相似度排序）
@@ -146,6 +147,7 @@ async function saveChatMemory(
 ```
 
 **说明**：
+
 - 现有 SQLite 写入逻辑完全保留
 - Mem0 双写采用 fire-and-forget（`.catch()` 不阻塞返回）
 - 用 `input.title: input.content` 作为消息内容，让 Mem0 LLM 决定是否抽取
@@ -233,13 +235,13 @@ execute: (input) =>
 
 ## 假设与决策
 
-| # | 假设/决策 | 依据 |
-|---|-----------|------|
-| 1 | `splitTerms` 和 `scoreText` 在 searchMemories 改造后不再被调用 | Grep 确认仅 searchMemories 使用 |
-| 2 | Mem0 双写采用 fire-and-forget，不阻塞 saveChatMemory 返回 | 与 Vercel AI SDK Provider 设计一致（`.then()` 无 await） |
-| 3 | `executeWithAudit` 的回调支持 async 返回值 | L442 `executeChatHostTool` 已是 `async`，L463 内层也是 `async () =>` |
-| 4 | mock 函数用 `async () => "..."` 而非 `() => Promise.resolve("...")` | 更简洁，TypeScript 类型兼容 |
-| 5 | 不删除 `splitTerms`/`scoreText` 函数定义 | 保持最小变更，未来可能复用；若 typecheck 报 unused 再移除 |
+| #   | 假设/决策                                                           | 依据                                                                 |
+| --- | ------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1   | `splitTerms` 和 `scoreText` 在 searchMemories 改造后不再被调用      | Grep 确认仅 searchMemories 使用                                      |
+| 2   | Mem0 双写采用 fire-and-forget，不阻塞 saveChatMemory 返回           | 与 Vercel AI SDK Provider 设计一致（`.then()` 无 await）             |
+| 3   | `executeWithAudit` 的回调支持 async 返回值                          | L442 `executeChatHostTool` 已是 `async`，L463 内层也是 `async () =>` |
+| 4   | mock 函数用 `async () => "..."` 而非 `() => Promise.resolve("...")` | 更简洁，TypeScript 类型兼容                                          |
+| 5   | 不删除 `splitTerms`/`scoreText` 函数定义                            | 保持最小变更，未来可能复用；若 typecheck 报 unused 再移除            |
 
 ## 验证步骤
 

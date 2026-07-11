@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { app } from "electron";
 import { is } from "@electron-toolkit/utils";
-import { and, desc, eq, isNotNull, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, like, lt, or } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { randomUUID } from "node:crypto";
@@ -79,7 +79,9 @@ import {
   type DesktopPetConfigPatch,
   type DesktopPetSnapshot,
   type InteractionProfile,
+  type MemoryKind,
   type MemoryRecord,
+  type MemoryScope,
   type MessageRow,
   type RunStatus,
   type RuntimeEvent,
@@ -971,10 +973,232 @@ export function saveMemory(memory: MemoryRecord): void {
       },
     })
     .run();
+
+  // 同步更新 Mem0 向量索引；失败不阻断主流程
+  import("./mem0-service")
+    .then(({ updateMemoryInVectorStore }) => updateMemoryInVectorStore(row))
+    .catch((error) => {
+      console.warn("[db] saveMemory vector sync failed:", error);
+    });
 }
 
 export function deleteMemory(id: string): void {
   getDb().delete(memories).where(eq(memories.id, id)).run();
+
+  // 同步删除 Mem0 向量索引；失败不阻断主流程
+  import("./mem0-service")
+    .then(({ deleteMemoryFromVectorStore }) => deleteMemoryFromVectorStore(id))
+    .catch((error) => {
+      console.warn("[db] deleteMemory vector sync failed:", error);
+    });
+}
+
+export function getMemoryById(id: string): MemoryRecord | null {
+  return getDb().select().from(memories).where(eq(memories.id, id)).get() ?? null;
+}
+
+export function deleteMemoriesBatch(ids: string[]): number {
+  if (ids.length === 0) return 0;
+  const uniqueIds = [...new Set(ids)];
+  const db = getDb();
+  let deleted = 0;
+  db.transaction((tx) => {
+    for (const id of uniqueIds) {
+      const result = tx.delete(memories).where(eq(memories.id, id)).run();
+      deleted += result.changes;
+    }
+  });
+
+  // 事务提交后同步删除向量索引
+  import("./mem0-service")
+    .then(({ deleteMemoryFromVectorStore }) =>
+      Promise.all(uniqueIds.map((id) => deleteMemoryFromVectorStore(id))),
+    )
+    .catch((error) => {
+      console.warn("[db] deleteMemoriesBatch vector sync failed:", error);
+    });
+
+  return deleted;
+}
+
+export function updateMemoriesBatch(
+  ids: string[],
+  patch: Partial<Pick<MemoryRecord, "pinned" | "salience" | "kind" | "scope">>,
+): number {
+  if (ids.length === 0) return 0;
+  const setPatch: Partial<Record<string, unknown>> = {};
+  if (patch.pinned !== undefined) setPatch.pinned = patch.pinned;
+  if (patch.salience !== undefined) setPatch.salience = patch.salience;
+  if (patch.kind !== undefined) setPatch.kind = patch.kind;
+  if (patch.scope !== undefined) setPatch.scope = patch.scope;
+  if (Object.keys(setPatch).length === 0) return 0;
+  setPatch.updated_at = Date.now();
+
+  const uniqueIds = [...new Set(ids)];
+  const db = getDb();
+  let updated = 0;
+  db.transaction((tx) => {
+    for (const id of uniqueIds) {
+      const result = tx.update(memories).set(setPatch).where(eq(memories.id, id)).run();
+      updated += result.changes;
+    }
+  });
+
+  // 事务提交后同步更新向量索引（仅 title/content 变更时才需要，但批量 patch 不含这两个字段，
+  // 仍调用 update 以刷新元数据/嵌入；实际内容未变时 Mem0 内部效果有限）
+  import("./mem0-service")
+    .then(async ({ updateMemoryInVectorStore }) => {
+      for (const id of uniqueIds) {
+        const memory = getMemoryById(id);
+        if (memory) await updateMemoryInVectorStore(memory);
+      }
+    })
+    .catch((error) => {
+      console.warn("[db] updateMemoriesBatch vector sync failed:", error);
+    });
+
+  return updated;
+}
+
+export async function searchMemories(filters: {
+  query?: string;
+  scope?: MemoryScope | null;
+  kind?: MemoryKind | null;
+  agentId?: string | null;
+  conversationId?: string | null;
+  pinned?: boolean | null;
+  sortBy?: "salience" | "updated" | "created";
+  sortOrder?: "asc" | "desc";
+  limit?: number;
+}): Promise<MemoryRecord[]> {
+  const {
+    query,
+    scope,
+    kind,
+    agentId,
+    conversationId,
+    pinned,
+    sortBy = "salience",
+    sortOrder = "desc",
+    limit,
+  } = filters;
+
+  if (query?.trim()) {
+    const { searchMemoriesSemantic } = await import("./mem0-service");
+    const semantic = await searchMemoriesSemantic(
+      query.trim(),
+      agentId ?? null,
+      conversationId ?? undefined,
+      limit ?? 50,
+    );
+    const normalizedQuery = query.trim().toLowerCase();
+    const filtered = semantic.filter((m) =>
+      matchesMemoryFilters(m, { scope, kind, agentId, conversationId, pinned }, normalizedQuery),
+    );
+    if (filtered.length > 0) return filtered;
+  }
+
+  return searchMemoriesSqlite({
+    query: query?.trim().toLowerCase(),
+    scope,
+    kind,
+    agentId,
+    conversationId,
+    pinned,
+    sortBy,
+    sortOrder,
+    limit,
+  });
+}
+
+function matchesMemoryFilters(
+  memory: MemoryRecord,
+  filters: {
+    scope?: MemoryScope | null;
+    kind?: MemoryKind | null;
+    agentId?: string | null;
+    conversationId?: string | null;
+    pinned?: boolean | null;
+  },
+  query?: string,
+): boolean {
+  if (filters.scope && memory.scope !== filters.scope) return false;
+  if (filters.kind && memory.kind !== filters.kind) return false;
+  if (
+    filters.agentId !== undefined &&
+    filters.agentId !== null &&
+    memory.agent_id !== filters.agentId
+  )
+    return false;
+  if (
+    filters.conversationId !== undefined &&
+    filters.conversationId !== null &&
+    memory.conversation_id !== filters.conversationId
+  )
+    return false;
+  if (
+    filters.pinned !== undefined &&
+    filters.pinned !== null &&
+    (memory.pinned === 1) !== filters.pinned
+  )
+    return false;
+  if (query) {
+    const text = `${memory.title} ${memory.content}`.toLowerCase();
+    if (!text.includes(query)) return false;
+  }
+  return true;
+}
+
+function searchMemoriesSqlite(filters: {
+  query?: string;
+  scope?: MemoryScope | null;
+  kind?: MemoryKind | null;
+  agentId?: string | null;
+  conversationId?: string | null;
+  pinned?: boolean | null;
+  sortBy?: "salience" | "updated" | "created";
+  sortOrder?: "asc" | "desc";
+  limit?: number;
+}): MemoryRecord[] {
+  const {
+    query,
+    scope,
+    kind,
+    agentId,
+    conversationId,
+    pinned,
+    sortBy = "salience",
+    sortOrder = "desc",
+    limit,
+  } = filters;
+
+  const conditions: (ReturnType<typeof eq> | ReturnType<typeof and>)[] = [];
+  if (scope) conditions.push(eq(memories.scope, scope));
+  if (kind) conditions.push(eq(memories.kind, kind));
+  if (agentId !== undefined && agentId !== null) conditions.push(eq(memories.agent_id, agentId));
+  if (conversationId !== undefined && conversationId !== null)
+    conditions.push(eq(memories.conversation_id, conversationId));
+  if (pinned !== undefined && pinned !== null) conditions.push(eq(memories.pinned, pinned ? 1 : 0));
+  if (query) {
+    const pattern = `%${query}%`;
+    conditions.push(or(like(memories.title, pattern), like(memories.content, pattern)));
+  }
+
+  const sortColumn =
+    sortBy === "updated"
+      ? memories.updated_at
+      : sortBy === "created"
+        ? memories.created_at
+        : memories.salience;
+  const orderFn = sortOrder === "asc" ? asc : desc;
+
+  const queryBuilder = getDb()
+    .select()
+    .from(memories)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(memories.pinned), orderFn(sortColumn));
+
+  return limit !== undefined && limit > 0 ? queryBuilder.limit(limit).all() : queryBuilder.all();
 }
 
 export function listWorkflows(): WorkflowDefinition[] {
@@ -1634,19 +1858,14 @@ export async function buildAgentSystemPrompt(
   // 从最近用户消息提取查询词，用于 Mem0 语义搜索
   const recentMessages = conversationId ? listMessages(conversationId) : [];
   const lastUserMsg = [...recentMessages].reverse().find((m) => m.role === "user");
-  const query = lastUserMsg
-    ? extractMessageTextFromContent(lastUserMsg.content).slice(0, 200)
-    : "";
+  const query = lastUserMsg ? extractMessageTextFromContent(lastUserMsg.content).slice(0, 200) : "";
 
   // 语义搜索记忆（降级到全量过滤）
   const { searchMemoriesSemantic } = await import("./mem0-service");
   const memories = query
     ? await searchMemoriesSemantic(query, agent.id, conversationId, 8)
     : listMemories()
-        .filter(
-          (memory) =>
-            memory.scope === "global" || memory.agent_id === agent.id,
-        )
+        .filter((memory) => memory.scope === "global" || memory.agent_id === agent.id)
         .slice(0, 8);
 
   const memoriesForPrompt = memories

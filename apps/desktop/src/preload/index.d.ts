@@ -19,7 +19,10 @@ import type {
   InteractionProfile,
   LocalServerInfo,
   ManagedModelInfo,
+  MemoryKind,
+  MemoryPendingSuggestion,
   MemoryRecord,
+  MemoryScope,
   MessageRow,
   ToolDiscoveryResult,
   ToolServer,
@@ -110,8 +113,32 @@ export interface VoidAIApi {
   };
   memories: {
     list: () => Promise<MemoryRecord[]>;
+    search: (filters: {
+      query?: string;
+      scope?: MemoryScope | null;
+      kind?: MemoryKind | null;
+      agentId?: string | null;
+      conversationId?: string | null;
+      pinned?: boolean | null;
+      sortBy?: "salience" | "updated" | "created";
+      sortOrder?: "asc" | "desc";
+      limit?: number;
+    }) => Promise<MemoryRecord[]>;
+    get: (id: string) => Promise<MemoryRecord | null>;
     save: (memory: MemoryRecord) => Promise<boolean>;
     delete: (id: string) => Promise<boolean>;
+    deleteBatch: (ids: string[]) => Promise<number>;
+    updateBatch: (
+      ids: string[],
+      patch: Partial<Pick<MemoryRecord, "pinned" | "salience" | "kind" | "scope">>,
+    ) => Promise<number>;
+    pending: {
+      list: () => Promise<MemoryPendingSuggestion[]>;
+      confirm: (id: string) => Promise<boolean>;
+      reject: (id: string) => Promise<boolean>;
+      confirmAll: () => Promise<boolean>;
+      rejectAll: () => Promise<boolean>;
+    };
   };
   workflows: {
     // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）

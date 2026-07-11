@@ -18,6 +18,8 @@ import {
 } from "../../shared/types";
 import type { NativeChatTool } from "./providers";
 import {
+  deleteMemory,
+  getMemoryById,
   getRuntimeSnapshot,
   insertRuntimeEvent,
   listMessages,
@@ -132,6 +134,16 @@ interface MemorySaveInput {
   pinned?: boolean;
 }
 
+interface MemoryUpdateInput {
+  id: string;
+  title?: string;
+  content?: string;
+  scope?: MemoryScope;
+  kind?: MemoryKind;
+  salience?: number;
+  pinned?: boolean;
+}
+
 const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
   web_search: {
     id: "web_search",
@@ -191,6 +203,24 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     id: "memory_save",
     label: "Save memory",
     description: "Save a new local memory after approval.",
+    kind: "host",
+    category: "memory",
+    defaultAuto: false,
+    requiresApproval: true,
+  },
+  memory_update: {
+    id: "memory_update",
+    label: "Update memory",
+    description: "Update an existing local memory after approval.",
+    kind: "host",
+    category: "memory",
+    defaultAuto: false,
+    requiresApproval: true,
+  },
+  memory_delete: {
+    id: "memory_delete",
+    label: "Delete memory",
+    description: "Delete an existing local memory after approval.",
     kind: "host",
     category: "memory",
     defaultAuto: false,
@@ -498,6 +528,10 @@ export async function executeChatHostTool({
         }
         case "memory_save":
           return await saveChatMemory(input as MemorySaveInput, conversationId, agentId);
+        case "memory_update":
+          return await updateChatMemory(input as MemoryUpdateInput);
+        case "memory_delete":
+          return await deleteChatMemory(input as { id: string });
         case "sandbox_list_files":
         case "sandbox_read_file":
         case "sandbox_write_file":
@@ -682,8 +716,59 @@ function createHostTools({
         additionalProperties: false,
       }),
       execute: (input) =>
-        executeWithAudit("memory_save", "Save memory", model, conversationId, async () =>
-          await saveChatMemory(input, conversationId, agentId),
+        executeWithAudit(
+          "memory_save",
+          "Save memory",
+          model,
+          conversationId,
+          async () => await saveChatMemory(input, conversationId, agentId),
+        ),
+    }),
+    memory_update: tool({
+      description: TOOL_DEFINITIONS.memory_update.description,
+      inputSchema: jsonSchema<MemoryUpdateInput>({
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Memory ID to update." },
+          title: { type: "string", description: "Short memory title." },
+          content: { type: "string", description: "Memory content." },
+          scope: { type: "string", enum: ["global", "agent", "conversation"] },
+          kind: {
+            type: "string",
+            enum: ["fact", "preference", "episode", "profile", "skill"],
+          },
+          salience: { type: "number", description: "Importance from 1 to 100." },
+          pinned: { type: "boolean", description: "Whether to pin the memory." },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      }),
+      execute: (input) =>
+        executeWithAudit(
+          "memory_update",
+          "Update memory",
+          model,
+          conversationId,
+          async () => await updateChatMemory(input),
+        ),
+    }),
+    memory_delete: tool({
+      description: TOOL_DEFINITIONS.memory_delete.description,
+      inputSchema: jsonSchema<{ id: string }>({
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Memory ID to delete." },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      }),
+      execute: (input) =>
+        executeWithAudit(
+          "memory_delete",
+          "Delete memory",
+          model,
+          conversationId,
+          async () => await deleteChatMemory(input),
         ),
     }),
   };
@@ -732,6 +817,24 @@ function createToolApproval(
       recordRuntimeEvent({
         kind: "approval",
         title: "Approval requested: memory_save",
+        status: "queued",
+        detail: baseAuditDetail(model, conversationId, { agentId }),
+      });
+      return "user-approval";
+    },
+    memory_update: () => {
+      recordRuntimeEvent({
+        kind: "approval",
+        title: "Approval requested: memory_update",
+        status: "queued",
+        detail: baseAuditDetail(model, conversationId, { agentId }),
+      });
+      return "user-approval";
+    },
+    memory_delete: () => {
+      recordRuntimeEvent({
+        kind: "approval",
+        title: "Approval requested: memory_delete",
         status: "queued",
         detail: baseAuditDetail(model, conversationId, { agentId }),
       });
@@ -866,15 +969,17 @@ async function searchMemories(
   limit: number,
   agentId?: string | null,
   conversationId?: string,
-): Promise<Array<{
-  id: string;
-  scope: MemoryScope;
-  kind: MemoryKind;
-  title: string;
-  content: string;
-  salience: number;
-  pinned: boolean;
-}>> {
+): Promise<
+  Array<{
+    id: string;
+    scope: MemoryScope;
+    kind: MemoryKind;
+    title: string;
+    content: string;
+    salience: number;
+    pinned: boolean;
+  }>
+> {
   // Mem0 语义搜索（无 API Key 时内部降级到全量过滤）
   const { searchMemoriesSemantic } = await import("./mem0-service");
   const results = await searchMemoriesSemantic(query, agentId, conversationId, limit);
@@ -999,6 +1104,43 @@ async function saveChatMemory(
     salience: memory.salience,
     pinned: memory.pinned === 1,
   };
+}
+
+async function updateChatMemory(input: MemoryUpdateInput): Promise<unknown> {
+  const existing = getMemoryById(input.id);
+  if (!existing) throw new Error(`Memory not found: ${input.id}`);
+
+  const title = input.title?.trim();
+  const content = input.content?.trim();
+  const memory: MemoryRecord = {
+    ...existing,
+    title: title ? title.slice(0, 120) : existing.title,
+    content: content ? content.slice(0, 4_000) : existing.content,
+    scope: input.scope ?? existing.scope,
+    kind: input.kind ?? existing.kind,
+    salience:
+      input.salience !== undefined ? clampNumber(input.salience, 1, 100) : existing.salience,
+    pinned: input.pinned !== undefined ? (input.pinned ? 1 : 0) : existing.pinned,
+    updated_at: Date.now(),
+  };
+  if (!memory.title || !memory.content) throw new Error("title and content are required.");
+  saveMemory(memory);
+
+  return {
+    id: memory.id,
+    scope: memory.scope,
+    kind: memory.kind,
+    title: memory.title,
+    salience: memory.salience,
+    pinned: memory.pinned === 1,
+  };
+}
+
+async function deleteChatMemory(input: { id: string }): Promise<unknown> {
+  const existing = getMemoryById(input.id);
+  if (!existing) throw new Error(`Memory not found: ${input.id}`);
+  deleteMemory(input.id);
+  return { success: true, id: input.id };
 }
 
 async function searchWebFallback(input: WebSearchInput): Promise<{

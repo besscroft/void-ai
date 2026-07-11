@@ -1,8 +1,8 @@
-﻿import { afterEach, before, describe, it } from "node:test";
+import { afterEach, before, describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import Module, { createRequire } from "node:module";
 import type { ChatToolModelContext } from "./chat-tools";
-import type { ModelCapabilities, ModelProviderKind } from "../../shared/types";
+import type { MemoryRecord, ModelCapabilities, ModelProviderKind } from "../../shared/types";
 
 const require = createRequire(import.meta.url);
 const electronPath = require.resolve("electron");
@@ -33,12 +33,53 @@ const capabilities: ModelCapabilities = {
 let chatTools: typeof import("./chat-tools");
 const originalFetch = globalThis.fetch;
 
+const dbSaveMemory = mock.fn();
+const dbDeleteMemory = mock.fn();
+const dbGetMemoryById = mock.fn<() => MemoryRecord | null>();
+const dbInsertRuntimeEvent = mock.fn();
+const dbUpsertAgentRuntimeState = mock.fn();
+const dbGetRuntimeSnapshot = mock.fn(() => ({
+  agents: [],
+  memories: [],
+  workflows: [],
+  runtimeEvents: [],
+  syncState: { mode: "off", status: "disabled", encryption_enabled: 0 },
+}));
+const dbListMessages = mock.fn(() => []);
+
+mock.module("./db", {
+  namedExports: {
+    deleteMemory: dbDeleteMemory,
+    getMemoryById: dbGetMemoryById,
+    getRuntimeSnapshot: dbGetRuntimeSnapshot,
+    insertRuntimeEvent: dbInsertRuntimeEvent,
+    listMessages: dbListMessages,
+    saveMemory: dbSaveMemory,
+    upsertAgentRuntimeState: dbUpsertAgentRuntimeState,
+  },
+});
+
+mock.module("./mem0-service", {
+  namedExports: {
+    addMemoriesFromConversation: mock.fn(() => Promise.resolve({ count: 0, records: [] })),
+    updateMemoryInVectorStore: mock.fn(() => Promise.resolve()),
+    deleteMemoryFromVectorStore: mock.fn(() => Promise.resolve()),
+  },
+});
+
 before(async () => {
   chatTools = await import("./chat-tools");
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  dbSaveMemory.mock.resetCalls();
+  dbDeleteMemory.mock.resetCalls();
+  dbGetMemoryById.mock.resetCalls();
+  dbInsertRuntimeEvent.mock.resetCalls();
+  dbUpsertAgentRuntimeState.mock.resetCalls();
+  dbGetRuntimeSnapshot.mock.resetCalls();
+  dbListMessages.mock.resetCalls();
 });
 
 void describe("chat tool runtime", () => {
@@ -303,6 +344,140 @@ void describe("chat tool runtime", () => {
     assert.equal(typeof webTool.execute, "function");
 
     await assert.rejects(() => webTool.execute!({ query: "fresh news" }), /HTTP 503/);
+  });
+
+  void it("excludes memory modification tools from auto mode defaults", () => {
+    const descriptors = chatTools.createChatToolDescriptors(modelContext("openai-compatible"));
+    for (const id of ["memory_save", "memory_update", "memory_delete"] as const) {
+      const descriptor = descriptors.find((d) => d.id === id);
+      assert.ok(descriptor);
+      assert.equal(descriptor.defaultAuto, false);
+      assert.equal(descriptor.requiresApproval, true);
+    }
+
+    const runtime = chatTools.buildChatToolRuntime({
+      selection: { mode: "auto", selectedToolIds: [] },
+      model: modelContext("openai-compatible"),
+    });
+    assert.equal(runtime.tools?.memory_save, undefined);
+    assert.equal(runtime.tools?.memory_update, undefined);
+    assert.equal(runtime.tools?.memory_delete, undefined);
+  });
+
+  void it("includes memory tools in manual mode", () => {
+    const runtime = chatTools.buildChatToolRuntime({
+      selection: {
+        mode: "manual",
+        selectedToolIds: ["memory_save", "memory_update", "memory_delete"],
+      },
+      model: modelContext("openai-compatible"),
+    });
+    assert.deepEqual(runtime.activeTools, ["memory_save", "memory_update", "memory_delete"]);
+    assert.equal(typeof runtime.tools?.memory_save, "object");
+    assert.equal(typeof runtime.tools?.memory_update, "object");
+    assert.equal(typeof runtime.tools?.memory_delete, "object");
+  });
+
+  void it("executes memory_save and persists a new memory", async () => {
+    const output = (await chatTools.executeChatHostTool({
+      toolId: "memory_save",
+      input: {
+        title: "Test title",
+        content: "Test content",
+        scope: "global",
+        kind: "fact",
+        salience: 80,
+        pinned: true,
+      },
+      model: modelContext("openai-compatible"),
+      conversationId: "c1",
+      agentId: "agent-1",
+    })) as {
+      id: string;
+      scope: string;
+      kind: string;
+      title: string;
+      salience: number;
+      pinned: boolean;
+    };
+
+    assert.equal(dbSaveMemory.mock.callCount(), 1);
+    const saved = dbSaveMemory.mock.calls[0].arguments[0] as MemoryRecord;
+    assert.equal(saved.title, "Test title");
+    assert.equal(saved.content, "Test content");
+    assert.equal(saved.scope, "global");
+    assert.equal(saved.kind, "fact");
+    assert.equal(saved.salience, 80);
+    assert.equal(saved.pinned, 1);
+    assert.equal(output.title, "Test title");
+    assert.equal(output.pinned, true);
+  });
+
+  void it("executes memory_update and persists changes", async () => {
+    const existing: MemoryRecord = {
+      id: "m1",
+      scope: "agent",
+      kind: "preference",
+      title: "Old title",
+      content: "Old content",
+      agent_id: "agent-1",
+      conversation_id: null,
+      source_run_id: null,
+      salience: 50,
+      pinned: 0,
+      created_at: 1,
+      updated_at: 1,
+    };
+    dbGetMemoryById.mock.mockImplementation(() => existing);
+
+    const output = (await chatTools.executeChatHostTool({
+      toolId: "memory_update",
+      input: { id: "m1", title: "New title", salience: 90, pinned: true },
+      model: modelContext("openai-compatible"),
+      conversationId: "c1",
+    })) as { id: string; title: string; salience: number; pinned: boolean };
+
+    assert.equal(dbGetMemoryById.mock.callCount(), 1);
+    assert.equal(dbSaveMemory.mock.callCount(), 1);
+    const saved = dbSaveMemory.mock.calls[0].arguments[0] as MemoryRecord;
+    assert.equal(saved.id, "m1");
+    assert.equal(saved.title, "New title");
+    assert.equal(saved.content, "Old content");
+    assert.equal(saved.salience, 90);
+    assert.equal(saved.pinned, 1);
+    assert.equal(output.title, "New title");
+    assert.equal(output.pinned, true);
+  });
+
+  void it("executes memory_delete and removes the memory", async () => {
+    const existing: MemoryRecord = {
+      id: "m2",
+      scope: "conversation",
+      kind: "episode",
+      title: "To delete",
+      content: "Content",
+      agent_id: null,
+      conversation_id: "c1",
+      source_run_id: null,
+      salience: 60,
+      pinned: 0,
+      created_at: 1,
+      updated_at: 1,
+    };
+    dbGetMemoryById.mock.mockImplementation(() => existing);
+
+    const output = (await chatTools.executeChatHostTool({
+      toolId: "memory_delete",
+      input: { id: "m2" },
+      model: modelContext("openai-compatible"),
+      conversationId: "c1",
+    })) as { success: boolean; id: string };
+
+    assert.equal(dbGetMemoryById.mock.callCount(), 1);
+    assert.equal(dbDeleteMemory.mock.callCount(), 1);
+    assert.equal(dbDeleteMemory.mock.calls[0].arguments[0], "m2");
+    assert.equal(output.success, true);
+    assert.equal(output.id, "m2");
   });
 });
 

@@ -193,6 +193,19 @@ export interface MemoryRecord {
   updated_at: number;
 }
 
+/** 智能体自动提取后、等待用户确认的记忆建议 */
+export interface MemoryPendingSuggestion {
+  id: string;
+  title: string;
+  content: string;
+  scope: MemoryScope;
+  kind: MemoryKind;
+  salience: number;
+  suggestedAt: number;
+  sourceConversationId: string;
+  sourceAgentId: string | null;
+}
+
 export type WorkflowStatus = "enabled" | "paused" | "draft";
 
 export interface WorkflowStep {
@@ -635,6 +648,8 @@ export const CHAT_TOOL_IDS = [
   "model_capabilities",
   "conversation_search",
   "memory_save",
+  "memory_update",
+  "memory_delete",
   "sandbox_list_files",
   "sandbox_read_file",
   "sandbox_write_file",

@@ -1092,10 +1092,7 @@ async function createRootInstructions(
       .filter(Boolean)
       .join(" ");
   });
-  const basePrompt = await context.buildAgentSystemPrompt(
-    DEFAULT_AGENT_ID,
-    context.conversationId,
-  );
+  const basePrompt = await context.buildAgentSystemPrompt(DEFAULT_AGENT_ID, context.conversationId);
   return [
     basePrompt,
     "You are Void, the root orchestrator. Every chat request enters through you, regardless of provider.",

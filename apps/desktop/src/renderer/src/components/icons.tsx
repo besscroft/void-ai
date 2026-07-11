@@ -73,6 +73,7 @@ export const IconMessage = fromLucide(MessageSquare);
 export const IconKey = fromLucide(Key);
 export const IconCheck = fromLucide(Check);
 export const IconClose = fromLucide(X);
+export const IconX = fromLucide(X);
 export const IconChevronDown = fromLucide(ChevronDown);
 export const IconPalette = fromLucide(Palette);
 export const IconSliders = fromLucide(SlidersHorizontal);

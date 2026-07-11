@@ -18,7 +18,10 @@ import type {
   InteractionProfile,
   LocalServerInfo,
   ManagedModelInfo,
+  MemoryKind,
+  MemoryPendingSuggestion,
   MemoryRecord,
+  MemoryScope,
   MessageRow,
   ToolDiscoveryResult,
   ToolServer,
@@ -126,8 +129,32 @@ export const api = {
   },
   memories: {
     list: (): Promise<MemoryRecord[]> => assertApi().memories.list(),
+    search: (filters: {
+      query?: string;
+      scope?: MemoryScope | null;
+      kind?: MemoryKind | null;
+      agentId?: string | null;
+      conversationId?: string | null;
+      pinned?: boolean | null;
+      sortBy?: "salience" | "updated" | "created";
+      sortOrder?: "asc" | "desc";
+      limit?: number;
+    }): Promise<MemoryRecord[]> => assertApi().memories.search(filters),
+    get: (id: string): Promise<MemoryRecord | null> => assertApi().memories.get(id),
     save: (memory: MemoryRecord): Promise<boolean> => assertApi().memories.save(memory),
     delete: (id: string): Promise<boolean> => assertApi().memories.delete(id),
+    deleteBatch: (ids: string[]): Promise<number> => assertApi().memories.deleteBatch(ids),
+    updateBatch: (
+      ids: string[],
+      patch: Partial<Pick<MemoryRecord, "pinned" | "salience" | "kind" | "scope">>,
+    ): Promise<number> => assertApi().memories.updateBatch(ids, patch),
+    pending: {
+      list: (): Promise<MemoryPendingSuggestion[]> => assertApi().memories.pending.list(),
+      confirm: (id: string): Promise<boolean> => assertApi().memories.pending.confirm(id),
+      reject: (id: string): Promise<boolean> => assertApi().memories.pending.reject(id),
+      confirmAll: (): Promise<boolean> => assertApi().memories.pending.confirmAll(),
+      rejectAll: (): Promise<boolean> => assertApi().memories.pending.rejectAll(),
+    },
   },
   workflows: {
     // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）
@@ -273,7 +300,10 @@ export type {
   RuntimeEvent,
   InteractionProfile,
   LocalServerInfo,
+  MemoryKind,
+  MemoryPendingSuggestion,
   MemoryRecord,
+  MemoryScope,
   MessageRow,
   ToolDiscoveryResult,
   ToolServer,

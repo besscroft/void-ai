@@ -75,6 +75,20 @@ const TOOL_METADATA: Record<
     category: "memory",
     requiresApproval: true,
   },
+  memory_update: {
+    label: "Update memory",
+    description: "Update an existing local memory after approval.",
+    kind: "host",
+    category: "memory",
+    requiresApproval: true,
+  },
+  memory_delete: {
+    label: "Delete memory",
+    description: "Delete an existing local memory after approval.",
+    kind: "host",
+    category: "memory",
+    requiresApproval: true,
+  },
   sandbox_list_files: {
     label: "Sandbox files",
     description: "List files inside the current sandbox session.",

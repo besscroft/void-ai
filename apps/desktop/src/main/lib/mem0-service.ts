@@ -64,15 +64,12 @@ async function rehydrateFromSQLite(): Promise<void> {
   const existing = listMemories();
   for (const mem of existing) {
     try {
-      await memoryInstance.add(
-        [{ role: "user", content: `${mem.title}: ${mem.content}` }],
-        {
-          userId: mem.agent_id ?? "global",
-          runId: mem.conversation_id ?? undefined,
-          metadata: { sqliteId: mem.id, scope: mem.scope, kind: mem.kind },
-          infer: false,
-        },
-      );
+      await memoryInstance.add([{ role: "user", content: `${mem.title}: ${mem.content}` }], {
+        userId: mem.agent_id ?? "global",
+        runId: mem.conversation_id ?? undefined,
+        metadata: { sqliteId: mem.id, scope: mem.scope, kind: mem.kind },
+        infer: false,
+      });
     } catch (error) {
       // 单条重水合失败不应阻断整体流程
       console.warn("[mem0-service] rehydrate skip memory:", mem.id, error);
@@ -125,24 +122,27 @@ export async function searchMemoriesSemantic(
 }
 
 /**
- * 通过 Mem0 LLM 抽取记忆并双写（向量索引 + SQLite）。
- * 返回抽取的记忆数量；Mem0 不可用时返回 0（由调用方回退到正则）。
+ * 通过 Mem0 LLM 抽取记忆。
+ * - persist=true（默认）：双写到向量索引 + SQLite，返回数量与记录。
+ * - persist=false：仅做抽取并返回记录，不写入 SQLite，供 pending 队列使用。
+ * Mem0 不可用时返回空数组（由调用方回退到正则）。
  */
 export async function addMemoriesFromConversation(
   messages: Array<{ role: string; content: string }>,
   agentId?: string | null,
   conversationId?: string,
-): Promise<number> {
+  persist = true,
+): Promise<{ count: number; records: MemoryRecord[] }> {
   const memory = await getMemory();
-  if (!memory) return 0; // 降级：由调用方回退到正则
+  if (!memory) return { count: 0, records: [] }; // 降级：由调用方回退到正则
 
   const result = await memory.add(messages, {
     userId: agentId ?? DEFAULT_AGENT_ID,
     runId: conversationId ?? undefined,
   });
 
-  // 双写：将 Mem0 抽取的记忆同步到 SQLite 持久化
   const extracted = result?.results ?? [];
+  const records: MemoryRecord[] = [];
   for (const item of extracted) {
     if (!item.memory) continue;
     const record: MemoryRecord = {
@@ -159,9 +159,38 @@ export async function addMemoriesFromConversation(
       created_at: Date.now(),
       updated_at: Date.now(),
     };
-    saveMemory(record);
+    records.push(record);
+    if (persist) saveMemory(record);
   }
-  return extracted.length;
+  return { count: records.length, records };
+}
+
+/**
+ * 同步更新 Mem0 内存向量索引中的单条记忆。
+ * SQLite 被手动/工具更新后调用，保持两者一致。
+ */
+export async function updateMemoryInVectorStore(memory: MemoryRecord): Promise<void> {
+  const memoryInstance = await getMemory();
+  if (!memoryInstance) return;
+  try {
+    await memoryInstance.update(memory.id, `${memory.title}: ${memory.content}`);
+  } catch (error) {
+    console.warn("[mem0-service] updateMemoryInVectorStore failed:", memory.id, error);
+  }
+}
+
+/**
+ * 同步删除 Mem0 内存向量索引中的单条记忆。
+ * SQLite 被删除后调用，保持两者一致。
+ */
+export async function deleteMemoryFromVectorStore(id: string): Promise<void> {
+  const memoryInstance = await getMemory();
+  if (!memoryInstance) return;
+  try {
+    await memoryInstance.delete(id);
+  } catch (error) {
+    console.warn("[mem0-service] deleteMemoryFromVectorStore failed:", id, error);
+  }
 }
 
 /**
