@@ -210,25 +210,27 @@ export function AppShell({
           {/* 鍒涙剰锛氭悳绱㈡锛堜粎鍦ㄦ湁浼氳瘽鏃舵樉绀猴級 */}
           {conversations.length > 0 && (
             <div className="relative px-3 pb-2">
-              <IconSearch className="pointer-events-none absolute left-6 top-1/2 size-3.5 -translate-y-1/2 text-foreground/40" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.currentTarget.value)}
-                placeholder={t("shell.searchPlaceholder")}
-                aria-label={t("shell.searchPlaceholder")}
-                className="h-7 w-full rounded-md border border-foreground/10 bg-background/60 pl-7 pr-7 text-xs text-foreground/80 outline-none transition placeholder:text-foreground/35 focus:border-accent/45 focus:ring-2 focus:ring-accent/15"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  aria-label={t("common.close")}
-                  className="absolute right-5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-foreground/40 transition hover:text-foreground"
-                >
-                  <IconClose className="size-3" />
-                </button>
-              )}
+              <div className="relative">
+                <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-foreground/40" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                  placeholder={t("shell.searchPlaceholder")}
+                  aria-label={t("shell.searchPlaceholder")}
+                  className="h-7 w-full rounded-md border border-foreground/10 bg-background/60 pl-7 pr-7 text-xs text-foreground/80 outline-none transition placeholder:text-foreground/35 focus:border-accent/45 focus:ring-2 focus:ring-accent/15"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    aria-label={t("common.close")}
+                    className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-foreground/40 transition hover:text-foreground"
+                  >
+                    <IconClose className="size-3" />
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
