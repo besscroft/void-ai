@@ -20,6 +20,7 @@ import {
   conversations,
   interactionProfiles,
   memories,
+  memoryJobs,
   messages,
   modelApiKeys,
   runtimeEvents,
@@ -37,6 +38,7 @@ import {
   workflows,
   type AgentPolicy as DbAgentPolicy,
   type AgentProfile as DbAgentProfile,
+  type NewMemoryJob,
   type NewRuntimeEvent,
   type NewRuntimeRun,
   type NewRuntimeStep,
@@ -80,8 +82,13 @@ import {
   type DesktopPetSnapshot,
   type InteractionProfile,
   type MemoryKind,
+  type MemoryJob,
+  type MemoryJobKind,
+  type MemoryJobStatus,
+  type MemoryOrigin,
   type MemoryRecord,
   type MemoryScope,
+  type MemoryStatus,
   type MessageRow,
   type RunStatus,
   type RuntimeEvent,
@@ -117,6 +124,7 @@ export type {
   Conversation,
   ConversationAgentState,
   InteractionProfile,
+  MemoryJob,
   MemoryRecord,
   MessageRow,
   RuntimeEvent,
@@ -141,6 +149,10 @@ const DATA_DIRNAME = "data";
 const DEFAULT_AGENT_ID = SHARED_DEFAULT_AGENT_ID;
 const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_PROFILE_ID = "sync-local";
+const DEFAULT_MEMORY_CONFIDENCE = 70;
+const DEFAULT_MEMORY_ORIGIN: MemoryOrigin = "manual";
+const DEFAULT_MEMORY_STATUS: MemoryStatus = "active";
+const MEMORY_JOB_MAX_ATTEMPTS = 3;
 
 type DbInstance = BetterSQLite3Database<typeof schema>;
 type RuntimeStatus = RunStatus;
@@ -938,22 +950,20 @@ export function runtimeSnapshot(): Pick<
   };
 }
 
-export function listMemories(): MemoryRecord[] {
-  return getDb()
+export function listMemories(options?: {
+  includeInactive?: boolean;
+  limit?: number;
+}): MemoryRecord[] {
+  const query = getDb()
     .select()
     .from(memories)
-    .orderBy(desc(memories.pinned), desc(memories.salience))
-    .all();
+    .where(options?.includeInactive ? undefined : eq(memories.status, "active"))
+    .orderBy(desc(memories.pinned), desc(memories.salience), desc(memories.updated_at));
+  return options?.limit && options.limit > 0 ? query.limit(options.limit).all() : query.all();
 }
 
 export function saveMemory(memory: MemoryRecord): void {
-  const now = Date.now();
-  const row = {
-    ...memory,
-    source_run_id: memory.source_run_id ?? null,
-    created_at: memory.created_at ?? now,
-    updated_at: now,
-  };
+  const row = normalizeMemoryRecord(memory);
   getDb()
     .insert(memories)
     .values(row)
@@ -969,6 +979,13 @@ export function saveMemory(memory: MemoryRecord): void {
         source_run_id: row.source_run_id,
         salience: row.salience,
         pinned: row.pinned,
+        confidence: row.confidence,
+        origin: row.origin,
+        status: row.status,
+        evidence_json: row.evidence_json,
+        last_used_at: row.last_used_at,
+        expires_at: row.expires_at,
+        supersedes_id: row.supersedes_id,
         updated_at: row.updated_at,
       },
     })
@@ -995,6 +1012,185 @@ export function deleteMemory(id: string): void {
 
 export function getMemoryById(id: string): MemoryRecord | null {
   return getDb().select().from(memories).where(eq(memories.id, id)).get() ?? null;
+}
+
+function normalizeMemoryRecord(memory: MemoryRecord): MemoryRecord {
+  const now = Date.now();
+  return {
+    id: memory.id || randomUUID(),
+    scope: memory.scope,
+    kind: memory.kind,
+    title: memory.title,
+    content: memory.content,
+    agent_id: memory.agent_id ?? null,
+    conversation_id: memory.conversation_id ?? null,
+    source_run_id: memory.source_run_id ?? null,
+    salience: clampNumber(memory.salience ?? 50, 1, 100),
+    pinned: memory.pinned ? 1 : 0,
+    confidence: clampNumber(memory.confidence ?? DEFAULT_MEMORY_CONFIDENCE, 1, 100),
+    origin: memory.origin ?? DEFAULT_MEMORY_ORIGIN,
+    status: memory.status ?? DEFAULT_MEMORY_STATUS,
+    evidence_json: normalizeJsonArrayText(memory.evidence_json),
+    last_used_at: memory.last_used_at ?? null,
+    expires_at: memory.expires_at ?? null,
+    supersedes_id: memory.supersedes_id ?? null,
+    created_at: memory.created_at ?? now,
+    updated_at: now,
+  };
+}
+
+function clampNumber(raw: number, min: number, max: number): number {
+  if (!Number.isFinite(raw)) return min;
+  return Math.max(min, Math.min(max, Math.round(raw)));
+}
+
+function normalizeJsonArrayText(raw: string | undefined): string {
+  if (!raw) return "[]";
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? JSON.stringify(parsed.slice(-20)) : "[]";
+  } catch {
+    return "[]";
+  }
+}
+
+export function markMemoriesUsed(ids: string[]): number {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (uniqueIds.length === 0) return 0;
+  const now = Date.now();
+  let updated = 0;
+  const db = getDb();
+  db.transaction((tx) => {
+    for (const id of uniqueIds) {
+      const result = tx
+        .update(memories)
+        .set({ last_used_at: now, updated_at: now })
+        .where(eq(memories.id, id))
+        .run();
+      updated += result.changes;
+    }
+  });
+  return updated;
+}
+
+export function queueMemoryJob(input: {
+  kind: MemoryJobKind;
+  conversationId?: string | null;
+  agentId?: string | null;
+  runId?: string | null;
+  payload?: unknown;
+  scheduledAt?: number;
+}): MemoryJob {
+  const now = Date.now();
+  const scheduledAt = input.scheduledAt ?? now;
+  const payloadJson = JSON.stringify(input.payload ?? {});
+  const existing = getDb()
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.kind, input.kind),
+        eq(memoryJobs.status, "queued"),
+        input.conversationId === undefined || input.conversationId === null
+          ? isNull(memoryJobs.conversation_id)
+          : eq(memoryJobs.conversation_id, input.conversationId),
+        input.agentId === undefined || input.agentId === null
+          ? isNull(memoryJobs.agent_id)
+          : eq(memoryJobs.agent_id, input.agentId),
+      ),
+    )
+    .orderBy(asc(memoryJobs.scheduled_at))
+    .get();
+
+  if (existing) {
+    getDb()
+      .update(memoryJobs)
+      .set({
+        run_id: input.runId ?? existing.run_id,
+        payload_json: payloadJson,
+        scheduled_at: Math.min(existing.scheduled_at, scheduledAt),
+        updated_at: now,
+      })
+      .where(eq(memoryJobs.id, existing.id))
+      .run();
+    return getMemoryJobById(existing.id)!;
+  }
+
+  const row: NewMemoryJob = {
+    id: randomUUID(),
+    kind: input.kind,
+    status: "queued",
+    conversation_id: input.conversationId ?? null,
+    agent_id: input.agentId ?? DEFAULT_AGENT_ID,
+    run_id: input.runId ?? null,
+    payload_json: payloadJson,
+    attempts: 0,
+    last_error: null,
+    scheduled_at: scheduledAt,
+    started_at: null,
+    finished_at: null,
+    created_at: now,
+    updated_at: now,
+  };
+  getDb().insert(memoryJobs).values(row).run();
+  return row as MemoryJob;
+}
+
+export function claimNextMemoryJob(now = Date.now()): MemoryJob | null {
+  const row = getDb()
+    .select()
+    .from(memoryJobs)
+    .where(eq(memoryJobs.status, "queued"))
+    .orderBy(asc(memoryJobs.scheduled_at), asc(memoryJobs.created_at))
+    .all()
+    .find((job) => job.scheduled_at <= now);
+  if (!row) return null;
+  const startedAt = Date.now();
+  getDb()
+    .update(memoryJobs)
+    .set({
+      status: "running",
+      attempts: row.attempts + 1,
+      started_at: startedAt,
+      updated_at: startedAt,
+    })
+    .where(eq(memoryJobs.id, row.id))
+    .run();
+  return getMemoryJobById(row.id);
+}
+
+export function finishMemoryJob(
+  id: string,
+  status: Extract<MemoryJobStatus, "succeeded" | "failed" | "cancelled">,
+  error?: string | null,
+): MemoryJob | null {
+  const existing = getMemoryJobById(id);
+  if (!existing) return null;
+  const now = Date.now();
+  const shouldRetry =
+    status === "failed" && existing.attempts < MEMORY_JOB_MAX_ATTEMPTS && error != null;
+  getDb()
+    .update(memoryJobs)
+    .set({
+      status: shouldRetry ? "queued" : status,
+      last_error: error ?? null,
+      scheduled_at: shouldRetry
+        ? now + Math.min(existing.attempts + 1, 5) * 15_000
+        : existing.scheduled_at,
+      finished_at: shouldRetry ? null : now,
+      updated_at: now,
+    })
+    .where(eq(memoryJobs.id, id))
+    .run();
+  return getMemoryJobById(id);
+}
+
+export function getMemoryJobById(id: string): MemoryJob | null {
+  return getDb().select().from(memoryJobs).where(eq(memoryJobs.id, id)).get() ?? null;
+}
+
+export function listMemoryJobs(limit = 100): MemoryJob[] {
+  return getDb().select().from(memoryJobs).orderBy(desc(memoryJobs.updated_at)).limit(limit).all();
 }
 
 export function deleteMemoriesBatch(ids: string[]): number {
@@ -1064,6 +1260,7 @@ export async function searchMemories(filters: {
   query?: string;
   scope?: MemoryScope | null;
   kind?: MemoryKind | null;
+  status?: MemoryStatus | null;
   agentId?: string | null;
   conversationId?: string | null;
   pinned?: boolean | null;
@@ -1075,6 +1272,7 @@ export async function searchMemories(filters: {
     query,
     scope,
     kind,
+    status = "active",
     agentId,
     conversationId,
     pinned,
@@ -1091,9 +1289,8 @@ export async function searchMemories(filters: {
       conversationId ?? undefined,
       limit ?? 50,
     );
-    const normalizedQuery = query.trim().toLowerCase();
     const filtered = semantic.filter((m) =>
-      matchesMemoryFilters(m, { scope, kind, agentId, conversationId, pinned }, normalizedQuery),
+      matchesMemoryFilters(m, { scope, kind, status, agentId, conversationId, pinned }),
     );
     if (filtered.length > 0) return filtered;
   }
@@ -1102,6 +1299,7 @@ export async function searchMemories(filters: {
     query: query?.trim().toLowerCase(),
     scope,
     kind,
+    status,
     agentId,
     conversationId,
     pinned,
@@ -1116,6 +1314,7 @@ function matchesMemoryFilters(
   filters: {
     scope?: MemoryScope | null;
     kind?: MemoryKind | null;
+    status?: MemoryStatus | null;
     agentId?: string | null;
     conversationId?: string | null;
     pinned?: boolean | null;
@@ -1124,6 +1323,7 @@ function matchesMemoryFilters(
 ): boolean {
   if (filters.scope && memory.scope !== filters.scope) return false;
   if (filters.kind && memory.kind !== filters.kind) return false;
+  if (filters.status && (memory.status ?? "active") !== filters.status) return false;
   if (
     filters.agentId !== undefined &&
     filters.agentId !== null &&
@@ -1153,6 +1353,7 @@ function searchMemoriesSqlite(filters: {
   query?: string;
   scope?: MemoryScope | null;
   kind?: MemoryKind | null;
+  status?: MemoryStatus | null;
   agentId?: string | null;
   conversationId?: string | null;
   pinned?: boolean | null;
@@ -1164,6 +1365,7 @@ function searchMemoriesSqlite(filters: {
     query,
     scope,
     kind,
+    status = "active",
     agentId,
     conversationId,
     pinned,
@@ -1175,6 +1377,7 @@ function searchMemoriesSqlite(filters: {
   const conditions: (ReturnType<typeof eq> | ReturnType<typeof and>)[] = [];
   if (scope) conditions.push(eq(memories.scope, scope));
   if (kind) conditions.push(eq(memories.kind, kind));
+  if (status) conditions.push(eq(memories.status, status));
   if (agentId !== undefined && agentId !== null) conditions.push(eq(memories.agent_id, agentId));
   if (conversationId !== undefined && conversationId !== null)
     conditions.push(eq(memories.conversation_id, conversationId));
@@ -1846,10 +2049,9 @@ export async function buildAgentSystemPrompt(
   if (!agent) return "You are Void, a local AI assistant.";
 
   // 从文件层加载有界冻结快照；首次启动时从 agent.instructions 初始化
-  const { buildMemoryFilePromptBlock, ensureMemoryFiles } = await import("./agent-memory-files");
-  ensureMemoryFiles(agent);
-  const fileBlock = buildMemoryFilePromptBlock();
-
+  const { prepareInnerContext } = await import("./agent-inner-context");
+  const innerContext = await prepareInnerContext({ agent, conversationId: conversationId ?? null });
+  const fileBlock = innerContext.promptBlock;
   // 可选：语义搜索补充最近 3 条相关记忆
   const recentMessages = conversationId ? listMessages(conversationId) : [];
   const lastUserMsg = [...recentMessages].reverse().find((m) => m.role === "user");
@@ -1868,7 +2070,8 @@ export async function buildAgentSystemPrompt(
   return [
     `You are ${agent.name}.`,
     `Role: ${agent.role}`,
-    agent.personality ? `Persona: ${agent.personality}` : "",
+    agent.personality ? `Personality seed: ${agent.personality}` : "",
+    agent.soul_prompt ? `SOUL seed: ${agent.soul_prompt}` : "",
     fileBlock,
     extraMemories,
   ]

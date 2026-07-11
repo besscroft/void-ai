@@ -116,6 +116,13 @@ export async function searchMemoriesSemantic(
     source_run_id: null,
     salience: 70,
     pinned: 0,
+    confidence: 70,
+    origin: "auto",
+    status: "active",
+    evidence_json: "[]",
+    last_used_at: null,
+    expires_at: null,
+    supersedes_id: null,
     created_at: Date.now(),
     updated_at: Date.now(),
   }));
@@ -158,6 +165,13 @@ export async function addMemoriesFromConversation(
       source_run_id: null,
       salience: inferred.salience,
       pinned: 0,
+      confidence: inferred.salience,
+      origin: "auto",
+      status: "active",
+      evidence_json: JSON.stringify([{ source: "mem0", conversationId, at: Date.now() }]),
+      last_used_at: null,
+      expires_at: null,
+      supersedes_id: null,
       created_at: Date.now(),
       updated_at: Date.now(),
     };
@@ -242,4 +256,10 @@ export async function deleteMemoryFromVectorStore(id: string): Promise<void> {
 export function resetMemoryInstance(): void {
   memoryInstance = null;
   rehydrated = false;
+}
+
+/** 重建内存向量索引；后台 job 可调用，失败由调用方吞掉并记录。 */
+export async function rehydrateMemoryVectorStore(): Promise<void> {
+  resetMemoryInstance();
+  await getMemory();
 }

@@ -38,10 +38,6 @@ export class ToolRegistrySelectionError extends Error {
 const DEFAULT_AUTO_TOOL_IDS = new Set<ChatToolId>([
   "web_search",
   "current_time",
-  "memory_search",
-  "memory_save",
-  "memory_update",
-  "memory_delete",
   "runtime_snapshot",
   "model_capabilities",
   "sandbox_list_files",

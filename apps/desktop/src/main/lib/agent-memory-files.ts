@@ -1,21 +1,9 @@
-/**
- * 智能体记忆文件层
- *
- * 维护三个有界加密的 Markdown 文件，作为系统提示词的「冻结快照」：
- * - SOUL.md：Agent 身份、语气、价值观、沟通默认值
- * - USER.md：用户画像、偏好、沟通风格、反感
- * - MEMORY.md：环境事实、项目约定、经验教训、已完成工作
- *
- * 文件使用 AES-256-GCM 加密，完全本地存储。SQLite `memories` 表作为全量
- * 结构化仓库，本文件层定期从 SQLite 和新增记忆中整理出有界提示词。
- */
-
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
 import { generateText } from "ai";
 import { decrypt, encrypt, type EncryptedPayload } from "./crypto";
-import { getSetting, listMemories, saveMemory } from "./db";
+import { getSetting, listMemories, queueMemoryJob, saveMemory } from "./db";
 import { resolveModel } from "./providers";
 import { SettingKey, type AgentProfile, type MemoryRecord } from "../../shared/types";
 
@@ -30,11 +18,10 @@ export interface AgentMemoryFileSnapshot {
   userLocked: boolean;
 }
 
-/** 文件字符上限常量 */
 export const MEMORY_FILE_LIMITS: Record<MemoryFileKind, number> = {
-  soul: 4000,
-  user: 2000,
-  memory: 4000,
+  soul: 4_000,
+  user: 2_000,
+  memory: 4_000,
 };
 
 interface MemoryFileEnvelope {
@@ -50,11 +37,11 @@ const FILE_NAMES: Record<MemoryFileKind, string> = {
   memory: "MEMORY.md.enc",
 };
 
-/** 内存缓存，避免高频读取同一文件时反复解密 */
 const cache = new Map<
   MemoryFileKind,
   { content: string; updatedAt: number; userLocked: boolean }
 >();
+let consolidationTimer: NodeJS.Timeout | null = null;
 
 function resolveAgentMemoriesDir(): string {
   const userDataDir = process.env.VOID_AI_USER_DATA_DIR || app.getPath("userData");
@@ -68,24 +55,23 @@ function filePath(kind: MemoryFileKind): string {
 }
 
 function defaultContent(kind: MemoryFileKind): string {
-  switch (kind) {
-    case "soul":
-      return "# SOUL\n\nYou are Void, a helpful local AI assistant.";
-    case "user":
-      return "# USER\n\nNo user profile yet.";
-    case "memory":
-      return "# MEMORY\n\nNo long-term memories yet.";
+  if (kind === "soul") {
+    return [
+      "# SOUL",
+      "",
+      "You are Void, a local-first AI agent. Be warm, direct, careful, and useful.",
+    ].join("\n");
   }
+  if (kind === "user") return "# USER\n\nNo stable user profile yet.";
+  return "# MEMORY\n\nNo long-term working memories yet.";
 }
 
 function readEnvelope(kind: MemoryFileKind): MemoryFileEnvelope | null {
   const path = filePath(kind);
   if (!existsSync(path)) return null;
   try {
-    const raw = readFileSync(path, "utf8");
-    const parsed = JSON.parse(raw) as MemoryFileEnvelope;
-    if (!parsed?.payload) return null;
-    return parsed;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as MemoryFileEnvelope;
+    return parsed?.payload ? parsed : null;
   } catch {
     return null;
   }
@@ -96,16 +82,15 @@ function readCached(kind: MemoryFileKind): {
   updatedAt: number;
   userLocked: boolean;
 } {
-  const cached = cache.get(kind);
   const envelope = readEnvelope(kind);
-  if (!envelope) {
-    return { content: defaultContent(kind), updatedAt: 0, userLocked: false };
-  }
-  if (cached && cached.updatedAt === envelope.updatedAt) {
-    return cached;
-  }
-  const content = decrypt(envelope.payload);
-  const state = { content, updatedAt: envelope.updatedAt, userLocked: envelope.userLocked };
+  if (!envelope) return { content: defaultContent(kind), updatedAt: 0, userLocked: false };
+  const cached = cache.get(kind);
+  if (cached && cached.updatedAt === envelope.updatedAt) return cached;
+  const state = {
+    content: decrypt(envelope.payload),
+    updatedAt: envelope.updatedAt,
+    userLocked: envelope.userLocked,
+  };
   cache.set(kind, state);
   return state;
 }
@@ -117,47 +102,42 @@ function writeEnvelope(
 ): void {
   const updatedAt = options?.updatedAt ?? Date.now();
   const userLocked = options?.userLocked ?? readCached(kind).userLocked;
+  const path = filePath(kind);
+  if (existsSync(path)) {
+    try {
+      renameSync(path, `${path}.bak`);
+    } catch {
+      // Best effort backup; continue with the current write.
+    }
+  }
   const envelope: MemoryFileEnvelope = {
     payload: encrypt(content),
     updatedAt,
     userLocked,
   };
-  const path = filePath(kind);
-  // 写入前保留旧版本作为 .bak，便于整理失败时恢复
-  if (existsSync(path)) {
-    try {
-      renameSync(path, `${path}.bak`);
-    } catch {
-      // 备份失败继续写入
-    }
-  }
   writeFileSync(path, JSON.stringify(envelope), "utf8");
   cache.set(kind, { content, updatedAt, userLocked });
 }
 
-/** 获取或创建加密记忆文件（解密后返回明文） */
 export function readMemoryFile(kind: MemoryFileKind): string {
   return readCached(kind).content;
 }
 
-/** 加密并写入记忆文件 */
 export function writeMemoryFile(
   kind: MemoryFileKind,
   content: string,
   options?: { userLocked?: boolean },
 ): void {
-  const charLimit = MEMORY_FILE_LIMITS[kind];
-  const trimmed = content.slice(0, charLimit);
-  writeEnvelope(kind, trimmed, { userLocked: options?.userLocked });
+  writeEnvelope(kind, content.slice(0, MEMORY_FILE_LIMITS[kind]), {
+    userLocked: options?.userLocked,
+  });
 }
 
-/** 强制重新从磁盘读取指定文件（清除内存缓存） */
 export function reloadMemoryFile(kind: MemoryFileKind): AgentMemoryFileSnapshot {
   cache.delete(kind);
   return getMemoryFileSnapshot(kind);
 }
 
-/** 获取单个文件快照（含字符统计与锁定状态） */
 export function getMemoryFileSnapshot(kind: MemoryFileKind): AgentMemoryFileSnapshot {
   const state = readCached(kind);
   return {
@@ -170,67 +150,56 @@ export function getMemoryFileSnapshot(kind: MemoryFileKind): AgentMemoryFileSnap
   };
 }
 
-/** 返回格式化的系统提示词块 */
 export function buildMemoryFilePromptBlock(): string {
-  const soul = readMemoryFile("soul");
-  const user = readMemoryFile("user");
-  const memory = readMemoryFile("memory");
-  const parts: string[] = [];
-  if (soul.trim()) parts.push(soul);
-  if (user.trim()) parts.push(user);
-  if (memory.trim()) parts.push(memory);
-  return parts.join("\n\n");
+  return [
+    readMemoryFile("soul").trim(),
+    readMemoryFile("user").trim(),
+    readMemoryFile("memory").trim(),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
-/** 轻量追加整理：把新增记忆合并到对应文件 */
 export async function incorporateNewMemories(records: MemoryRecord[]): Promise<void> {
   if (records.length === 0) return;
-
   const userLines: string[] = [];
   const memoryLines: string[] = [];
   const now = Date.now();
 
   for (const record of records) {
     const line = `- ${record.title}: ${record.content}`;
-    if (record.kind === "profile" || record.kind === "preference") {
-      userLines.push(line);
-    } else {
-      memoryLines.push(line);
-    }
+    if (record.kind === "profile" || record.kind === "preference") userLines.push(line);
+    else memoryLines.push(line);
   }
 
-  if (userLines.length > 0) {
-    appendToFile("user", userLines, now);
-  }
-  if (memoryLines.length > 0) {
-    appendToFile("memory", memoryLines, now);
-  }
+  if (userLines.length > 0) appendToFile("user", userLines, now);
+  if (memoryLines.length > 0) appendToFile("memory", memoryLines, now);
 
-  // 任一文件超过上限时触发深度整理
-  const shouldConsolidate = (["user", "memory"] as MemoryFileKind[]).some(
+  const shouldDream = (["user", "memory"] as MemoryFileKind[]).some(
     (kind) => readCached(kind).content.length >= MEMORY_FILE_LIMITS[kind] * 0.9,
   );
-  if (shouldConsolidate) {
-    await consolidateMemoryFiles();
+  if (shouldDream) {
+    queueMemoryJob({
+      kind: "dream",
+      agentId: null,
+      payload: { reason: "memory-file-near-limit" },
+      scheduledAt: Date.now() + 2_000,
+    });
   }
 }
 
 function appendToFile(kind: MemoryFileKind, lines: string[], now: number): void {
   const state = readCached(kind);
-  if (state.userLocked) {
-    // 用户锁定文件只做保守合并：追加到文件末尾，不删除旧内容
-    const appended = state.content + "\n\n" + lines.join("\n");
-    writeEnvelope(kind, truncateWithEllipsis(appended, MEMORY_FILE_LIMITS[kind]), {
-      updatedAt: now,
-    });
-    return;
-  }
   const header = kind === "user" ? "# USER" : "# MEMORY";
   const body = state.content.startsWith(header)
     ? state.content.slice(header.length).trim()
     : state.content.trim();
-  const newBody = body ? `${body}\n${lines.join("\n")}` : lines.join("\n");
-  writeEnvelope(kind, `${header}\n\n${newBody}`, { updatedAt: now });
+  const appendedBody = body ? `${body}\n${lines.join("\n")}` : lines.join("\n");
+  const next = `${header}\n\n${appendedBody}`;
+  writeEnvelope(kind, truncateWithEllipsis(next, MEMORY_FILE_LIMITS[kind]), {
+    updatedAt: now,
+    userLocked: state.userLocked,
+  });
 }
 
 function truncateWithEllipsis(text: string, limit: number): string {
@@ -238,18 +207,15 @@ function truncateWithEllipsis(text: string, limit: number): string {
   return text.slice(0, Math.max(0, limit - 3)) + "...";
 }
 
-/**
- * 根据 SQLite 记忆条目整理文件层。
- * 调用 LLM 合并、去重、压缩，并评估 SOUL.md 是否需要更新。
- */
 export async function consolidateMemoryFiles(): Promise<void> {
   const model = tryResolveSelectedModel();
-  const soul = readCached("soul");
-  const user = readCached("user");
-  const memory = readCached("memory");
+  const current = {
+    soul: readCached("soul"),
+    user: readCached("user"),
+    memory: readCached("memory"),
+  };
 
   if (!model) {
-    // 无模型时只做简单截断，保留最近内容
     for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
       const state = readCached(kind);
       if (state.content.length > MEMORY_FILE_LIMITS[kind]) {
@@ -259,62 +225,64 @@ export async function consolidateMemoryFiles(): Promise<void> {
     return;
   }
 
-  const recentRecords = listMemories().slice(0, 50);
-  const recordsText = recentRecords.map((r) => `- [${r.kind}] ${r.title}: ${r.content}`).join("\n");
-
-  const lockedKinds = new Set<MemoryFileKind>();
-  for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
-    if (readCached(kind).userLocked) lockedKinds.add(kind);
-  }
-
-  const lockedNote =
-    lockedKinds.size > 0
-      ? `以下文件被用户锁定，只能保守合并/去重，禁止大幅改写或删除：${[...lockedKinds].join(", ")}`
-      : "";
-
+  const records = listMemories({ includeInactive: false, limit: 80 })
+    .map(
+      (record) =>
+        `- [${record.kind}; confidence=${record.confidence ?? 70}] ${record.title}: ${record.content}`,
+    )
+    .join("\n");
+  const lockedKinds = (["soul", "user", "memory"] as MemoryFileKind[]).filter(
+    (kind) => readCached(kind).userLocked,
+  );
   const prompt = buildConsolidationPrompt({
-    soul: soul.content,
-    user: user.content,
-    memory: memory.content,
-    records: recordsText,
-    lockedNote,
+    soul: current.soul.content,
+    user: current.user.content,
+    memory: current.memory.content,
+    records,
+    lockedNote:
+      lockedKinds.length > 0
+        ? `Locked files: ${lockedKinds.join(", ")}. Preserve them conservatively.`
+        : "",
   });
 
   try {
     const result = await generateText({
       model: model.model,
       system:
-        "You are a memory curator for an AI assistant. Your job is to maintain three bounded markdown files used as system prompt context. Output ONLY the three files separated by exact headers `===SOUL===`, `===USER===`, `===MEMORY===`. Each file must stay under its character limit. Be concise, remove duplicates, and preserve facts.",
+        "You curate bounded memory files for an AI agent. Output ONLY the three files separated by exact headers ===SOUL===, ===USER===, ===MEMORY===. Keep stable identity in SOUL, user preferences/profile in USER, and project facts/lessons in MEMORY. Remove duplicates and keep each file under its limit.",
       prompt,
       temperature: 0.3,
       maxOutputTokens: Math.min(model.maxOutputTokens, 4_000),
       providerOptions: model.providerOptions,
     });
-
     const parsed = parseConsolidationOutput(result.text);
-    if (parsed) {
-      for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
-        if (lockedKinds.has(kind)) {
-          // 锁定文件仅做保守截断，不采用 LLM 重写结果
-          const state = readCached(kind);
-          if (state.content.length > MEMORY_FILE_LIMITS[kind]) {
-            writeMemoryFile(kind, truncateWithEllipsis(state.content, MEMORY_FILE_LIMITS[kind]));
-          }
-          continue;
+    if (!parsed) return;
+
+    for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
+      if (lockedKinds.includes(kind)) {
+        const state = readCached(kind);
+        if (state.content.length > MEMORY_FILE_LIMITS[kind]) {
+          writeMemoryFile(kind, truncateWithEllipsis(state.content, MEMORY_FILE_LIMITS[kind]));
         }
-        const content = parsed[kind] || defaultContent(kind);
-        writeMemoryFile(kind, content);
+        continue;
       }
+      writeMemoryFile(kind, parsed[kind] || defaultContent(kind));
     }
   } catch (error) {
     console.warn("[agent-memory-files] consolidate failed:", error);
-    // 失败时保留旧文件，仅做截断
     for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
       const state = readCached(kind);
       if (state.content.length > MEMORY_FILE_LIMITS[kind]) {
         writeMemoryFile(kind, truncateWithEllipsis(state.content, MEMORY_FILE_LIMITS[kind]));
       }
     }
+  }
+}
+
+export async function dreamMemoryFiles(reason = "scheduled"): Promise<void> {
+  await consolidateMemoryFiles();
+  for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
+    syncMemoryFileToDatabase(kind, readCached(kind).content, reason);
   }
 }
 
@@ -326,16 +294,13 @@ function buildConsolidationPrompt(input: {
   lockedNote: string;
 }): string {
   return [
-    "Consolidate the following three memory files. Keep each file under its character limit.",
-    "",
-    "Character limits:",
-    "- SOUL: 4000",
-    "- USER: 2000",
-    "- MEMORY: 4000",
-    "",
+    "Consolidate the bounded memory files.",
+    "Character limits: SOUL 4000, USER 2000, MEMORY 4000.",
+    "Update SOUL only for stable identity/tone/value changes with repeated evidence.",
+    "Keep current user instructions higher priority than memory.",
     input.lockedNote,
     "",
-    "Format your response exactly like this:",
+    "Format:",
     "===SOUL===",
     "# SOUL",
     "...",
@@ -346,27 +311,17 @@ function buildConsolidationPrompt(input: {
     "# MEMORY",
     "...",
     "",
-    "Current SOUL file:",
-    "```",
+    "Current SOUL:",
     input.soul,
-    "```",
     "",
-    "Current USER file:",
-    "```",
+    "Current USER:",
     input.user,
-    "```",
     "",
-    "Current MEMORY file:",
-    "```",
+    "Current MEMORY:",
     input.memory,
-    "```",
     "",
-    "Recent memory records from the database:",
-    "```",
+    "Structured memory records:",
     input.records,
-    "```",
-    "",
-    "Update SOUL only if stable changes to identity, tone, or values have emerged. Otherwise keep it unchanged.",
   ].join("\n");
 }
 
@@ -377,39 +332,38 @@ function parseConsolidationOutput(text: string): Record<MemoryFileKind, string> 
   const memoryMatch = normalized.match(/===MEMORY===\n([\s\S]*?)$/);
   if (!soulMatch && !userMatch && !memoryMatch) return null;
   return {
-    soul: (soulMatch?.[1] ?? defaultContent("soul")).trim(),
-    user: (userMatch?.[1] ?? defaultContent("user")).trim(),
-    memory: (memoryMatch?.[1] ?? defaultContent("memory")).trim(),
+    soul: (soulMatch?.[1] ?? defaultContent("soul")).trim().slice(0, MEMORY_FILE_LIMITS.soul),
+    user: (userMatch?.[1] ?? defaultContent("user")).trim().slice(0, MEMORY_FILE_LIMITS.user),
+    memory: (memoryMatch?.[1] ?? defaultContent("memory"))
+      .trim()
+      .slice(0, MEMORY_FILE_LIMITS.memory),
   };
 }
 
-/** 首次启动时从 agent.instructions 等初始化 SOUL.md */
 export function ensureMemoryFiles(agent: AgentProfile): void {
-  const soulPath = filePath("soul");
-  if (!existsSync(soulPath)) {
+  if (!existsSync(filePath("soul"))) {
     const soulContent = agent.instructions?.trim()
       ? `# SOUL\n\n${agent.instructions.trim()}`
       : defaultContent("soul");
     writeMemoryFile("soul", soulContent);
   }
   for (const kind of ["user", "memory"] as MemoryFileKind[]) {
-    if (!existsSync(filePath(kind))) {
-      writeMemoryFile(kind, defaultContent(kind));
-    }
+    if (!existsSync(filePath(kind))) writeMemoryFile(kind, defaultContent(kind));
   }
 }
 
-let consolidationTimer: NodeJS.Timeout | null = null;
-
-/** 注册每 30 分钟一次的后台整理调度 */
 export function scheduleMemoryFileConsolidation(): void {
   if (consolidationTimer) return;
   consolidationTimer = setInterval(
-    async () => {
+    () => {
       for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
-        const state = readCached(kind);
-        if (state.content.length >= MEMORY_FILE_LIMITS[kind] * 0.8) {
-          await consolidateMemoryFiles();
+        if (readCached(kind).content.length >= MEMORY_FILE_LIMITS[kind] * 0.8) {
+          queueMemoryJob({
+            kind: "dream",
+            agentId: null,
+            payload: { reason: "scheduled-file-pressure" },
+            scheduledAt: Date.now(),
+          });
           break;
         }
       }
@@ -418,26 +372,26 @@ export function scheduleMemoryFileConsolidation(): void {
   );
 }
 
-/** 清理后台整理调度（主要用于测试） */
 export function clearMemoryFileConsolidation(): void {
-  if (consolidationTimer) {
-    clearInterval(consolidationTimer);
-    consolidationTimer = null;
-  }
+  if (!consolidationTimer) return;
+  clearInterval(consolidationTimer);
+  consolidationTimer = null;
 }
 
 function tryResolveSelectedModel(): ReturnType<typeof resolveModel> | null {
   try {
     const modelRef = getSetting(SettingKey.SelectedModel);
-    if (!modelRef) return null;
-    return resolveModel(modelRef);
+    return modelRef ? resolveModel(modelRef) : null;
   } catch {
     return null;
   }
 }
 
-/** 将用户手动编辑的文件内容同步为一条结构化记忆，保持数据库与文件层一致 */
-export function syncMemoryFileToDatabase(kind: MemoryFileKind, content: string): void {
+export function syncMemoryFileToDatabase(
+  kind: MemoryFileKind,
+  content: string,
+  reason = "manual-edit",
+): void {
   const title =
     kind === "soul" ? "SOUL profile" : kind === "user" ? "USER profile" : "MEMORY snapshot";
   saveMemory({
@@ -445,12 +399,19 @@ export function syncMemoryFileToDatabase(kind: MemoryFileKind, content: string):
     scope: "agent",
     kind: kind === "soul" ? "profile" : kind === "user" ? "preference" : "fact",
     title,
-    content: content.slice(0, 4000),
+    content: content.slice(0, 4_000),
     agent_id: null,
     conversation_id: null,
     source_run_id: null,
     salience: 90,
     pinned: 1,
+    confidence: 90,
+    origin: reason === "manual-edit" ? "manual" : "dream",
+    status: "active",
+    evidence_json: JSON.stringify([{ source: "memory-file", kind, reason, at: Date.now() }]),
+    last_used_at: null,
+    expires_at: null,
+    supersedes_id: null,
     created_at: Date.now(),
     updated_at: Date.now(),
   });

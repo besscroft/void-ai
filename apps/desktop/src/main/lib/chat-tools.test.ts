@@ -95,7 +95,7 @@ void describe("chat tool runtime", () => {
     assert.equal(runtime.toolChoice, "none");
   });
 
-  void it("maps auto mode to safe default tools including native web search", () => {
+  void it("maps auto mode to safe default tools including native web search without memory tools", () => {
     const runtime = chatTools.buildChatToolRuntime({
       selection: { mode: "auto", selectedToolIds: [] },
       model: modelContext("openai", "web_search"),
@@ -105,7 +105,6 @@ void describe("chat tool runtime", () => {
     assert.deepEqual(runtime.activeTools, [
       "web_search",
       "current_time",
-      "memory_search",
       "runtime_snapshot",
       "model_capabilities",
     ]);

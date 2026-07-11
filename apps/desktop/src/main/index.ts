@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import icon from "../../resources/icon.png?asset";
 import { initDb, closeDb } from "./lib/db";
 import { scheduleMemoryFileConsolidation } from "./lib/agent-memory-files";
+import { startMemoryWorker } from "./lib/agent-learning";
 import { startServer, stopServer } from "./server";
 import { migrateProviderApiKeysToModelKeys } from "./lib/providers";
 import { registerVoidMediaProtocol } from "./lib/media-assets";
@@ -131,6 +132,7 @@ void app.whenReady().then(async () => {
     initDb();
     migrateProviderApiKeysToModelKeys();
     scheduleMemoryFileConsolidation();
+    startMemoryWorker();
     console.log("[main] 数据库已初始化");
   } catch (err) {
     // 注意：electron-vite dev 下 stderr 偶发不刷新，改用 console.log 确保可见

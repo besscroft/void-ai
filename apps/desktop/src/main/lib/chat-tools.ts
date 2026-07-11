@@ -169,7 +169,7 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     description: "Search saved local memories relevant to the conversation.",
     kind: "host",
     category: "memory",
-    defaultAuto: true,
+    defaultAuto: false,
     requiresApproval: false,
   },
   runtime_snapshot: {

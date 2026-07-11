@@ -177,6 +177,8 @@ export interface ConversationAgentState {
 
 export type MemoryScope = "global" | "agent" | "conversation";
 export type MemoryKind = "fact" | "preference" | "episode" | "profile" | "skill";
+export type MemoryOrigin = "manual" | "auto" | "dream" | "import" | "system";
+export type MemoryStatus = "active" | "superseded" | "archived" | "deleted";
 
 export interface MemoryRecord {
   id: string;
@@ -189,8 +191,45 @@ export interface MemoryRecord {
   source_run_id?: string | null;
   salience: number;
   pinned: number;
+  confidence?: number;
+  origin?: MemoryOrigin;
+  status?: MemoryStatus;
+  evidence_json?: string;
+  last_used_at?: number | null;
+  expires_at?: number | null;
+  supersedes_id?: string | null;
   created_at: number;
   updated_at: number;
+}
+
+export type MemoryJobKind = "learn" | "dream" | "rehydrate";
+export type MemoryJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export interface MemoryJob {
+  id: string;
+  kind: MemoryJobKind;
+  status: MemoryJobStatus;
+  conversation_id: string | null;
+  agent_id: string | null;
+  run_id: string | null;
+  payload_json: string;
+  attempts: number;
+  last_error: string | null;
+  scheduled_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface MemoryContextSnapshot {
+  agentId: string;
+  conversationId: string | null;
+  promptBlock: string;
+  relevantMemories: MemoryRecord[];
+  charBudget: number;
+  charCount: number;
+  generatedAt: number;
 }
 
 /** 智能体自动提取后、等待用户确认的记忆建议（已废弃，保留类型避免旧数据反序列化失败） */

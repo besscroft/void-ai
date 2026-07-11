@@ -460,6 +460,17 @@ export const memories = sqliteTable(
     }),
     salience: integer("salience").notNull().default(50),
     pinned: integer("pinned").notNull().default(0),
+    confidence: integer("confidence").notNull().default(70),
+    origin: text("origin", { enum: ["manual", "auto", "dream", "import", "system"] })
+      .notNull()
+      .default("manual"),
+    status: text("status", { enum: ["active", "superseded", "archived", "deleted"] })
+      .notNull()
+      .default("active"),
+    evidence_json: text("evidence_json").notNull().default("[]"),
+    last_used_at: integer("last_used_at"),
+    expires_at: integer("expires_at"),
+    supersedes_id: text("supersedes_id"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
   },
@@ -468,6 +479,42 @@ export const memories = sqliteTable(
     index("idx_memories_conversation").on(table.conversation_id),
     index("idx_memories_source_run").on(table.source_run_id),
     index("idx_memories_salience").on(table.salience),
+    index("idx_memories_status").on(table.status),
+    index("idx_memories_origin").on(table.origin),
+    index("idx_memories_last_used").on(table.last_used_at),
+    index("idx_memories_expires").on(table.expires_at),
+  ],
+);
+
+export const memoryJobs = sqliteTable(
+  "memory_jobs",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: ["learn", "dream", "rehydrate"] }).notNull(),
+    status: text("status", {
+      enum: ["queued", "running", "succeeded", "failed", "cancelled"],
+    })
+      .notNull()
+      .default("queued"),
+    conversation_id: text("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    agent_id: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    run_id: text("run_id").references(() => runtimeRuns.id, { onDelete: "set null" }),
+    payload_json: text("payload_json").notNull().default("{}"),
+    attempts: integer("attempts").notNull().default(0),
+    last_error: text("last_error"),
+    scheduled_at: integer("scheduled_at").notNull(),
+    started_at: integer("started_at"),
+    finished_at: integer("finished_at"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_memory_jobs_status_scheduled").on(table.status, table.scheduled_at),
+    index("idx_memory_jobs_kind").on(table.kind),
+    index("idx_memory_jobs_conversation").on(table.conversation_id),
+    index("idx_memory_jobs_agent").on(table.agent_id),
   ],
 );
 
@@ -607,6 +654,7 @@ export const schema = {
   workflows,
   workflowRuns,
   memories,
+  memoryJobs,
   settings,
   modelProviders,
   modelApiKeys,
@@ -640,6 +688,8 @@ export type ToolSecret = typeof toolSecrets.$inferSelect;
 export type NewToolSecret = typeof toolSecrets.$inferInsert;
 export type MemoryRecord = typeof memories.$inferSelect;
 export type NewMemoryRecord = typeof memories.$inferInsert;
+export type MemoryJob = typeof memoryJobs.$inferSelect;
+export type NewMemoryJob = typeof memoryJobs.$inferInsert;
 export type WorkflowDefinition = typeof workflows.$inferSelect;
 export type NewWorkflowDefinition = typeof workflows.$inferInsert;
 export type WorkflowRun = typeof workflowRuns.$inferSelect;

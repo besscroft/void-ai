@@ -60,7 +60,7 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     description: "Search local memory records.",
     category: "memory",
     requiresApproval: 0,
-    defaultAuto: 1,
+    defaultAuto: 0,
   },
   {
     id: "runtime_snapshot",
