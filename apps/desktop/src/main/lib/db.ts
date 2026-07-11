@@ -393,6 +393,47 @@ export function saveMessagesBatch(rows: MessageRow[]): void {
   if (rows[0]) touchConversation(rows[0].conversation_id);
 }
 
+export function replaceMessagesSnapshot(conversationId: string, rows: MessageRow[]): void {
+  if (rows.some((row) => row.conversation_id !== conversationId)) {
+    throw new Error("Message snapshot contains rows from another conversation.");
+  }
+
+  const db = getDb();
+  db.transaction((tx) => {
+    const messageIds = new Set(rows.map((row) => row.id));
+    const storedIds = tx
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.conversation_id, conversationId))
+      .all();
+    for (const stored of storedIds) {
+      if (!messageIds.has(stored.id)) {
+        tx.delete(messages)
+          .where(and(eq(messages.conversation_id, conversationId), eq(messages.id, stored.id)))
+          .run();
+      }
+    }
+
+    for (const msg of rows) {
+      const row = messageToDb(msg);
+      tx.insert(messages)
+        .values(row)
+        .onConflictDoUpdate({
+          target: messages.id,
+          set: {
+            conversation_id: row.conversation_id,
+            role: row.role,
+            content_json: row.content_json,
+            metadata_json: row.metadata_json,
+            created_at: row.created_at,
+          },
+        })
+        .run();
+    }
+  });
+  touchConversation(conversationId);
+}
+
 export function listMessages(conversationId: string): MessageRow[] {
   return getDb()
     .select()

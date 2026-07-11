@@ -28,6 +28,8 @@ const api = {
     list: (conversationId: string) => ipcRenderer.invoke("messages:list", conversationId),
     save: (msg: unknown) => ipcRenderer.invoke("messages:save", msg),
     saveBatch: (msgs: unknown[]) => ipcRenderer.invoke("messages:saveBatch", msgs),
+    replaceSnapshot: (conversationId: string, msgs: unknown[]) =>
+      ipcRenderer.invoke("messages:replaceSnapshot", conversationId, msgs),
   },
   settings: {
     get: (key: string) => ipcRenderer.invoke("settings:get", key),

@@ -8,6 +8,7 @@ import {
   buildMessageSnapshotRows,
   buildUserMessage,
   hydrateStoredMessage,
+  isNonEmptyUIMessage,
   readChatMessageMetadata,
   toFileUIParts,
   updateMessageReaction,
@@ -117,6 +118,27 @@ void describe("chat message helpers", () => {
       [10, 11, 100],
     );
     assert.equal(JSON.parse(rows[1].content).parts[0].text, "Updated answer");
+  });
+
+  void it("omits transient assistant messages that have no parts", () => {
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Question" }] },
+      { id: "a-empty", role: "assistant", parts: [] },
+    ];
+
+    const rows = buildMessageSnapshotRows({
+      conversationId: "c1",
+      messages,
+      createdAtById: new Map(),
+      now: 100,
+    });
+
+    assert.deepEqual(
+      rows.map((row) => row.id),
+      ["u1"],
+    );
+    assert.equal(isNonEmptyUIMessage(messages[0]), true);
+    assert.equal(isNonEmptyUIMessage(messages[1]), false);
   });
 
   void it("updates assistant reaction metadata and keeps it in persisted snapshots", () => {

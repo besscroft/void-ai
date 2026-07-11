@@ -46,7 +46,7 @@ import {
 import { useT } from "../lib/i18n";
 import { notify } from "../lib/toast";
 import { readChatMessageMetadata } from "../lib/chat-messages";
-import { IconBrain, IconCircleDashed, IconCopy } from "./icons";
+import { IconBrain, IconCircleDashed, IconCopy, IconKey, IconMessage, IconWrench } from "./icons";
 
 interface MessageListProps {
   messages: UIMessage[];
@@ -219,11 +219,23 @@ export function MessageList({
 
 /* ---------- 单条消息 ---------- */
 
-type MessageActivityStatus = "submitted" | "thinking";
+export type MessageActivityStatus =
+  | "submitted"
+  | "thinking"
+  | "tool-calling"
+  | "waiting-approval"
+  | "responding";
 
 function MessageActivity({ status }: { status: MessageActivityStatus }): React.JSX.Element {
   const { t } = useT();
-  const Icon = status === "submitted" ? IconCircleDashed : IconBrain;
+  const activity = {
+    submitted: { Icon: IconCircleDashed, label: t("msg.activity.submitted") },
+    thinking: { Icon: IconBrain, label: t("msg.activity.thinking") },
+    "tool-calling": { Icon: IconWrench, label: t("msg.activity.toolCalling") },
+    "waiting-approval": { Icon: IconKey, label: t("msg.activity.waitingApproval") },
+    responding: { Icon: IconMessage, label: t("msg.activity.responding") },
+  }[status];
+  const Icon = activity.Icon;
   return (
     <motion.div
       key="message-activity"
@@ -239,15 +251,13 @@ function MessageActivity({ status }: { status: MessageActivityStatus }): React.J
         <span className="flex size-5 items-center justify-center rounded-full bg-accent/10 text-accent">
           <Icon className="size-3 animate-pulse" />
         </span>
-        <span>
-          {status === "submitted" ? t("msg.activity.submitted") : t("msg.activity.thinking")}
-        </span>
+        <span>{activity.label}</span>
       </div>
     </motion.div>
   );
 }
 
-function getMessageActivityStatus(
+export function getMessageActivityStatus(
   messages: UIMessage[],
   isLoading: boolean,
   status: ConversationStatusKind,
@@ -259,10 +269,20 @@ function getMessageActivityStatus(
   const lastMessage = messages.at(-1);
   if (!lastMessage || lastMessage.role !== "assistant") return "thinking";
   const parts = lastMessage.parts ?? [];
-  const hasVisibleAssistantWork = parts.some(
-    (part) => isTextPart(part) || isReasoningPart(part) || isToolPart(part),
-  );
-  return hasVisibleAssistantWork ? null : "thinking";
+  const lastVisiblePart = [...parts]
+    .reverse()
+    .find((part) => isTextPart(part) || isReasoningPart(part) || isToolPart(part));
+  if (!lastVisiblePart) return "thinking";
+  if (isReasoningPart(lastVisiblePart)) return "thinking";
+  if (isTextPart(lastVisiblePart)) return "responding";
+  if (isToolPart(lastVisiblePart)) {
+    const toolState = normalizeToolState(lastVisiblePart.state);
+    if (toolState === "approval-requested") return "waiting-approval";
+    if (toolState === "input-streaming" || toolState === "input-available") {
+      return "tool-calling";
+    }
+  }
+  return "thinking";
 }
 
 interface MessageItemProps {

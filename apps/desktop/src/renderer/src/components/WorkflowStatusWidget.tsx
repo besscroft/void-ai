@@ -1,274 +1,411 @@
-/**
- * WorkflowStatusWidget
- *
- * Chat 页面右上方悬浮可折叠框，展示当前会话最近一次 workflow run 的状态：
- *  - 无活动 run（状态在 queued/running/waiting_approval/waiting_handoff 之一）→ 隐藏
- *  - 活动 run：默认展开一个紧凑摘要（短 id + 状态 + 当前节点 + 已耗时）
- *  - 终态 run：显示一个短暂徽标（5 秒后自动隐藏）
- *
- * 数据源：主进程 IPC `workflowRuns:activeForConversation`（按会话取最近一次 run）。
- * 轮询频率 1.5 秒，与原 WorkflowRunsPanel 一致。
- */
-
-import { useEffect, useRef, useState } from "react";
-import type { ActiveWorkflowRunSnapshot } from "@shared/types";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  ActiveWorkflowRunSnapshot,
+  AgentInstanceRecord,
+  RuntimeSnapshot,
+} from "@shared/types";
 import { api } from "../lib/api";
 import { useT } from "../lib/i18n";
+import { cn } from "../lib/utils";
 import { Button } from "./ui";
 import {
+  IconBrain,
   IconChevronDown,
   IconCircleCheck,
   IconCircleDashed,
   IconCircleX,
   IconClose,
+  IconCpu,
 } from "./icons";
-import { cn } from "../lib/utils";
 
-interface WorkflowStatusWidgetProps {
-  conversationId: string;
+type RuntimeSnapshotSubset = Pick<
+  RuntimeSnapshot,
+  "runtimeRuns" | "conversationAgentStates" | "agentInstances"
+>;
+
+type ChatRunStatus = "submitted" | "streaming" | "ready" | "stopped" | "error";
+type ActivityStatus =
+  | AgentInstanceRecord["status"]
+  | "waiting_approval"
+  | "succeeded"
+  | "cancelled";
+
+export interface AgentActivityItem {
+  id: string;
+  name: string;
+  path: string;
+  status: ActivityStatus;
+  summary: string | null;
+  error: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  isRoot: boolean;
 }
 
-type Phase = "active" | "terminal" | "hidden";
+export interface AgentActivityModel {
+  runId: string;
+  active: boolean;
+  failed: boolean;
+  waitingApproval: boolean;
+  startedAt: number;
+  finishedAt: number | null;
+  agents: AgentActivityItem[];
+}
 
-const ACTIVE_STATUSES = new Set(["queued", "running", "waiting_approval", "waiting_handoff"]);
-const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
-const TERMINAL_TOAST_MS = 5_000;
+interface AgentStatusWidgetProps {
+  conversationId: string;
+  snapshot: RuntimeSnapshotSubset | null;
+  chatStatus: ChatRunStatus;
+  isChatActive: boolean;
+}
+
+const ACTIVE_RUN_STATUSES = new Set(["queued", "running", "waiting_approval", "waiting_handoff"]);
+const ACTIVE_WORKFLOW_STATUSES = new Set([
+  "queued",
+  "running",
+  "waiting_approval",
+  "waiting_handoff",
+]);
+const TERMINAL_WORKFLOW_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
+const TERMINAL_VISIBLE_MS = 5_000;
 const POLL_INTERVAL_MS = 1_500;
 
-/** 取 run 标识的短码（前 8 位）。 */
-function shortRunId(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id;
+export function selectAgentActivity(
+  snapshot: RuntimeSnapshotSubset | null,
+  conversationId: string,
+  chatStatus: ChatRunStatus,
+  isChatActive: boolean,
+  now = Date.now(),
+): AgentActivityModel | null {
+  const runs = (snapshot?.runtimeRuns ?? [])
+    .filter((run) => run.conversation_id === conversationId)
+    .sort((a, b) => b.started_at - a.started_at);
+  const conversationState = snapshot?.conversationAgentStates.find(
+    (state) => state.conversation_id === conversationId,
+  );
+  const currentRun = conversationState?.current_run_id
+    ? runs.find((run) => run.id === conversationState.current_run_id)
+    : undefined;
+  const runtimeRun =
+    currentRun ?? runs.find((run) => ACTIVE_RUN_STATUSES.has(run.status)) ?? runs.at(0);
+
+  if (!isChatActive && !runtimeRun) return null;
+
+  const runId = runtimeRun?.id ?? `pending:${conversationId}`;
+  const waitingApproval =
+    conversationState?.status === "reviewing" || runtimeRun?.status === "waiting_approval";
+  const active =
+    isChatActive ||
+    waitingApproval ||
+    (runtimeRun ? ACTIVE_RUN_STATUSES.has(runtimeRun.status) : false);
+  const failed = chatStatus === "error" || runtimeRun?.status === "failed";
+  const rootStatus: ActivityStatus = waitingApproval
+    ? "waiting_approval"
+    : active
+      ? "running"
+      : failed
+        ? "failed"
+        : chatStatus === "stopped" || runtimeRun?.status === "cancelled"
+          ? "cancelled"
+          : "succeeded";
+  const root: AgentActivityItem = {
+    id: `root:${runId}`,
+    name: "Void",
+    path: "/root",
+    status: rootStatus,
+    summary: conversationState?.summary ?? runtimeRun?.output_summary ?? null,
+    error: runtimeRun?.error ?? null,
+    startedAt: runtimeRun?.started_at ?? now,
+    finishedAt: active ? null : (runtimeRun?.finished_at ?? now),
+    isRoot: true,
+  };
+  const children = (snapshot?.agentInstances ?? [])
+    .filter((instance) => instance.run_id === runId)
+    .sort((a, b) => a.created_at - b.created_at)
+    .map(toActivityItem);
+
+  if (!active && runtimeRun?.finished_at && now - runtimeRun.finished_at > TERMINAL_VISIBLE_MS) {
+    return null;
+  }
+
+  return {
+    runId,
+    active,
+    failed: failed || children.some((item) => item.status === "failed"),
+    waitingApproval,
+    startedAt: runtimeRun?.started_at ?? now,
+    finishedAt: active ? null : (runtimeRun?.finished_at ?? now),
+    agents: [root, ...children],
+  };
 }
 
-/** 简单格式化已耗时：< 60s 显示 s；>= 60s 显示 m:ss。 */
-function formatElapsed(ms: number): string {
-  if (ms < 0 || !Number.isFinite(ms)) return "—";
-  const totalSec = Math.floor(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  return `${min}:${String(sec).padStart(2, "0")}`;
+function toActivityItem(instance: AgentInstanceRecord): AgentActivityItem {
+  return {
+    id: instance.id,
+    name: instance.task_name || instance.agent_id,
+    path: instance.agent_path,
+    status: instance.status,
+    summary: instance.task_summary || instance.last_message,
+    error: instance.error,
+    startedAt: instance.started_at,
+    finishedAt: instance.finished_at,
+    isRoot: false,
+  };
 }
 
-export function WorkflowStatusWidget({
+export function AgentStatusWidget({
   conversationId,
-}: WorkflowStatusWidgetProps): React.JSX.Element | null {
+  snapshot,
+  chatStatus,
+  isChatActive,
+}: AgentStatusWidgetProps): React.JSX.Element | null {
   const { t } = useT();
-  const [snapshot, setSnapshot] = useState<ActiveWorkflowRunSnapshot | null>(null);
+  const [workflow, setWorkflow] = useState<ActiveWorkflowRunSnapshot | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [, setTick] = useState(0); // 触发 1s 一次的局部重渲染以更新"已耗时"
-  const lastTerminalIdRef = useRef<string | null>(null);
-  const terminalHideTimerRef = useRef<number | null>(null);
+  const [dismissedTerminalKey, setDismissedTerminalKey] = useState<string | null>(null);
+  const [, setClock] = useState(0);
+  const activity = useMemo(
+    () => selectAgentActivity(snapshot, conversationId, chatStatus, isChatActive),
+    [chatStatus, conversationId, isChatActive, snapshot],
+  );
 
-  // 轮询：拉取当前会话的最近一次 run
   useEffect(() => {
     let cancelled = false;
-    let timer: number | null = null;
-    const tick = async (): Promise<void> => {
+    const load = async (): Promise<void> => {
       try {
         const next = await api.workflows.activeRunForConversation(conversationId);
-        if (cancelled) return;
-        setSnapshot(next);
-      } catch (err) {
-        // 静默：widget 是辅助展示，不应打扰用户
-        console.error("[widget] failed to load active workflow run:", err);
+        if (!cancelled) setWorkflow(next);
+      } catch (error) {
+        console.error("[agent-status] failed to load workflow:", error);
       }
     };
-    void tick();
-    timer = window.setInterval(() => void tick(), POLL_INTERVAL_MS);
+    void load();
+    if (!isChatActive) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const timer = window.setInterval(() => void load(), POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      if (timer !== null) window.clearInterval(timer);
+      window.clearInterval(timer);
     };
-  }, [conversationId]);
+  }, [conversationId, isChatActive]);
 
-  // 1s 一次的局部 re-render（仅更新"已耗时"显示，不重新拉取）
   useEffect(() => {
-    const id = window.setInterval(() => setTick((v) => v + 1), 1_000);
-    return () => window.clearInterval(id);
-  }, []);
+    if (!activity?.active && !workflow) return;
+    const timer = window.setInterval(() => setClock((value) => value + 1), 1_000);
+    return () => window.clearInterval(timer);
+  }, [activity?.active, workflow]);
 
-  // 终态自动隐藏
   useEffect(() => {
-    if (!snapshot) {
-      lastTerminalIdRef.current = null;
-      return;
-    }
-    if (TERMINAL_STATUSES.has(snapshot.status)) {
-      // 仅在新进入终态时启动一次 5s 倒计时
-      if (lastTerminalIdRef.current !== snapshot.id) {
-        lastTerminalIdRef.current = snapshot.id;
-        if (terminalHideTimerRef.current !== null) {
-          window.clearTimeout(terminalHideTimerRef.current);
-        }
-        terminalHideTimerRef.current = window.setTimeout(() => {
-          setSnapshot((current) =>
-            current && current.id === snapshot.id && TERMINAL_STATUSES.has(current.status)
-              ? null
-              : current,
-          );
-        }, TERMINAL_TOAST_MS);
-      }
-    } else {
-      lastTerminalIdRef.current = null;
-      if (terminalHideTimerRef.current !== null) {
-        window.clearTimeout(terminalHideTimerRef.current);
-        terminalHideTimerRef.current = null;
-      }
-    }
-    return () => {
-      if (terminalHideTimerRef.current !== null) {
-        window.clearTimeout(terminalHideTimerRef.current);
-        terminalHideTimerRef.current = null;
-      }
-    };
-  }, [snapshot]);
+    const hasChild = (activity?.agents.length ?? 0) > 1;
+    if (hasChild || activity?.waitingApproval || activity?.failed) setExpanded(true);
+  }, [activity?.agents.length, activity?.failed, activity?.waitingApproval]);
 
-  if (!snapshot) return null;
+  const workflowActive = workflow ? ACTIVE_WORKFLOW_STATUSES.has(workflow.status) : false;
+  const workflowTerminal = workflow ? TERMINAL_WORKFLOW_STATUSES.has(workflow.status) : false;
+  const workflowRecent =
+    workflow?.finishedAt == null || Date.now() - workflow.finishedAt <= TERMINAL_VISIBLE_MS;
+  const terminalKey = !activity?.active
+    ? activity?.runId
+      ? `agent:${activity.runId}`
+      : workflowTerminal && workflow
+        ? `workflow:${workflow.id}`
+        : null
+    : null;
 
-  const isActive = ACTIVE_STATUSES.has(snapshot.status);
-  const isTerminal = TERMINAL_STATUSES.has(snapshot.status);
-  const phase: Phase = isActive ? "active" : isTerminal ? "terminal" : "hidden";
-  if (phase === "hidden") return null;
+  useEffect(() => {
+    if (!terminalKey || dismissedTerminalKey === terminalKey) return;
+    const timer = window.setTimeout(
+      () => setDismissedTerminalKey(terminalKey),
+      TERMINAL_VISIBLE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [dismissedTerminalKey, terminalKey]);
 
-  // 终态默认折叠；活动 run 默认展开
-  const showExpanded = expanded || phase === "active";
-  const elapsedMs = (snapshot.finishedAt ?? Date.now()) - snapshot.startedAt;
+  const visibleActivity =
+    activity && (activity.active || dismissedTerminalKey !== terminalKey) ? activity : null;
+  const visibleWorkflow =
+    workflow && (workflowActive || (workflowTerminal && workflowRecent)) ? workflow : null;
+  if (!visibleActivity && !visibleWorkflow) return null;
 
-  const handleCancel = (): void => {
-    void api.workflows.cancelRun(snapshot.id).catch((err) => {
-      console.error("[widget] failed to cancel workflow run:", err);
-    });
-  };
+  const agents = visibleActivity?.agents ?? [];
+  const activeAgentCount = agents.filter((agent) => isActiveAgentStatus(agent.status)).length;
+  const startedAt = visibleActivity?.startedAt ?? workflow?.startedAt ?? Date.now();
+  const finishedAt = visibleActivity?.finishedAt ?? workflow?.finishedAt ?? null;
+  const elapsed = formatElapsed((finishedAt ?? Date.now()) - startedAt);
+  const title = visibleActivity
+    ? visibleActivity.active
+      ? t("agentStatus.running", { count: activeAgentCount || 1 })
+      : visibleActivity.failed
+        ? t("agentStatus.failed")
+        : t("agentStatus.completed")
+    : workflowActive
+      ? t("agentStatus.workflowRunning")
+      : t("agentStatus.workflowCompleted");
 
-  const handleDismiss = (): void => {
-    setSnapshot(null);
+  const dismiss = (): void => {
+    if (terminalKey) setDismissedTerminalKey(terminalKey);
+    if (workflow && !workflowActive) setWorkflow(null);
   };
 
   return (
-    <div
+    <aside
       role="status"
       aria-live="polite"
-      data-phase={phase}
       className={cn(
-        "pointer-events-auto fixed top-3 right-3 z-40 w-[300px] overflow-hidden rounded-lg border border-border/60 bg-background/95 shadow-lg",
+        "pointer-events-auto absolute top-16 right-3 z-40 w-[min(340px,calc(100%-24px))] overflow-hidden rounded-lg border border-border/70 bg-background/95 shadow-lg",
         "transition-[transform,opacity] duration-200 ease-out",
       )}
     >
-      {/* 头部（始终可见，可折叠 + 关闭） */}
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-foreground/5"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={showExpanded}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-foreground/5"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
       >
-        <PhaseIcon phase={phase} status={snapshot.status} />
-        <span className="min-w-0 flex-1 truncate font-medium">
-          {phase === "active"
-            ? t("workflow.widget.active", { id: shortRunId(snapshot.id) })
-            : t("workflow.widget.terminal", {
-                id: shortRunId(snapshot.id),
-                status: statusLabel(snapshot.status, t),
-              })}
-        </span>
-        <span className="shrink-0 text-xs tabular-nums text-foreground/50">
-          {formatElapsed(elapsedMs)}
-        </span>
+        <StatusIcon status={visibleActivity?.agents[0]?.status ?? workflow?.status ?? "running"} />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+        <span className="shrink-0 text-xs tabular-nums text-foreground/50">{elapsed}</span>
         <IconChevronDown
           className={cn(
-            "size-3.5 shrink-0 text-foreground/40 transition-transform",
-            showExpanded && "rotate-180",
+            "size-3.5 shrink-0 text-foreground/45 transition-transform",
+            expanded && "rotate-180",
           )}
         />
       </button>
 
-      {/* 详情区（折叠时隐藏） */}
-      {showExpanded && (
-        <div className="space-y-2 border-t border-border/40 px-3 py-2 text-xs text-foreground/70">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-foreground/45">{t("workflow.widget.run")}</span>
-            <span className="truncate font-mono text-[11px]">{snapshot.id}</span>
+      {expanded ? (
+        <div className="max-h-[min(420px,55vh)] overflow-y-auto border-t border-border/50 p-2">
+          <div className="space-y-1">
+            {agents.map((agent) => (
+              <AgentRow key={agent.id} agent={agent} />
+            ))}
           </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-foreground/45">{t("workflow.widget.workflow")}</span>
-            <span className="truncate font-mono text-[11px]">{snapshot.workflowId}</span>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-foreground/45">{t("workflow.widget.status")}</span>
-            <span className="font-medium text-foreground/80">
-              {statusLabel(snapshot.status, t)}
-            </span>
-          </div>
-          {snapshot.currentNodeId && (
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-foreground/45">{t("workflow.widget.node")}</span>
-              <span className="truncate font-mono text-[11px]">{snapshot.currentNodeId}</span>
-            </div>
-          )}
 
-          {/* 操作区 */}
-          <div className="flex items-center justify-end gap-1.5 pt-1">
-            {phase === "active" && (
-              <Button size="sm" variant="tertiary" onPress={handleCancel}>
-                {t("workflow.widget.cancel")}
+          {visibleWorkflow ? (
+            <div className="mt-2 border-t border-border/50 pt-2">
+              <div className="flex items-center gap-2 rounded-md px-2 py-2 text-xs">
+                <IconCpu className="size-3.5 shrink-0 text-foreground/55" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{t("agentStatus.workflow")}</p>
+                  <p className="truncate text-foreground/50">
+                    {visibleWorkflow.currentNodeId ?? visibleWorkflow.workflowId}
+                  </p>
+                </div>
+                <span className="text-foreground/55">{statusLabel(visibleWorkflow.status, t)}</span>
+              </div>
+              {workflowActive ? (
+                <div className="flex justify-end px-2 pb-1">
+                  <Button
+                    size="sm"
+                    variant="tertiary"
+                    onPress={() => void api.workflows.cancelRun(visibleWorkflow.id)}
+                  >
+                    {t("workflow.widget.cancel")}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!visibleActivity?.active && !workflowActive ? (
+            <div className="flex justify-end border-t border-border/50 px-2 pt-2">
+              <Button
+                size="sm"
+                isIconOnly
+                variant="ghost"
+                onPress={dismiss}
+                aria-label={t("common.close")}
+              >
+                <IconClose className="size-3.5" />
               </Button>
-            )}
-            <Button
-              size="sm"
-              isIconOnly
-              variant="ghost"
-              onPress={handleDismiss}
-              aria-label={t("common.close")}
-            >
-              <IconClose className="size-3.5" />
-            </Button>
-          </div>
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
+    </aside>
+  );
+}
+
+function AgentRow({ agent }: { agent: AgentActivityItem }): React.JSX.Element {
+  const { t } = useT();
+  const elapsed = agent.startedAt
+    ? formatElapsed((agent.finishedAt ?? Date.now()) - agent.startedAt)
+    : null;
+  return (
+    <div className="flex items-start gap-2 rounded-md px-2 py-2 hover:bg-foreground/[0.035]">
+      <StatusIcon status={agent.status} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-xs font-medium">{agent.name}</span>
+          <span className="truncate font-mono text-[10px] text-foreground/40">{agent.path}</span>
+        </div>
+        {agent.summary ? (
+          <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-foreground/55">
+            {agent.summary}
+          </p>
+        ) : null}
+        {agent.error ? <p className="mt-0.5 text-[11px] text-danger">{agent.error}</p> : null}
+      </div>
+      <div className="shrink-0 text-right text-[10px] text-foreground/45">
+        <p>{statusLabel(agent.status, t)}</p>
+        {elapsed ? <p className="mt-0.5 tabular-nums">{elapsed}</p> : null}
+      </div>
     </div>
   );
 }
 
-function PhaseIcon({
-  phase,
-  status,
-}: {
-  phase: Phase;
-  status: ActiveWorkflowRunSnapshot["status"];
-}): React.JSX.Element {
-  if (phase === "terminal") {
-    if (status === "succeeded")
-      return <IconCircleCheck className="size-4 shrink-0 text-emerald-500" />;
-    if (status === "failed") return <IconCircleX className="size-4 shrink-0 text-rose-500" />;
-    return <IconCircleDashed className="size-4 shrink-0 text-foreground/40" />;
+function StatusIcon({ status }: { status: string }): React.JSX.Element {
+  if (status === "completed" || status === "succeeded") {
+    return <IconCircleCheck className="mt-0.5 size-4 shrink-0 text-success" />;
   }
-  // 活动：用一个旋转的圆环表示"正在跑"
+  if (status === "failed") {
+    return <IconCircleX className="mt-0.5 size-4 shrink-0 text-danger" />;
+  }
+  if (status === "interrupted" || status === "cancelled") {
+    return <IconCircleDashed className="mt-0.5 size-4 shrink-0 text-foreground/45" />;
+  }
+  if (status === "waiting_approval") {
+    return <IconBrain className="mt-0.5 size-4 shrink-0 animate-pulse text-warning" />;
+  }
   return (
-    <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-      <span className="absolute inset-0 animate-spin rounded-full border-2 border-amber-500/30 border-t-amber-500" />
+    <span className="relative mt-0.5 inline-flex size-4 shrink-0 items-center justify-center">
+      <span className="absolute inset-0 animate-spin rounded-full border-2 border-accent/25 border-t-accent" />
     </span>
   );
 }
 
-function statusLabel(
-  status: ActiveWorkflowRunSnapshot["status"],
-  t: (k: string) => string,
-): string {
+function isActiveAgentStatus(status: ActivityStatus): boolean {
+  return status === "queued" || status === "running" || status === "waiting_approval";
+}
+
+function formatElapsed(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0s";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function statusLabel(status: string, t: ReturnType<typeof useT>["t"]): string {
   switch (status) {
-    case "succeeded":
-      return t("workflow.status.succeeded");
-    case "failed":
-      return t("workflow.status.failed");
-    case "cancelled":
-      return t("workflow.status.cancelled");
-    case "running":
-      return t("workflow.status.running");
     case "queued":
-      return t("workflow.status.queued");
+      return t("agentStatus.status.queued");
+    case "running":
+      return t("agentStatus.status.running");
     case "waiting_approval":
-      return t("workflow.status.waitingApproval");
+      return t("agentStatus.status.waitingApproval");
     case "waiting_handoff":
-      return t("workflow.status.waitingHandoff");
+      return t("agentStatus.status.waitingHandoff");
+    case "completed":
+    case "succeeded":
+      return t("agentStatus.status.completed");
+    case "failed":
+      return t("agentStatus.status.failed");
+    case "interrupted":
+    case "cancelled":
+      return t("agentStatus.status.interrupted");
     default:
       return status;
   }

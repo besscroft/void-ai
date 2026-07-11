@@ -154,6 +154,34 @@ void describe("local chat server", () => {
     );
   });
 
+  void it("filters legacy empty assistant messages before invoking the runtime", async () => {
+    const model = new MockLanguageModelV4({});
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: () => ({ model, temperature: 0.7, topP: 1, maxOutputTokens: 256 }),
+      buildAgentSystemPrompt: async () => "Void root prompt",
+      runAgentChat: async (options) => {
+        assert.deepEqual(options.messages, validMessages);
+        return agentRuntimeResponse("sanitized-stream");
+      },
+    });
+
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({
+        messages: [validMessages[0], { id: "a-empty", role: "assistant", parts: [] }],
+        model: "mock/chat",
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "sanitized-stream");
+  });
+
   void it("routes OpenAI and non-OpenAI providers through the same agent runtime", async () => {
     const model = new MockLanguageModelV4({});
     const toolSelection = { mode: "manual" as const, selectedToolIds: ["memory_search" as const] };

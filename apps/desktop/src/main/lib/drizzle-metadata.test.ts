@@ -18,4 +18,16 @@ void describe("drizzle metadata", () => {
       assert.doesNotThrow(() => JSON.parse(content), `${file} must be valid JSON`);
     }
   });
+
+  void it("removes only the three legacy memory-file mirrors", () => {
+    const migration = readFileSync(
+      path.join(process.cwd(), "drizzle", "0005_remove_memory_file_mirrors.sql"),
+      "utf8",
+    );
+
+    assert.match(migration, /file-soul/);
+    assert.match(migration, /file-user/);
+    assert.match(migration, /file-memory/);
+    assert.match(migration, /WHERE `id` IN/);
+  });
 });

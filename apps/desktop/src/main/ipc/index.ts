@@ -14,6 +14,7 @@ import {
   listMessages,
   saveMessage,
   saveMessagesBatch,
+  replaceMessagesSnapshot,
   getSetting,
   setSetting,
   listApiKeyProviders,
@@ -164,6 +165,11 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle("messages:saveBatch", (_e, msgs: MessageRow[]) => {
     saveMessagesBatch(msgs);
+    return true;
+  });
+
+  ipcMain.handle("messages:replaceSnapshot", (_e, conversationId: string, msgs: MessageRow[]) => {
+    replaceMessagesSnapshot(conversationId, msgs);
     return true;
   });
 

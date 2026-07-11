@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { app } from "electron";
 import { generateText } from "ai";
 import { decrypt, encrypt, type EncryptedPayload } from "./crypto";
-import { getSetting, listMemories, queueMemoryJob, saveMemory } from "./db";
+import { getSetting, listMemories, queueMemoryJob } from "./db";
 import { resolveModel } from "./providers";
 import { SettingKey, type AgentProfile, type MemoryRecord } from "../../shared/types";
 
@@ -279,11 +279,8 @@ export async function consolidateMemoryFiles(): Promise<void> {
   }
 }
 
-export async function dreamMemoryFiles(reason = "scheduled"): Promise<void> {
+export async function dreamMemoryFiles(_reason = "scheduled"): Promise<void> {
   await consolidateMemoryFiles();
-  for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
-    syncMemoryFileToDatabase(kind, readCached(kind).content, reason);
-  }
 }
 
 function buildConsolidationPrompt(input: {
@@ -385,34 +382,4 @@ function tryResolveSelectedModel(): ReturnType<typeof resolveModel> | null {
   } catch {
     return null;
   }
-}
-
-export function syncMemoryFileToDatabase(
-  kind: MemoryFileKind,
-  content: string,
-  reason = "manual-edit",
-): void {
-  const title =
-    kind === "soul" ? "SOUL profile" : kind === "user" ? "USER profile" : "MEMORY snapshot";
-  saveMemory({
-    id: `file-${kind}`,
-    scope: "agent",
-    kind: kind === "soul" ? "profile" : kind === "user" ? "preference" : "fact",
-    title,
-    content: content.slice(0, 4_000),
-    agent_id: null,
-    conversation_id: null,
-    source_run_id: null,
-    salience: 90,
-    pinned: 1,
-    confidence: 90,
-    origin: reason === "manual-edit" ? "manual" : "dream",
-    status: "active",
-    evidence_json: JSON.stringify([{ source: "memory-file", kind, reason, at: Date.now() }]),
-    last_used_at: null,
-    expires_at: null,
-    supersedes_id: null,
-    created_at: Date.now(),
-    updated_at: Date.now(),
-  });
 }

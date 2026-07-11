@@ -68,6 +68,7 @@ export interface VoidAIApi {
     list: (conversationId: string) => Promise<MessageRow[]>;
     save: (msg: MessageRow) => Promise<boolean>;
     saveBatch: (msgs: MessageRow[]) => Promise<boolean>;
+    replaceSnapshot: (conversationId: string, msgs: MessageRow[]) => Promise<boolean>;
   };
   // 搴旂敤璁剧疆
   settings: {

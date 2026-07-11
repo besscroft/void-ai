@@ -133,17 +133,19 @@ function AppContent(): React.JSX.Element {
         onDeleteConversation={handleDelete}
         onOpenSettings={() => setSettingsOpen(true)}
       >
-        {activeView === "chat" ? (
-          activeId && serverInfo !== null ? (
+        <div
+          className={activeView === "chat" ? "flex min-h-0 flex-1" : "hidden"}
+          aria-hidden={activeView !== "chat"}
+        >
+          {activeId && serverInfo !== null ? (
             <ChatView key={activeId} conversationId={activeId} serverInfo={serverInfo} />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-foreground/40">
               {t("chat.initializing")}
             </div>
-          )
-        ) : (
-          <MainPanelView section={activeView} />
-        )}
+          )}
+        </div>
+        {activeView !== "chat" ? <MainPanelView section={activeView} /> : null}
       </AppShell>
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />

@@ -94,6 +94,10 @@ export function hydrateStoredMessage(row: MessageRow): UIMessage {
   };
 }
 
+export function isNonEmptyUIMessage(message: UIMessage): boolean {
+  return Array.isArray(message.parts) && message.parts.length > 0;
+}
+
 export function buildMessageSnapshotRows({
   conversationId,
   messages,
@@ -107,7 +111,7 @@ export function buildMessageSnapshotRows({
 }): MessageRow[] {
   let newMessageIndex = 0;
 
-  return messages.map((message) => {
+  return messages.filter(isNonEmptyUIMessage).map((message) => {
     const createdAt = createdAtById.get(message.id) ?? now + newMessageIndex++;
     return {
       id: message.id,

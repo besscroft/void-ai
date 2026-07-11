@@ -277,7 +277,10 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       toolSelection?: ChatToolSelectionRequest;
     };
 
-    if (!body.messages?.length) {
+    const messages = body.messages?.filter(
+      (message) => Array.isArray(message.parts) && message.parts.length > 0,
+    );
+    if (!messages?.length) {
       return c.json({ error: "messages cannot be empty" }, 400);
     }
     if (!body.model) {
@@ -301,7 +304,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       const runAgentChat =
         options.runAgentChat ?? (await import("../lib/agent-runtime")).runAgentChat;
       return await runAgentChat({
-        messages: body.messages,
+        messages,
         modelRef: body.model,
         resolved,
         conversationId: body.conversationId,

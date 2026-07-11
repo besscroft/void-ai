@@ -82,6 +82,8 @@ export const api = {
       assertApi().messages.list(conversationId),
     save: (msg: MessageRow): Promise<boolean> => assertApi().messages.save(msg),
     saveBatch: (msgs: MessageRow[]): Promise<boolean> => assertApi().messages.saveBatch(msgs),
+    replaceSnapshot: (conversationId: string, msgs: MessageRow[]): Promise<boolean> =>
+      assertApi().messages.replaceSnapshot(conversationId, msgs),
   },
   settings: {
     get: (key: string): Promise<string | null> => assertApi().settings.get(key),

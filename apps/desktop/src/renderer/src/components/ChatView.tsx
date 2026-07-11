@@ -23,14 +23,15 @@ import { MessageInput } from "./MessageInput";
 import { api, type RuntimeSnapshot } from "../lib/api";
 import { hasMeaningfulConversationTitle } from "../lib/conversation-title";
 import { getChatErrorMessage } from "../lib/errors";
-import { WorkflowStatusWidget } from "./WorkflowStatusWidget";
+import { AgentStatusWidget } from "./WorkflowStatusWidget";
 import {
   appendOrReplaceMessage,
   buildUserMessage,
   hydrateStoredMessage,
+  isNonEmptyUIMessage,
   toFileUIParts,
 } from "../lib/chat-messages";
-import { persistMessagesSnapshot } from "../lib/chat-persistence";
+import { createSnapshotPersistenceQueue, persistMessagesSnapshot } from "../lib/chat-persistence";
 import {
   buildMediaErrorMessage,
   buildMediaGenerationRequest,
@@ -134,6 +135,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     | "runtimeSteps"
     | "agentRuntimeStates"
     | "conversationAgentStates"
+    | "agentInstances"
     | "sandboxSessions"
     | "sandboxSnapshots"
     | "sandboxArtifacts"
@@ -151,6 +153,17 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const mediaSettingsRef = useRef<MediaGenerationSettings>(DEFAULT_MEDIA_GENERATION_SETTINGS);
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const hydratedConversationRef = useRef<string | null>(null);
+  const persistenceQueue = useMemo(
+    () =>
+      createSnapshotPersistenceQueue<UIMessage[]>(
+        async (messages) => {
+          await persistMessagesSnapshot(conversationId, messages, createdAtRef.current);
+          await api.conversations.touch(conversationId);
+        },
+        (error) => console.error("[chat] failed to persist streaming snapshot:", error),
+      ),
+    [conversationId],
+  );
   const emptyStateSuggestions = useMemo(
     () => [
       t("chat.suggestions.quantum"),
@@ -177,12 +190,11 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       setChatError(detail);
       console.error(`[chat] ${source} failed:`, err);
       if (opts.persistSnapshot) {
-        void persistMessagesSnapshot(conversationId, opts.persistSnapshot, createdAtRef.current);
-        void api.conversations.touch(conversationId);
+        persistenceQueue.request(opts.persistSnapshot);
       }
       notify.error(t(opts.toastKey ?? "toast.chat.failed"), detail, locale);
     },
-    [conversationId, locale, t],
+    [locale, persistenceQueue, t],
   );
 
   /**
@@ -191,10 +203,17 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
    */
   const persistAndTouch = useCallback(
     async (messages: UIMessage[]): Promise<void> => {
-      await persistMessagesSnapshot(conversationId, messages, createdAtRef.current);
-      await api.conversations.touch(conversationId);
+      await persistenceQueue.flush(messages);
     },
-    [conversationId],
+    [persistenceQueue],
+  );
+  const persistInBackground = useCallback(
+    (messages: UIMessage[], source: string): void => {
+      void persistAndTouch(messages).catch((error) =>
+        console.error(`[chat] failed to persist ${source}:`, error),
+      );
+    },
+    [persistAndTouch],
   );
 
   /** 异步生成追问建议 */
@@ -298,10 +317,14 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     // 涓嶉噸缃?titledRef锛氫繚鐣欒法浼氳瘽璁板綍锛岄伩鍏嶉噸澶嶇敓鎴愶紙鍒囨崲鍥炲埌鏃у璇濅篃涓嶉噸鐢熸垚锛?
 
     void api.messages.list(conversationId).then((rows) => {
-      const messages = rows.map(hydrateStoredMessage);
+      const hydratedMessages = rows.map(hydrateStoredMessage);
+      const messages = hydratedMessages.filter(isNonEmptyUIMessage);
       createdAtRef.current = new Map(rows.map((row) => [row.id, row.created_at]));
       setInitialMessages(messages);
       setHistoryLoaded(true);
+      if (messages.length !== hydratedMessages.length) {
+        persistenceQueue.request(messages);
+      }
       // 濡傛灉鍘嗗彶涓凡缁忔湁鏍囬锛圖B 宸叉湁锛夛紝鏍囪涓哄凡鐢熸垚锛岄伩鍏嶅啀娆¤Е鍙?
       void api.conversations.get(conversationId).then((conv) => {
         if (hasMeaningfulConversationTitle(conv?.title)) {
@@ -313,7 +336,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     void api.settings.get(SettingKey.ChatTools).then((raw) => {
       setToolSelection(getChatToolSelectionForConversation(raw, conversationId));
     });
-  }, [conversationId]);
+  }, [conversationId, persistenceQueue]);
 
   const chat = useChat({
     id: conversationId,
@@ -348,6 +371,30 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
   const isChatLoading = chat.status === "submitted" || chat.status === "streaming";
   const isLoading = isChatLoading || isMediaGenerating;
+
+  useEffect(() => {
+    if (!historyLoaded || !isChatLoading) return;
+    const persistLatest = (): void => {
+      persistenceQueue.request(latestMessagesRef.current);
+    };
+    persistLatest();
+    const id = window.setInterval(persistLatest, 750);
+    return () => {
+      window.clearInterval(id);
+      void persistenceQueue
+        .flush(latestMessagesRef.current)
+        .catch((error) => console.error("[chat] failed to flush streaming snapshot:", error));
+    };
+  }, [historyLoaded, isChatLoading, persistenceQueue]);
+
+  useEffect(
+    () => () => {
+      void persistenceQueue
+        .flush(latestMessagesRef.current)
+        .catch((error) => console.error("[chat] failed to flush final snapshot:", error));
+    },
+    [persistenceQueue],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -485,7 +532,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       const nextMessages = appendOrReplaceMessage(pendingMessages, resultMessage);
       chat.setMessages(nextMessages);
       latestMessagesRef.current = nextMessages;
-      void persistAndTouch(nextMessages);
+      persistInBackground(nextMessages, "media result");
       tryAutoTitle(conversationId, nextMessages, titledRef);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
@@ -493,7 +540,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       const nextMessages = appendOrReplaceMessage(pendingMessages, errorMessage);
       chat.setMessages(nextMessages);
       latestMessagesRef.current = nextMessages;
-      void persistAndTouch(nextMessages);
+      persistInBackground(nextMessages, "media error");
       notify.error(t("toast.media.failed"), detail, locale);
     } finally {
       setIsMediaGenerating(false);
@@ -536,6 +583,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     chat.clearError();
 
     const pendingMessages = appendOrReplaceMessage(latestMessagesRef.current, userMessage);
+    latestMessagesRef.current = pendingMessages;
     void persistAndTouch(pendingMessages).catch((err) => {
       console.error("[chat] failed to pre-save user message:", err);
     });
@@ -548,7 +596,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const handleStop = (): void => {
     void chat.stop().finally(() => {
       setIsStopped(true);
-      void persistAndTouch(latestMessagesRef.current);
+      persistInBackground(latestMessagesRef.current, "stopped response");
     });
   };
 
@@ -557,7 +605,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     setIsStopped(false);
     chat.clearError();
     void chat.regenerate().finally(() => {
-      void persistAndTouch(latestMessagesRef.current);
+      persistInBackground(latestMessagesRef.current, "retried response");
     });
   };
 
@@ -649,10 +697,11 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     };
     const nextMessages = [...chat.messages.slice(0, idx), updated];
     chat.setMessages(nextMessages);
+    latestMessagesRef.current = nextMessages;
     createdAtRef.current.delete(messageId);
 
     // 2. 鎸佷箙鍖栨柊蹇収锛堝垹闄ゅ悗缁秷鎭級
-    void persistAndTouch(nextMessages);
+    persistInBackground(nextMessages, "edited message");
     setIsStopped(false);
     setChatError(null);
     chat.clearError();
@@ -675,12 +724,13 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     // 1. 鎴柇鍒拌 user 娑堟伅
     const nextMessages = chat.messages.slice(0, idx + 1);
     chat.setMessages(nextMessages);
+    latestMessagesRef.current = nextMessages;
     setIsStopped(false);
     setChatError(null);
     chat.clearError();
 
     // 2. 鎸佷箙鍖栵紙鍒犻櫎鍚庣画娑堟伅锛?
-    void persistAndTouch(nextMessages);
+    persistInBackground(nextMessages, "resent message");
 
     // 3. 瑙﹀彂閲嶆柊鐢熸垚
     try {
@@ -705,13 +755,14 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       next.splice(idx, 1);
     }
     chat.setMessages(next);
+    latestMessagesRef.current = next;
     createdAtRef.current.delete(messageId);
     if (next[idx - 1]?.role === "user") {
       // 鍚屾鍒犻櫎鍙兘瀛樺湪鐨?createdAt
     }
 
     // 2. 鎸佷箙鍖栵紙鐩爣娑堟伅涓庡彲鑳界殑 assistant 鍚屾浠?DB 涓垹闄わ級
-    void persistMessagesSnapshot(conversationId, next, createdAtRef.current);
+    persistInBackground(next, "message deletion");
     notify.success(t("chat.messageDeleted"));
   };
 
@@ -726,7 +777,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const isEmpty = chat.messages.length === 0 && !isLoading;
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="relative flex flex-1 flex-col overflow-hidden">
       <ChatHeader
         status={statusKind}
         runtimeSummary={formatRuntimeSummary(runtimeSnapshot, conversationId, t)}
@@ -776,7 +827,12 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       />
 
       {/* 右上角悬浮工作流状态框：当前会话有活动 / 终态 run 时出现 */}
-      <WorkflowStatusWidget conversationId={conversationId} />
+      <AgentStatusWidget
+        conversationId={conversationId}
+        snapshot={runtimeSnapshot}
+        chatStatus={statusKind}
+        isChatActive={isChatLoading}
+      />
     </div>
   );
 }
