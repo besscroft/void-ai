@@ -944,7 +944,6 @@ function evaluateToolGuardrail(
     reviewAll ||
     toolApprovalToolNames.has(toolName) ||
     (mappedTool && policy.requireApprovalToolIds.includes(mappedTool)) ||
-    toolName === "memory_save" ||
     toolName === "conversation_search"
   ) {
     return {

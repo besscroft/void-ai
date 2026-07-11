@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type SVGProps } from "react";
-import { Button, Chip, Popover, ToggleButton, ToggleButtonGroup, Tooltip } from "./ui";
+import { Button, Chip, Popover, Tabs, TabsList, TabsTrigger, Tooltip } from "./ui";
 import {
   CHAT_TOOL_IDS,
   isChatToolId,
@@ -165,28 +165,19 @@ export function ToolSelector({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-            <ToggleButtonGroup
-              selectionMode="single"
-              disallowEmptySelection
-              size="sm"
-              fullWidth
-              selectedKeys={[selection.mode]}
-              onSelectionChange={(keys) => {
-                const next = String(Array.from(keys)[0] ?? "");
-                if (isChatToolMode(next)) updateMode(next);
+            <Tabs
+              value={selection.mode}
+              onValueChange={(key) => {
+                if (isChatToolMode(key)) updateMode(key);
               }}
               aria-label={t("chatTools.mode.label")}
             >
-              <ToggleButton id="off">{t("chatTools.mode.off")}</ToggleButton>
-              <ToggleButton id="auto">
-                <ToggleButtonGroup.Separator />
-                {t("chatTools.mode.auto")}
-              </ToggleButton>
-              <ToggleButton id="manual">
-                <ToggleButtonGroup.Separator />
-                {t("chatTools.mode.manual")}
-              </ToggleButton>
-            </ToggleButtonGroup>
+              <TabsList className="w-full">
+                <TabsTrigger value="off">{t("chatTools.mode.off")}</TabsTrigger>
+                <TabsTrigger value="auto">{t("chatTools.mode.auto")}</TabsTrigger>
+                <TabsTrigger value="manual">{t("chatTools.mode.manual")}</TabsTrigger>
+              </TabsList>
+            </Tabs>
 
             <div className="mt-3">
               {selection.mode === "manual" ? (

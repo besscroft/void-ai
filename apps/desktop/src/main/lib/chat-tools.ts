@@ -202,29 +202,29 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
   memory_save: {
     id: "memory_save",
     label: "Save memory",
-    description: "Save a new local memory after approval.",
+    description: "Save a new local memory.",
     kind: "host",
     category: "memory",
-    defaultAuto: false,
-    requiresApproval: true,
+    defaultAuto: true,
+    requiresApproval: false,
   },
   memory_update: {
     id: "memory_update",
     label: "Update memory",
-    description: "Update an existing local memory after approval.",
+    description: "Update an existing local memory.",
     kind: "host",
     category: "memory",
-    defaultAuto: false,
-    requiresApproval: true,
+    defaultAuto: true,
+    requiresApproval: false,
   },
   memory_delete: {
     id: "memory_delete",
     label: "Delete memory",
-    description: "Delete an existing local memory after approval.",
+    description: "Delete an existing local memory.",
     kind: "host",
     category: "memory",
-    defaultAuto: false,
-    requiresApproval: true,
+    defaultAuto: true,
+    requiresApproval: false,
   },
   sandbox_list_files: {
     id: "sandbox_list_files",
@@ -808,33 +808,6 @@ function createToolApproval(
       recordRuntimeEvent({
         kind: "approval",
         title: "Approval requested: conversation_search",
-        status: "queued",
-        detail: baseAuditDetail(model, conversationId, { agentId }),
-      });
-      return "user-approval";
-    },
-    memory_save: () => {
-      recordRuntimeEvent({
-        kind: "approval",
-        title: "Approval requested: memory_save",
-        status: "queued",
-        detail: baseAuditDetail(model, conversationId, { agentId }),
-      });
-      return "user-approval";
-    },
-    memory_update: () => {
-      recordRuntimeEvent({
-        kind: "approval",
-        title: "Approval requested: memory_update",
-        status: "queued",
-        detail: baseAuditDetail(model, conversationId, { agentId }),
-      });
-      return "user-approval";
-    },
-    memory_delete: () => {
-      recordRuntimeEvent({
-        kind: "approval",
-        title: "Approval requested: memory_delete",
         status: "queued",
         detail: baseAuditDetail(model, conversationId, { agentId }),
       });

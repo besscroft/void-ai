@@ -85,7 +85,21 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     title: "Save memory",
     description: "Persist a new local memory.",
     category: "memory",
-    requiresApproval: 1,
+    requiresApproval: 0,
+  },
+  {
+    id: "memory_update",
+    title: "Update memory",
+    description: "Update an existing local memory.",
+    category: "memory",
+    requiresApproval: 0,
+  },
+  {
+    id: "memory_delete",
+    title: "Delete memory",
+    description: "Delete an existing local memory.",
+    category: "memory",
+    requiresApproval: 0,
   },
   {
     id: "sandbox_list_files",

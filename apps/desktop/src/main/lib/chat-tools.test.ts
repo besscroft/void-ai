@@ -108,6 +108,9 @@ void describe("chat tool runtime", () => {
       "memory_search",
       "runtime_snapshot",
       "model_capabilities",
+      "memory_save",
+      "memory_update",
+      "memory_delete",
     ]);
     assert.equal(runtime.toolChoice, "auto");
     assert.equal(typeof runtime.stopWhen, "function");
@@ -346,22 +349,22 @@ void describe("chat tool runtime", () => {
     await assert.rejects(() => webTool.execute!({ query: "fresh news" }), /HTTP 503/);
   });
 
-  void it("excludes memory modification tools from auto mode defaults", () => {
+  void it("includes memory modification tools in auto mode defaults", () => {
     const descriptors = chatTools.createChatToolDescriptors(modelContext("openai-compatible"));
     for (const id of ["memory_save", "memory_update", "memory_delete"] as const) {
       const descriptor = descriptors.find((d) => d.id === id);
       assert.ok(descriptor);
-      assert.equal(descriptor.defaultAuto, false);
-      assert.equal(descriptor.requiresApproval, true);
+      assert.equal(descriptor.defaultAuto, true);
+      assert.equal(descriptor.requiresApproval, false);
     }
 
     const runtime = chatTools.buildChatToolRuntime({
       selection: { mode: "auto", selectedToolIds: [] },
       model: modelContext("openai-compatible"),
     });
-    assert.equal(runtime.tools?.memory_save, undefined);
-    assert.equal(runtime.tools?.memory_update, undefined);
-    assert.equal(runtime.tools?.memory_delete, undefined);
+    assert.equal(typeof runtime.tools?.memory_save, "object");
+    assert.equal(typeof runtime.tools?.memory_update, "object");
+    assert.equal(typeof runtime.tools?.memory_delete, "object");
   });
 
   void it("includes memory tools in manual mode", () => {
