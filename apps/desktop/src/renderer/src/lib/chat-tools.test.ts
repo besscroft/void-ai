@@ -7,7 +7,11 @@ import {
   type ModelCapabilities,
   type ProviderInfo,
 } from "@shared/types";
-import { createClientChatToolDescriptors, getActiveChatToolIds } from "./chat-tools";
+import {
+  createClientChatToolDescriptors,
+  filterUserVisibleChatToolDescriptors,
+  getActiveChatToolIds,
+} from "./chat-tools";
 
 const capabilities: ModelCapabilities = {
   textGeneration: true,
@@ -128,6 +132,26 @@ void describe("chat tool UI helpers", () => {
         "mcp:srv-1:search",
       ),
       true,
+    );
+  });
+
+  void it("keeps silent memory tools out of the user-facing selector", () => {
+    const providers = [provider("openai", "openai")];
+    const visible = filterUserVisibleChatToolDescriptors(
+      createClientChatToolDescriptors({
+        selectedModel: "openai/gpt-test",
+        providers,
+        tools: null,
+      }),
+    );
+
+    assert.equal(
+      visible.some((descriptor) => descriptor.category === "memory"),
+      false,
+    );
+    assert.equal(
+      visible.some((descriptor) => descriptor.id === "conversation_search"),
+      false,
     );
   });
 });

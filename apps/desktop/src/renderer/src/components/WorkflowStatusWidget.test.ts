@@ -114,4 +114,32 @@ void describe("agent activity selection", () => {
     assert.equal(activity?.runId, "run-1");
     assert.equal(activity?.active, false);
   });
+
+  void it("prefers the latest terminal run over a stale older active run", () => {
+    const data = snapshot();
+    data.runtimeRuns = [
+      {
+        ...data.runtimeRuns[0],
+        id: "run-2",
+        status: "succeeded",
+        started_at: 300,
+        finished_at: 400,
+      },
+      {
+        ...data.runtimeRuns[0],
+        id: "stale-run",
+        started_at: 100,
+      },
+    ];
+    data.conversationAgentStates[0] = {
+      ...data.conversationAgentStates[0],
+      current_run_id: null,
+      status: "idle",
+    };
+
+    const activity = selectAgentActivity(data, "conversation-1", "ready", false, 450);
+
+    assert.equal(activity?.runId, "run-2");
+    assert.equal(activity?.active, false);
+  });
 });

@@ -83,8 +83,7 @@ export function selectAgentActivity(
   const currentRun = conversationState?.current_run_id
     ? runs.find((run) => run.id === conversationState.current_run_id)
     : undefined;
-  const runtimeRun =
-    currentRun ?? runs.find((run) => ACTIVE_RUN_STATUSES.has(run.status)) ?? runs.at(0);
+  const runtimeRun = currentRun ?? runs.at(0);
 
   if (!isChatActive && !runtimeRun) return null;
 

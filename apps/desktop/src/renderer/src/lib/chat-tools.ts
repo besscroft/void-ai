@@ -214,6 +214,14 @@ export function createClientChatToolDescriptors({
   return [...builtIn, ...createtoolChatToolDescriptors(tools, supportsToolCalling)];
 }
 
+export function filterUserVisibleChatToolDescriptors(
+  descriptors: ChatToolDescriptor[],
+): ChatToolDescriptor[] {
+  return descriptors.filter(
+    (descriptor) => descriptor.category !== "memory" && descriptor.id !== "conversation_search",
+  );
+}
+
 export function getActiveChatToolIds(
   selection: ChatToolSelectionRequest,
   descriptors: ChatToolDescriptor[],

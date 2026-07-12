@@ -5,57 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1783431947143,
+      "when": 1784102400001,
       "tag": "0000_initial",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1783492149188,
-      "tag": "0001_bumpy_deathbird",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1783752000000,
-      "tag": "0002_workflow_orchestration",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1783785600000,
-      "tag": "0003_inner_memory",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1783872000000,
-      "tag": "0004_boring_selene",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1783930000000,
-      "tag": "0005_remove_memory_file_mirrors",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1784016000000,
-      "tag": "0006_fantastic_mauler",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1784102400000,
-      "tag": "0007_paimon_agent_defaults",
       "breakpoints": true
     }
   ]

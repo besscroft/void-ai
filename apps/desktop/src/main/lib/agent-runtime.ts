@@ -52,6 +52,7 @@ import {
   upsertConversationAgentState,
   createRuntimeRun,
   createRuntimeStep,
+  cancelActiveRuntimeRunsForConversation,
   updateRuntimeRun,
   updateRuntimeStep,
   insertRuntimeEvent,
@@ -186,6 +187,9 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
     onEvent: protocolRecorder,
   });
   options.abortSignal?.addEventListener("abort", () => coordinator.interruptAll(), { once: true });
+  if (options.conversationId) {
+    cancelActiveRuntimeRunsForConversation(options.conversationId);
+  }
   createRuntimeRun({
     id: runId,
     conversation_id: options.conversationId ?? null,
@@ -1151,11 +1155,12 @@ function finishRun(
   extra: { error?: string; execution?: ChatMessageMetadata["execution"] } = {},
 ): void {
   const finishedAt = Date.now();
-  const finalStatus = context.approvalRequested && status === "succeeded" ? "running" : status;
+  const finalStatus =
+    context.approvalRequested && status === "succeeded" ? "waiting_approval" : status;
   updateRuntimeRun(context.runId, {
     status: finalStatus,
     final_agent_id: context.finalAgentId,
-    finished_at: finalStatus === "running" ? null : finishedAt,
+    finished_at: finalStatus === "waiting_approval" ? null : finishedAt,
     error: extra.error ?? null,
     usage_json: extra.execution ? JSON.stringify(extra.execution) : null,
   });
@@ -1198,7 +1203,7 @@ function finishRun(
     title: extra.error
       ? context.rootAgent.name + " orchestration failed"
       : context.rootAgent.name + " orchestration finished",
-    status: extra.error ? "failed" : finalStatus === "running" ? "running" : "succeeded",
+    status: extra.error ? "failed" : finalStatus === "waiting_approval" ? "queued" : "succeeded",
     detail: { runId: context.runId, finalAgentId: context.finalAgentId, ...extra },
   });
   context.protocolRecorder({

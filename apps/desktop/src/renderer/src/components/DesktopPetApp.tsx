@@ -232,9 +232,6 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
       <span className="mt-[-2px] inline-flex max-w-40 items-center gap-1.5 rounded-md border border-foreground/10 bg-background/92 px-2 py-1 text-[10px] font-medium shadow-sm backdrop-blur">
         <span className={`pet-activity-dot pet-activity-${snapshot.activity.kind}`} />
         <span className="truncate">{activityLabel(snapshot.activity.kind, t)}</span>
-        {snapshot.pendingActivityCount > 1 ? (
-          <span className="tabular-nums text-foreground/45">{snapshot.pendingActivityCount}</span>
-        ) : null}
       </span>
     </button>
   );

@@ -24,7 +24,11 @@ import {
   type ProviderInfo,
 } from "@shared/types";
 import { api } from "../lib/api";
-import { createClientChatToolDescriptors, getActiveChatToolIds } from "../lib/chat-tools";
+import {
+  createClientChatToolDescriptors,
+  filterUserVisibleChatToolDescriptors,
+  getActiveChatToolIds,
+} from "../lib/chat-tools";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/utils";
 import {
@@ -101,7 +105,10 @@ export function ToolSelector({
   }, []);
 
   const descriptors = useMemo(
-    () => createClientChatToolDescriptors({ selectedModel, providers, tools }),
+    () =>
+      filterUserVisibleChatToolDescriptors(
+        createClientChatToolDescriptors({ selectedModel, providers, tools }),
+      ),
     [tools, providers, selectedModel],
   );
   const orderedDescriptors = useMemo(() => orderToolDescriptors(descriptors), [descriptors]);

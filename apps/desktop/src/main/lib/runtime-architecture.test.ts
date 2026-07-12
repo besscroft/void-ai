@@ -1,10 +1,7 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readMigrationFiles } from "drizzle-orm/migrator";
 import type { AgentProfile, ModelCapabilities } from "../../shared/types";
 import { isRoutableAgent } from "./agent-routing";
 import { commandLooksDangerous, inputHasPathEscape } from "./approval-policy";
@@ -51,72 +48,23 @@ void describe("runtime architecture", () => {
     }
   });
 
-  void it("adds agent instances, collaboration messages, checkpoints, and attributed events", () => {
-    const migration = readFileSync(
-      path.join(process.cwd(), "drizzle", "0004_boring_selene.sql"),
-      "utf8",
-    );
+  void it("includes the complete current runtime schema in the initial migration", () => {
+    const migration = readFileSync(path.join(process.cwd(), "drizzle", "0000_initial.sql"), "utf8");
 
     assert.match(migration, /CREATE TABLE `agent_instances`/);
     assert.match(migration, /CREATE TABLE `agent_collaboration_messages`/);
     assert.match(migration, /CREATE TABLE `agent_context_checkpoints`/);
-    assert.match(migration, /ALTER TABLE `runtime_events` ADD `event_type`/);
-    assert.match(migration, /ALTER TABLE `runtime_events` ADD `agent_path`/);
-    assert.equal(migration.includes("CREATE TABLE `memory_jobs`"), false);
-    assert.equal(migration.includes("ALTER TABLE `memories`"), false);
+    assert.match(migration, /CREATE TABLE `memory_jobs`/);
+    assert.match(migration, /`event_type` text/);
+    assert.match(migration, /`agent_path` text/);
+    assert.equal(migration.includes("ALTER TABLE"), false);
   });
 
-  void it("applies the agent runtime migration to a database already migrated through 0003", () => {
-    const migrationsDir = path.join(process.cwd(), "drizzle");
-    const temporaryDir = mkdtempSync(path.join(tmpdir(), "void-ai-migrations-"));
-    const priorMigrationsDir = path.join(temporaryDir, "through-0003");
-    const priorMetadataDir = path.join(priorMigrationsDir, "meta");
-    const rawDb = new DatabaseSync(":memory:");
-
-    try {
-      mkdirSync(priorMetadataDir, { recursive: true });
-      for (const migrationName of [
-        "0000_initial.sql",
-        "0001_bumpy_deathbird.sql",
-        "0002_workflow_orchestration.sql",
-        "0003_inner_memory.sql",
-      ]) {
-        copyFileSync(
-          path.join(migrationsDir, migrationName),
-          path.join(priorMigrationsDir, migrationName),
-        );
-      }
-
-      const journal = JSON.parse(
-        readFileSync(path.join(migrationsDir, "meta", "_journal.json"), "utf8"),
-      ) as { entries: Array<{ idx: number }> };
-      writeFileSync(
-        path.join(priorMetadataDir, "_journal.json"),
-        JSON.stringify({ ...journal, entries: journal.entries.filter((entry) => entry.idx <= 3) }),
-      );
-
-      applyDrizzleMigrations(rawDb, priorMigrationsDir);
-      assert.equal(tableColumns(rawDb, "runtime_events").has("event_type"), false);
-
-      applyDrizzleMigrations(rawDb, migrationsDir);
-
-      assert.deepEqual(
-        [...tableColumns(rawDb, "runtime_events")].filter((column) =>
-          ["event_type", "agent_path", "parent_agent_path", "sequence"].includes(column),
-        ),
-        ["event_type", "agent_path", "parent_agent_path", "sequence"],
-      );
-      for (const table of [
-        "agent_instances",
-        "agent_collaboration_messages",
-        "agent_context_checkpoints",
-      ]) {
-        assert.equal(tableExists(rawDb, table), true, `${table} should exist after migration`);
-      }
-    } finally {
-      rawDb.close();
-      rmSync(temporaryDir, { recursive: true, force: true });
-    }
+  void it("keeps the greenfield database history to one migration", () => {
+    const migrations = readdirSync(path.join(process.cwd(), "drizzle")).filter((file) =>
+      file.endsWith(".sql"),
+    );
+    assert.deepEqual(migrations, ["0000_initial.sql"]);
   });
 
   void it("defines default seed data for agents, workflows, and tools", () => {
@@ -221,46 +169,3 @@ void describe("runtime architecture", () => {
     assert.throws(() => getSandboxSessionOrThrow(undefined), /Sandbox session/);
   });
 });
-
-function applyDrizzleMigrations(db: DatabaseSync, migrationsFolder: string): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS __drizzle_migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      hash TEXT NOT NULL,
-      created_at NUMERIC
-    )
-  `);
-  const lastMigration = db
-    .prepare("SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1")
-    .get() as { created_at: number } | undefined;
-
-  db.exec("BEGIN");
-  try {
-    for (const migration of readMigrationFiles({ migrationsFolder })) {
-      if (lastMigration && Number(lastMigration.created_at) >= migration.folderMillis) continue;
-      for (const statement of migration.sql) db.exec(statement);
-      db.prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
-        migration.hash,
-        migration.folderMillis,
-      );
-    }
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
-}
-
-function tableColumns(db: DatabaseSync, table: string): Set<string> {
-  return new Set(
-    (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
-      (column) => column.name,
-    ),
-  );
-}
-
-function tableExists(db: DatabaseSync, table: string): boolean {
-  return Boolean(
-    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table),
-  );
-}

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { isRecoverableSchemaInitError } from "./schema-init";
 
 void describe("drizzle metadata", () => {
   void it("keeps migration metadata as parseable BOM-free JSON", () => {
@@ -19,15 +20,29 @@ void describe("drizzle metadata", () => {
     }
   });
 
-  void it("removes only the three legacy memory-file mirrors", () => {
-    const migration = readFileSync(
-      path.join(process.cwd(), "drizzle", "0005_remove_memory_file_mirrors.sql"),
-      "utf8",
-    );
+  void it("tracks only the consolidated initial migration", () => {
+    const journal = JSON.parse(
+      readFileSync(path.join(process.cwd(), "drizzle", "meta", "_journal.json"), "utf8"),
+    ) as { entries: Array<{ idx: number; tag: string }> };
 
-    assert.match(migration, /file-soul/);
-    assert.match(migration, /file-user/);
-    assert.match(migration, /file-memory/);
-    assert.match(migration, /WHERE `id` IN/);
+    assert.equal(journal.entries.length, 1);
+    assert.equal(journal.entries[0]?.idx, 0);
+    assert.equal(journal.entries[0]?.tag, "0000_initial");
+  });
+
+  void it("recognizes recoverable schema errors wrapped by Drizzle", () => {
+    const wrapped = new Error("Failed to run the query 'CREATE TABLE `agent_instances`'", {
+      cause: new Error("table `agent_instances` already exists"),
+    });
+
+    assert.equal(isRecoverableSchemaInitError(wrapped), true);
+    assert.equal(
+      isRecoverableSchemaInitError(
+        new Error("Failed to initialize", {
+          cause: new Error("Could not locate the bindings file for better_sqlite3.node"),
+        }),
+      ),
+      false,
+    );
   });
 });

@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { app } from "electron";
 import { is } from "@electron-toolkit/utils";
-import { and, asc, desc, eq, isNotNull, isNull, like, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, lt, or } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { randomUUID } from "node:crypto";
@@ -122,6 +122,7 @@ import {
 } from "../../shared/types";
 import { resolveDesktopPet } from "./desktop-pet-assets";
 import { applyDesktopPetIdleTimeout, resolveDesktopPetActivity } from "./desktop-pet-activity";
+import { isRecoverableSchemaInitError } from "./schema-init";
 import {
   createWorkflowRunRecord,
   listWorkflowDefinitions,
@@ -216,6 +217,7 @@ function openAndMigrateDb(dbPath: string): DbInstance {
   dbInstance = drizzle(rawDb, { schema });
   try {
     migrate(dbInstance, { migrationsFolder: resolveMigrationsFolder() });
+    cancelStaleRuntimeRuns();
     purgeExpiredDeletedConversations();
     seedDefaults();
   } catch (error) {
@@ -225,6 +227,19 @@ function openAndMigrateDb(dbPath: string): DbInstance {
     throw error;
   }
   return dbInstance;
+}
+
+function cancelStaleRuntimeRuns(): void {
+  const now = Date.now();
+  getDb()
+    .update(runtimeRuns)
+    .set({
+      status: "cancelled",
+      finished_at: now,
+      updated_at: now,
+    })
+    .where(inArray(runtimeRuns.status, ["queued", "running"]))
+    .run();
 }
 
 export function getDb(): DbInstance {
@@ -245,18 +260,6 @@ function resetDatabaseFiles(dbPath: string, cause: unknown): void {
     const targetPath = join(backupDir, basename(filePath));
     moveDatabaseFile(filePath, targetPath);
   }
-}
-
-function isRecoverableSchemaInitError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    /NODE_MODULE_VERSION|better_sqlite3\.node|Could not locate the bindings file/i.test(message)
-  ) {
-    return false;
-  }
-  return /no such table|no such column|already exists|duplicate column name|foreign key mismatch|FOREIGN KEY constraint failed|UNIQUE constraint failed|NOT NULL constraint failed/i.test(
-    message,
-  );
 }
 
 function moveDatabaseFile(sourcePath: string, targetPath: string): void {
@@ -809,6 +812,25 @@ export function createRuntimeRun(input: {
   };
   getDb().insert(runtimeRuns).values(row).run();
   return toRuntimeRun(row as DbRuntimeRun);
+}
+
+export function cancelActiveRuntimeRunsForConversation(conversationId: string): number {
+  const now = Date.now();
+  const result = getDb()
+    .update(runtimeRuns)
+    .set({
+      status: "cancelled",
+      finished_at: now,
+      updated_at: now,
+    })
+    .where(
+      and(
+        eq(runtimeRuns.conversation_id, conversationId),
+        inArray(runtimeRuns.status, ["queued", "running", "waiting_approval", "waiting_handoff"]),
+      ),
+    )
+    .run();
+  return result.changes;
 }
 
 export function updateRuntimeRun(
