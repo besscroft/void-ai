@@ -1067,6 +1067,25 @@ export const DEFAULT_AGENT_RUNTIME_CONFIG: AgentRuntimeConfig = {
   sandboxPolicy: "local",
 };
 
+export const MIN_CONCURRENT_SUBAGENTS = 1;
+export const MAX_CONCURRENT_SUBAGENTS = 16;
+
+export function normalizeMaxConcurrentSubagents(value: unknown, fallback = 3): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN;
+  const safeFallback = Number.isFinite(fallback) ? fallback : 3;
+  return Math.round(
+    Math.min(
+      MAX_CONCURRENT_SUBAGENTS,
+      Math.max(MIN_CONCURRENT_SUBAGENTS, Number.isFinite(parsed) ? parsed : safeFallback),
+    ),
+  );
+}
+
 export function normalizeAgentToolPolicy(
   raw: unknown,
   fallback: AgentToolPolicy = DEFAULT_AGENT_TOOL_POLICY,
@@ -1107,8 +1126,9 @@ export function normalizeAgentRuntimeConfig(
   const value = readAgentConfigObject(raw);
   const config: AgentRuntimeConfig = {
     maxTurns: Math.round(clampFiniteNumber(value?.maxTurns, fallback.maxTurns, 1, 20)),
-    maxConcurrentSubagents: Math.round(
-      clampFiniteNumber(value?.maxConcurrentSubagents, fallback.maxConcurrentSubagents ?? 3, 1, 16),
+    maxConcurrentSubagents: normalizeMaxConcurrentSubagents(
+      value?.maxConcurrentSubagents,
+      fallback.maxConcurrentSubagents ?? 3,
     ),
     totalTimeoutMs: Math.round(
       clampFiniteNumber(value?.totalTimeoutMs, fallback.totalTimeoutMs ?? 120_000, 10_000, 900_000),
@@ -1863,6 +1883,8 @@ export const SettingKey = {
   MediaGeneration: "media_generation",
   /** Custom provider and model catalog JSON. */
   ModelCatalog: "model_catalog",
+  /** Global limit for child agents running at the same time. */
+  MaxConcurrentSubagents: "max_concurrent_subagents",
   // 鈥斺€?鍏跺畠 鈥斺€?
   /** 褰撳墠浼氳瘽 ID */
   ActiveConversationId: "active_conversation_id",

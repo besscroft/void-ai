@@ -14,7 +14,9 @@ import {
   DEFAULT_AGENT_ID,
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
+  SettingKey,
   isChatToolReference,
+  normalizeMaxConcurrentSubagents,
   normalizeChatToolSelection,
   type AgentHandoffConfig,
   type AgentContextPolicy,
@@ -45,6 +47,7 @@ import { ContextEngine } from "./context-engine";
 import {
   createContextCheckpoint,
   getConversationAgentState,
+  getSetting,
   upsertAgentRuntimeState,
   upsertConversationAgentState,
   createRuntimeRun,
@@ -169,13 +172,17 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
   const rootResolved =
     rootModelRef === options.modelRef ? options.resolved : resolveModel(rootModelRef);
   const rootRuntimeConfig = readRuntimeConfig(rootAgent.runtime_config_json);
+  const maxConcurrentSubagents = normalizeMaxConcurrentSubagents(
+    getSetting(SettingKey.MaxConcurrentSubagents),
+    rootRuntimeConfig.maxConcurrentSubagents,
+  );
   const resolved = applyRuntimeConfig(rootResolved, rootRuntimeConfig);
   const modelContext = toChatToolModelContext(rootModelRef, resolved);
   const runId = randomUUID();
   const protocolRecorder = createProtocolRecorder(runId, options.conversationId);
   const coordinator = new AgentCoordinator({
     runId,
-    maxConcurrentSubagents: rootRuntimeConfig.maxConcurrentSubagents,
+    maxConcurrentSubagents,
     onEvent: protocolRecorder,
   });
   options.abortSignal?.addEventListener("abort", () => coordinator.interruptAll(), { once: true });
@@ -198,7 +205,7 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
     status: "running",
     runId,
     conversationId: options.conversationId,
-    summary: "Void is planning",
+    summary: rootAgent.name + " is planning",
   });
   createRuntimeStep({
     run_id: runId,
@@ -211,7 +218,7 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
   });
   insertRuntimeEvent({
     kind: "agent",
-    title: "Void orchestration started",
+    title: rootAgent.name + " orchestration started",
     status: "running",
     detail: {
       runId,
@@ -481,7 +488,12 @@ function createConsultTool(
   parentPath: string,
 ): ToolSet[string] {
   return tool({
-    description: "Consult " + child.name + " while Void keeps ownership of the response.",
+    description:
+      "Consult " +
+      child.name +
+      " while " +
+      context.rootAgent.name +
+      " keeps ownership of the response.",
     inputSchema: consultInputSchema,
     execute: async function* (input) {
       yield { mode: "consult", agentId: child.id, agentName: child.name, status: "running" };
@@ -511,7 +523,7 @@ function createHandoffTool(
 const runWorkflowInputSchema = z.object({
   workflowId: z.string().describe("Workflow definition id to run"),
   input: z.record(z.string(), z.unknown()).optional().describe("Input payload for the workflow"),
-  reason: z.string().optional().describe("Why Void chose to invoke this workflow"),
+  reason: z.string().optional().describe("Why Paimon chose to invoke this workflow"),
 });
 
 function createRunWorkflowTool(context: RuntimeContext): ToolSet[string] {
@@ -679,7 +691,7 @@ async function runChildAgent(
       status: "handoff",
       runId: context.runId,
       conversationId: context.conversationId,
-      summary: "Void handed off to " + child.name,
+      summary: context.rootAgent.name + " handed off to " + child.name,
       stepId: step.id,
     });
   }
@@ -1011,7 +1023,7 @@ async function runSandboxStep<T>(
       status: "running",
       runId: context.runId,
       conversationId: context.conversationId,
-      summary: "Void is continuing after sandbox action",
+      summary: context.rootAgent.name + " is continuing after sandbox action",
       stepId: step.id,
     });
     return result;
@@ -1183,7 +1195,9 @@ function finishRun(
   }
   insertRuntimeEvent({
     kind: "agent",
-    title: extra.error ? "Void orchestration failed" : "Void orchestration finished",
+    title: extra.error
+      ? context.rootAgent.name + " orchestration failed"
+      : context.rootAgent.name + " orchestration finished",
     status: extra.error ? "failed" : finalStatus === "running" ? "running" : "succeeded",
     detail: { runId: context.runId, finalAgentId: context.finalAgentId, ...extra },
   });
@@ -1330,7 +1344,8 @@ async function createRootInstructions(
   const basePrompt = await context.buildAgentSystemPrompt(DEFAULT_AGENT_ID, context.conversationId);
   return [
     basePrompt,
-    "You are Void, the root orchestrator. Every chat request enters through you, regardless of provider.",
+    `You are ${context.rootAgent.name}, the root orchestrator. Every chat request enters through you, regardless of provider.`,
+    "You can handle any task, but prefer delegating work to a suitable child agent whenever one can do it.",
     "Decide whether to answer directly, consult a child agent, or hand off ownership to a child agent.",
     "When a child agent is disabled, draft, archived, or locked, it is not available and must not be used.",
     "Use consult tools for specialist advice while you keep ownership. Use handoff tools when the child agent should own the result.",
@@ -1358,10 +1373,10 @@ async function createChildInstructions(
   const basePrompt = await context.buildAgentSystemPrompt(child.id, context.conversationId);
   return [
     basePrompt,
-    "You are a child agent under Void. Stay inside your specialty and be concise.",
+    `You are a child agent under ${context.rootAgent.name}. Stay inside your specialty and be concise.`,
     mode === "handoff"
       ? "Ownership has been transferred to you for this task."
-      : "You are being consulted; Void will synthesize your output.",
+      : `You are being consulted; ${context.rootAgent.name} will synthesize your output.`,
     "Expected output: " + handoff.expectedOutput,
   ].join("\n\n");
 }

@@ -107,7 +107,7 @@ export function selectAgentActivity(
           : "succeeded";
   const root: AgentActivityItem = {
     id: `root:${runId}`,
-    name: "Void",
+    name: "Paimon",
     path: "/root",
     status: rootStatus,
     summary: conversationState?.summary ?? runtimeRun?.output_summary ?? null,

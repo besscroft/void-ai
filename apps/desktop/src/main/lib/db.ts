@@ -11,6 +11,7 @@ import { decrypt, encrypt, type EncryptedPayload } from "./crypto";
 import {
   DEFAULT_BUILTIN_TOOL_SEEDS,
   DEFAULT_CHILD_AGENT_SEEDS,
+  DEFAULT_ROOT_AGENT_SEED,
   DEFAULT_WORKFLOW_SEEDS,
 } from "./runtime-defaults";
 import {
@@ -645,6 +646,7 @@ export function updateAgent(id: string, input: Partial<AgentInput>): AgentProfil
 
 export function saveAgent(agent: AgentProfile): void {
   const existing = getDb().select().from(agents).where(eq(agents.id, agent.id)).get() ?? null;
+  if (existing) assertAgentEditable(existing);
   const now = Date.now();
   const normalized = normalizeAgentInput(agent.id, agent, existing, now);
   getDb()
@@ -2268,7 +2270,7 @@ export async function buildAgentSystemPrompt(
   conversationId?: string,
 ): Promise<string> {
   const agent = getAgent(agentId || DEFAULT_AGENT_ID) ?? getAgent(DEFAULT_AGENT_ID);
-  if (!agent) return "You are Void, a local AI assistant.";
+  if (!agent) return "You are Paimon, a capable local AI assistant and orchestrator.";
 
   // 从文件层加载有界冻结快照；首次启动时从 agent.instructions 初始化
   const { prepareInnerContext } = await import("./agent-inner-context");
@@ -2402,13 +2404,12 @@ function seedDefaults(): void {
   if (!getAgent(DEFAULT_AGENT_ID)) {
     const agent: DbAgentProfile = {
       id: DEFAULT_AGENT_ID,
-      name: "Void",
-      role: "Primary local agent",
-      instructions:
-        "Coordinate the conversation, route specialist work, use tools deliberately, and record meaningful runtime events.",
-      persona: "Direct, careful, and warm. Prefer concrete progress over vague ceremony.",
-      description: "Default agent for local chat and runtime orchestration.",
-      avatar: "VA",
+      name: DEFAULT_ROOT_AGENT_SEED.name,
+      role: DEFAULT_ROOT_AGENT_SEED.role,
+      instructions: DEFAULT_ROOT_AGENT_SEED.soul_prompt,
+      persona: DEFAULT_ROOT_AGENT_SEED.personality,
+      description: DEFAULT_ROOT_AGENT_SEED.description,
+      avatar: DEFAULT_ROOT_AGENT_SEED.avatar,
       status: "active",
       kind: "main",
       parent_agent_id: null,
@@ -2424,7 +2425,7 @@ function seedDefaults(): void {
   }
 
   for (const seed of DEFAULT_CHILD_AGENT_SEEDS) {
-    const id = "agent-" + slugPart(seed.name);
+    const id = seed.id;
     if (!getAgent(id)) {
       const normalized = normalizeAgentInput(id, seed, null, now);
       getDb().insert(agents).values(normalized.agent).run();

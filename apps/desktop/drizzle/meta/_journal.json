@@ -50,6 +50,13 @@
       "when": 1784016000000,
       "tag": "0006_fantastic_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784102400000,
+      "tag": "0007_paimon_agent_defaults",
+      "breakpoints": true
     }
   ]
 }

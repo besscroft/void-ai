@@ -11,6 +11,7 @@ import { commandLooksDangerous, inputHasPathEscape } from "./approval-policy";
 import {
   DEFAULT_BUILTIN_TOOL_SEEDS,
   DEFAULT_CHILD_AGENT_SEEDS,
+  DEFAULT_ROOT_AGENT_SEED,
   DEFAULT_WORKFLOW_SEEDS,
 } from "./runtime-defaults";
 import { getSandboxSessionOrThrow } from "./sandbox-runtime";
@@ -119,8 +120,24 @@ void describe("runtime architecture", () => {
   });
 
   void it("defines default seed data for agents, workflows, and tools", () => {
-    assert.ok(DEFAULT_CHILD_AGENT_SEEDS.some((agent) => agent.name === "Researcher"));
-    assert.ok(DEFAULT_CHILD_AGENT_SEEDS.some((agent) => agent.name === "Operator"));
+    assert.equal(DEFAULT_ROOT_AGENT_SEED.name, "Paimon");
+    assert.equal(DEFAULT_ROOT_AGENT_SEED.description, "最好的伙伴！");
+    assert.ok(
+      DEFAULT_CHILD_AGENT_SEEDS.some(
+        (agent) =>
+          agent.id === "agent-researcher" &&
+          agent.name === "Fairy" &&
+          agent.description === "Ⅲ型总序式集成泛用人工智能，开发代号Fairy",
+      ),
+    );
+    assert.ok(
+      DEFAULT_CHILD_AGENT_SEEDS.some(
+        (agent) =>
+          agent.id === "agent-operator" &&
+          agent.name === "火种" &&
+          agent.description === "通用人工智能引擎",
+      ),
+    );
     assert.ok(DEFAULT_WORKFLOW_SEEDS.some((workflow) => workflow.id === "workflow-runtime-review"));
     assert.ok(DEFAULT_BUILTIN_TOOL_SEEDS.some((tool) => tool.id === "runtime_snapshot"));
     assert.ok(DEFAULT_BUILTIN_TOOL_SEEDS.some((tool) => tool.id === "sandbox_run_command"));

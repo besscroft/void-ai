@@ -8,6 +8,7 @@ import {
   normalizeAgentHandoffConfig,
   normalizeAgentRuntimeConfig,
   normalizeAgentToolPolicy,
+  normalizeMaxConcurrentSubagents,
 } from "@shared/types";
 import { getVisibleAgents } from "./agent-list";
 
@@ -22,6 +23,14 @@ void describe("agent config normalization", () => {
     assert.deepEqual(normalizeAgentToolPolicy("{bad json"), DEFAULT_AGENT_TOOL_POLICY);
     assert.deepEqual(normalizeAgentHandoffConfig("{bad json"), DEFAULT_AGENT_HANDOFF_CONFIG);
     assert.deepEqual(normalizeAgentRuntimeConfig("{bad json"), DEFAULT_AGENT_RUNTIME_CONFIG);
+  });
+
+  void it("normalizes the adjustable child-agent concurrency limit", () => {
+    assert.equal(normalizeMaxConcurrentSubagents(null), 3);
+    assert.equal(normalizeMaxConcurrentSubagents(""), 3);
+    assert.equal(normalizeMaxConcurrentSubagents("8"), 8);
+    assert.equal(normalizeMaxConcurrentSubagents(0), 1);
+    assert.equal(normalizeMaxConcurrentSubagents(99), 16);
   });
 
   void it("repairs missing arrays and filters unknown tool ids", () => {
@@ -86,7 +95,7 @@ void describe("agent config normalization", () => {
     assert.equal(runtime.notes, "keep me");
   });
 
-  void it("keeps the Void handoff backfill default when requested", () => {
+  void it("keeps the main-agent handoff backfill default when requested", () => {
     const config = normalizeAgentHandoffConfig("{}", {
       ...DEFAULT_AGENT_HANDOFF_CONFIG,
       mode: "both",
@@ -99,7 +108,7 @@ void describe("agent config normalization", () => {
   void it("keeps the default main agent visible first in the active list", () => {
     const main = agentProfile({
       id: DEFAULT_AGENT_ID,
-      name: "Void",
+      name: "Paimon",
       kind: "main",
       updated_at: 1,
     });

@@ -46,6 +46,7 @@ import {
   Wrench,
   X,
   Zap,
+  Eye,
   type LucideIcon,
 } from "lucide-react";
 
@@ -115,3 +116,4 @@ export const IconStatusDot = (props: IconProps): React.JSX.Element => (
 );
 export const IconZap = fromLucide(Zap);
 export const IconSparkles = fromLucide(Sparkles);
+export const IconEye = fromLucide(Eye);

@@ -37,6 +37,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import {
   IconCheck,
   IconClose,
+  IconEye,
   IconGlobe,
   IconList,
   IconPlus,
@@ -105,6 +106,11 @@ function InstalledToolsPanel(): React.JSX.Element {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [skillOpen, setSkillOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [detailTarget, setDetailTarget] = useState<
+    | { type: "mcp"; item: ToolServer; tools: ToolRecord[] }
+    | { type: "skill"; item: ToolSkill }
+    | null
+  >(null);
 
   const refresh = (): void => {
     setRefreshing(true);
@@ -161,7 +167,6 @@ function InstalledToolsPanel(): React.JSX.Element {
 
   return (
     <div className="flex h-full w-full flex-col gap-5">
-      <CatalogInstalledArtifacts />
       <div className="grid shrink-0 gap-3 sm:grid-cols-3">
         <MetricCard label={t("tools.metric.tools")} value={snapshot?.toolRecords.length ?? 0} />
         <MetricCard label={t("tools.metric.mcp")} value={mcpServers.length} />
@@ -248,6 +253,7 @@ function InstalledToolsPanel(): React.JSX.Element {
             onToggle={(server, enabled) =>
               runAction(() => api.tools.mcp.setEnabled(server.id, enabled), t("tools.toast.saved"))
             }
+            onDetail={(server, tools) => setDetailTarget({ type: "mcp", item: server, tools })}
           />
         ) : null}
 
@@ -262,6 +268,16 @@ function InstalledToolsPanel(): React.JSX.Element {
                 t("tools.toast.saved"),
               )
             }
+            onApprovalChange={(skill, requiresApproval) =>
+              runAction(
+                () =>
+                  api.tools.skills.update(skill.id, {
+                    requires_approval: requiresApproval,
+                  }),
+                t("tools.toast.saved"),
+              )
+            }
+            onDetail={(skill) => setDetailTarget({ type: "skill", item: skill })}
           />
         ) : null}
       </div>
@@ -291,6 +307,8 @@ function InstalledToolsPanel(): React.JSX.Element {
           }, t("tools.toast.saved"))
         }
       />
+
+      <ToolDetailModal detail={detailTarget} onClose={() => setDetailTarget(null)} />
 
       <ConfirmDialog
         open={!!deleteTarget}
@@ -364,12 +382,14 @@ function McpSection({
   busy,
   onDelete,
   onToggle,
+  onDetail,
 }: {
   servers: ToolServer[];
   toolsByServer: Map<string, ToolRecord[]>;
   busy: boolean;
   onDelete: (server: ToolServer) => void;
   onToggle: (server: ToolServer, enabled: boolean) => void;
+  onDetail: (server: ToolServer, tools: ToolRecord[]) => void;
 }): React.JSX.Element {
   const { t } = useT();
   if (servers.length === 0) {
@@ -385,6 +405,7 @@ function McpSection({
           busy={busy}
           onDelete={() => onDelete(server)}
           onToggle={(enabled) => onToggle(server, enabled)}
+          onDetail={() => onDetail(server, toolsByServer.get(server.id) ?? [])}
         />
       ))}
     </section>
@@ -397,12 +418,14 @@ function McpCard({
   busy,
   onDelete,
   onToggle,
+  onDetail,
 }: {
   server: ToolServer;
   tools: ToolRecord[];
   busy: boolean;
   onDelete: () => void;
   onToggle: (enabled: boolean) => void;
+  onDetail: () => void;
 }): React.JSX.Element {
   const { t, f } = useT();
   const enabledTools = tools.filter((tool) => tool.enabled !== 0).length;
@@ -452,10 +475,16 @@ function McpCard({
           <Switch size="sm" isSelected={server.enabled !== 0} isDisabled={busy} onChange={onToggle}>
             {t("tools.enabled")}
           </Switch>
-          <Button size="sm" variant="danger" onPress={onDelete} isDisabled={busy}>
-            <IconTrash className="size-4" />
-            {t("common.delete")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" onPress={onDetail} isDisabled={busy}>
+              <IconEye className="size-4" />
+              {t("tools.detail")}
+            </Button>
+            <Button size="sm" variant="danger" onPress={onDelete} isDisabled={busy}>
+              <IconTrash className="size-4" />
+              {t("common.delete")}
+            </Button>
+          </div>
         </div>
       </Card.Footer>
     </Card>
@@ -467,11 +496,15 @@ function SkillsSection({
   busy,
   onDelete,
   onToggle,
+  onApprovalChange,
+  onDetail,
 }: {
   skills: ToolSkill[];
   busy: boolean;
   onDelete: (skill: ToolSkill) => void;
   onToggle: (skill: ToolSkill, enabled: boolean) => void;
+  onApprovalChange: (skill: ToolSkill, requiresApproval: boolean) => void;
+  onDetail: (skill: ToolSkill) => void;
 }): React.JSX.Element {
   const { t } = useT();
   if (skills.length === 0) {
@@ -486,6 +519,8 @@ function SkillsSection({
           busy={busy}
           onDelete={() => onDelete(skill)}
           onToggle={(enabled) => onToggle(skill, enabled)}
+          onApprovalChange={(requiresApproval) => onApprovalChange(skill, requiresApproval)}
+          onDetail={() => onDetail(skill)}
         />
       ))}
     </section>
@@ -497,11 +532,15 @@ function SkillCard({
   busy,
   onDelete,
   onToggle,
+  onApprovalChange,
+  onDetail,
 }: {
   skill: ToolSkill;
   busy: boolean;
   onDelete: () => void;
   onToggle: (enabled: boolean) => void;
+  onApprovalChange: (requiresApproval: boolean) => void;
+  onDetail: () => void;
 }): React.JSX.Element {
   const { t, f } = useT();
   const config = safeJsonObject(skill.config_json);
@@ -538,16 +577,199 @@ function SkillCard({
       </Card.Content>
       <Card.Footer>
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
-          <Switch size="sm" isSelected={skill.enabled !== 0} isDisabled={busy} onChange={onToggle}>
-            {t("tools.enabled")}
-          </Switch>
-          <Button size="sm" variant="danger" onPress={onDelete} isDisabled={busy}>
-            <IconTrash className="size-4" />
-            {t("common.delete")}
-          </Button>
+          <div className="flex flex-wrap items-center gap-4">
+            <Switch
+              size="sm"
+              isSelected={skill.enabled !== 0}
+              isDisabled={busy}
+              onChange={onToggle}
+            >
+              {t("tools.enabled")}
+            </Switch>
+            <Switch
+              size="sm"
+              isSelected={skill.requires_approval !== 0}
+              isDisabled={busy}
+              onChange={onApprovalChange}
+            >
+              {t("tools.filter.approval")}
+            </Switch>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" onPress={onDetail} isDisabled={busy}>
+              <IconEye className="size-4" />
+              {t("tools.detail")}
+            </Button>
+            <Button size="sm" variant="danger" onPress={onDelete} isDisabled={busy}>
+              <IconTrash className="size-4" />
+              {t("common.delete")}
+            </Button>
+          </div>
         </div>
       </Card.Footer>
     </Card>
+  );
+}
+
+type DetailTarget =
+  | { type: "mcp"; item: ToolServer; tools: ToolRecord[] }
+  | { type: "skill"; item: ToolSkill }
+  | null;
+
+function ToolDetailModal({
+  detail,
+  onClose,
+}: {
+  detail: DetailTarget;
+  onClose: () => void;
+}): React.JSX.Element | null {
+  const { t, f } = useT();
+  if (!detail) return null;
+
+  const isMcp = detail.type === "mcp";
+  const item = detail.item;
+
+  return (
+    <Modal isOpen={!!detail} onOpenChange={(isOpen) => (!isOpen ? onClose() : undefined)}>
+      <Modal.Backdrop>
+        <Modal.Container>
+          <Modal.Dialog className="max-h-[85vh] w-[min(640px,calc(100vw-24px))]">
+            <Modal.Header>
+              <div className="flex w-full items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Modal.Heading>{item.name}</Modal.Heading>
+                  <p className="mt-1 line-clamp-2 text-sm text-foreground/50">
+                    {item.description || t("tools.noDescription")}
+                  </p>
+                </div>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={onClose}
+                  aria-label={t("common.close")}
+                >
+                  <IconClose className="size-4" />
+                </Button>
+              </div>
+            </Modal.Header>
+            <Modal.Body className="space-y-4">
+              {isMcp ? (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium">{t("tools.detail.mcpInfo")}</h4>
+                  <div className="grid gap-2 text-xs sm:grid-cols-2">
+                    <ReadStat
+                      label={t("tools.field.transport")}
+                      value={(detail.item as ToolServer).transport}
+                    />
+                    <ReadStat
+                      label={t("tools.field.status")}
+                      value={
+                        (detail.item as ToolServer).enabled
+                          ? (detail.item as ToolServer).status
+                          : "disabled"
+                      }
+                    />
+                    <ReadStat
+                      label="Timeout"
+                      value={`${(detail.item as ToolServer).timeout_seconds}s`}
+                    />
+                    <ReadStat
+                      label={t("tools.field.tools")}
+                      value={`${detail.tools.filter((tool) => tool.enabled !== 0).length} / ${detail.tools.length}`}
+                    />
+                    <ReadStat
+                      className="sm:col-span-2"
+                      label={t("tools.field.endpoint")}
+                      value={formatEndpoint(detail.item as ToolServer)}
+                    />
+                    <ReadStat
+                      className="sm:col-span-2"
+                      label={t("tools.field.connected")}
+                      value={
+                        (detail.item as ToolServer).last_connected_at
+                          ? f.dateTime((detail.item as ToolServer).last_connected_at!)
+                          : t("tools.never")
+                      }
+                    />
+                  </div>
+                  {(detail.item as ToolServer).last_error ? (
+                    <p className="break-words rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">
+                      {(detail.item as ToolServer).last_error}
+                    </p>
+                  ) : null}
+                  {detail.tools.length > 0 ? (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium">{t("tools.detail.toolList")}</h4>
+                      <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-foreground/10 p-2">
+                        {detail.tools.map((tool) => (
+                          <div
+                            key={tool.id}
+                            className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs"
+                          >
+                            <span className="truncate font-medium">{tool.title ?? tool.name}</span>
+                            <Chip size="sm" variant={tool.enabled ? "soft" : "secondary"}>
+                              {tool.enabled ? t("main.value.enabled") : t("main.value.disabled")}
+                            </Chip>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium">{t("tools.detail.skillInfo")}</h4>
+                  <div className="grid gap-2 text-xs sm:grid-cols-2">
+                    <ReadStat
+                      label={t("tools.field.category")}
+                      value={(detail.item as ToolSkill).category}
+                    />
+                    <ReadStat
+                      label="Source"
+                      value={(() => {
+                        const config = safeJsonObject((detail.item as ToolSkill).config_json);
+                        return typeof config.source === "string" ? config.source : "manual";
+                      })()}
+                    />
+                    <ReadStat
+                      label={t("tools.field.lastRun")}
+                      value={
+                        (detail.item as ToolSkill).last_run_at
+                          ? f.dateTime((detail.item as ToolSkill).last_run_at!)
+                          : t("tools.never")
+                      }
+                    />
+                    <ReadStat
+                      label={t("tools.field.workflow")}
+                      value={(detail.item as ToolSkill).workflow_id ?? t("tools.none")}
+                    />
+                  </div>
+                  {(() => {
+                    const config = safeJsonObject((detail.item as ToolSkill).config_json);
+                    const instructions =
+                      typeof config.instructions === "string" ? config.instructions : "";
+                    return instructions ? (
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium">{t("tools.detail.instructions")}</h4>
+                        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/55">
+                          {instructions}
+                        </pre>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+            </Modal.Body>
+            <Modal.Footer>
+              <Button variant="secondary" onPress={onClose}>
+                {t("common.close")}
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }
 
@@ -1263,92 +1485,6 @@ function CatalogInstallReview({
         </Modal.Container>
       </Modal.Backdrop>
     </Modal>
-  );
-}
-
-function CatalogInstalledArtifacts(): React.JSX.Element | null {
-  const { t, locale } = useT();
-  const [installations, setInstallations] = useState<
-    Awaited<ReturnType<typeof api.catalog.snapshot>>["installations"]
-  >([]);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const refresh = (): void => {
-    void api.catalog
-      .snapshot()
-      .then((value) => setInstallations(value.installations))
-      .catch(console.error);
-  };
-  useEffect(refresh, []);
-  if (installations.length === 0) return null;
-  const action = async (id: string, callback: () => Promise<unknown>): Promise<void> => {
-    setBusyId(id);
-    try {
-      await callback();
-      refresh();
-    } catch (reason) {
-      notify.error(t("catalog.actionFailed"), reason, locale);
-    } finally {
-      setBusyId(null);
-    }
-  };
-  return (
-    <Card className="shrink-0">
-      <Card.Header>
-        <Card.Title>{t("catalog.catalogInstalls")}</Card.Title>
-        <Card.Description>{t("catalog.catalogInstallsDescription")}</Card.Description>
-      </Card.Header>
-      <Card.Content className="flex flex-wrap gap-2">
-        {installations.map((item) => (
-          <div
-            key={item.id}
-            className="flex min-w-[18rem] flex-1 flex-col gap-2 rounded-md border border-border px-3 py-2.5"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-xs font-medium">{item.name}</p>
-                <p className="text-[10px] text-muted-foreground">
-                  {item.artifactType.toUpperCase()} / {item.status}
-                </p>
-              </div>
-              <Chip size="sm" variant="soft">
-                <Chip.Label>{item.status}</Chip.Label>
-              </Chip>
-            </div>
-            <details className="rounded-md bg-muted/35 px-2.5 py-2 text-[10px]">
-              <summary className="cursor-pointer text-xs font-medium">
-                {t("catalog.safetyDetails")}
-              </summary>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all text-muted-foreground">
-                {JSON.stringify({ safety: item.safety, config: item.config }, null, 2)}
-              </pre>
-              {item.lastError ? (
-                <p className="mt-2 whitespace-pre-wrap text-destructive">{item.lastError}</p>
-              ) : null}
-            </details>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="tertiary"
-                isDisabled={busyId !== null}
-                onPress={() =>
-                  void action(item.id, () => api.catalog.enable(item.id, item.status !== "enabled"))
-                }
-              >
-                {item.status === "enabled" ? t("catalog.disable") : t("catalog.reviewEnable")}
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                isDisabled={busyId !== null}
-                onPress={() => void action(item.id, () => api.catalog.uninstall(item.id))}
-              >
-                {t("catalog.uninstall")}
-              </Button>
-            </div>
-          </div>
-        ))}
-      </Card.Content>
-    </Card>
   );
 }
 

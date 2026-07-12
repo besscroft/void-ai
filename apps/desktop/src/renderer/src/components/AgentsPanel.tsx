@@ -17,7 +17,11 @@ import {
   DEFAULT_AGENT_ID,
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
+  MAX_CONCURRENT_SUBAGENTS,
+  MIN_CONCURRENT_SUBAGENTS,
+  SettingKey,
   normalizeAgentHandoffConfig,
+  normalizeMaxConcurrentSubagents,
   normalizeAgentRuntimeConfig,
   normalizeAgentToolPolicy,
   type AgentHandoffConfig,
@@ -166,6 +170,10 @@ export function AgentsPanel({
   const [form, setForm] = useState<AgentFormState>(() => createAgentForm());
   const [validation, setValidation] = useState<AgentValidation>({});
   const [busy, setBusy] = useState(false);
+  const [concurrencyBusy, setConcurrencyBusy] = useState(false);
+  const [maxConcurrentSubagents, setMaxConcurrentSubagents] = useState(
+    DEFAULT_AGENT_RUNTIME_CONFIG.maxConcurrentSubagents ?? 3,
+  );
   const [managedModels, setManagedModels] = useState<ManagedModelInfo[]>([]);
   const [tools, setTools] = useState<ChatToolDescriptor[]>([]);
   const [runtime, setRuntime] = useState<RuntimeSnapshotState>({
@@ -216,6 +224,10 @@ export function AgentsPanel({
         ),
       )
       .catch(() => setTools([]));
+    void api.settings
+      .get(SettingKey.MaxConcurrentSubagents)
+      .then((value) => setMaxConcurrentSubagents(normalizeMaxConcurrentSubagents(value)))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -285,6 +297,20 @@ export function AgentsPanel({
     void runAction(() => api.agents.duplicate(agent.id), t("agents.toast.duplicated"));
   };
 
+  const saveConcurrencyLimit = async (): Promise<void> => {
+    setConcurrencyBusy(true);
+    try {
+      const value = normalizeMaxConcurrentSubagents(maxConcurrentSubagents);
+      await api.settings.set(SettingKey.MaxConcurrentSubagents, String(value));
+      setMaxConcurrentSubagents(value);
+      notify.success(t("agents.toast.concurrencyUpdated"));
+    } catch (error) {
+      notify.error(t("agents.toast.failed"), error, locale);
+    } finally {
+      setConcurrencyBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="select-none grid gap-3 md:grid-cols-3">
@@ -292,6 +318,39 @@ export function AgentsPanel({
         <MetricCard label={t("agents.metric.active")} value={activeChildren.length} />
         <MetricCard label={t("agents.metric.running")} value={runningCount(runtime)} />
       </div>
+
+      <Card>
+        <Card.Content className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="max-w-2xl">
+            <h3 className="text-sm font-semibold">{t("agents.concurrency.title")}</h3>
+            <p className="mt-1 text-sm text-foreground/55">{t("agents.concurrency.description")}</p>
+          </div>
+          <div className="flex items-end gap-2">
+            <Field label={t("agents.field.maxConcurrentSubagents")}>
+              <Input
+                className="w-28"
+                type="number"
+                min={MIN_CONCURRENT_SUBAGENTS}
+                max={MAX_CONCURRENT_SUBAGENTS}
+                value={String(maxConcurrentSubagents)}
+                onChange={(event) =>
+                  setMaxConcurrentSubagents(
+                    normalizeMaxConcurrentSubagents(event.target.value, maxConcurrentSubagents),
+                  )
+                }
+              />
+            </Field>
+            <Button
+              size="sm"
+              variant="primary"
+              onPress={() => void saveConcurrencyLimit()}
+              isDisabled={concurrencyBusy}
+            >
+              {t("common.save")}
+            </Button>
+          </div>
+        </Card.Content>
+      </Card>
 
       <Card>
         <Card.Content className="space-y-4 p-4">
@@ -362,6 +421,7 @@ export function AgentsPanel({
             ? checkpointsForAgent(runtime.contextCheckpoints, runtime.agentInstances, selected.id)
             : []
         }
+        maxConcurrentSubagents={maxConcurrentSubagents}
         onEdit={() => selected && openEdit(selected)}
         onClose={() => setDetailOpen(false)}
       />
@@ -480,6 +540,7 @@ function AgentDetailModal({
   events,
   instances,
   checkpoints,
+  maxConcurrentSubagents,
   onEdit,
   onClose,
 }: {
@@ -493,6 +554,7 @@ function AgentDetailModal({
   events: RuntimeEvent[];
   instances: AgentInstanceRecord[];
   checkpoints: AgentContextCheckpoint[];
+  maxConcurrentSubagents: number;
   onEdit: () => void;
   onClose: () => void;
 }): React.JSX.Element | null {
@@ -594,7 +656,11 @@ function AgentDetailModal({
                   [t("agents.field.maxTurns"), String(runtimeConfig.maxTurns)],
                   [
                     t("agents.field.maxConcurrentSubagents"),
-                    String(runtimeConfig.maxConcurrentSubagents ?? 3),
+                    String(
+                      agent.id === DEFAULT_AGENT_ID
+                        ? maxConcurrentSubagents
+                        : (runtimeConfig.maxConcurrentSubagents ?? 3),
+                    ),
                   ],
                   [
                     t("agents.field.totalTimeoutMs"),

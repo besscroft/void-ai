@@ -22,6 +22,7 @@ import {
   DEFAULT_AGENT_TOOL_POLICY,
   SettingKey,
   normalizeAgentRuntimeConfig,
+  normalizeMaxConcurrentSubagents,
   normalizeAgentToolPolicy,
   type MemoryKind,
   type MemoryRecord,
@@ -263,8 +264,10 @@ async function dispatchWorkflowChildAgent(opts: {
   if (!coordinator) {
     coordinator = new AgentCoordinator({
       runId: coordinatorKey,
-      maxConcurrentSubagents: normalizeAgentRuntimeConfig(agent.runtime_config_json)
-        .maxConcurrentSubagents,
+      maxConcurrentSubagents: normalizeMaxConcurrentSubagents(
+        getSetting(SettingKey.MaxConcurrentSubagents),
+        normalizeAgentRuntimeConfig(agent.runtime_config_json).maxConcurrentSubagents,
+      ),
       onEvent: (event) =>
         insertRuntimeEvent({
           runId: opts.runtimeRunId,
