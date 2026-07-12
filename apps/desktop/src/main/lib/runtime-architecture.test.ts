@@ -13,6 +13,7 @@ import {
 } from "./runtime-defaults";
 import { getSandboxSessionOrThrow } from "./sandbox-runtime";
 import { buildToolRegistryPreview } from "./tool-registry";
+import { ROOT_AGENT_STOP_WHEN } from "./agent-run-policy";
 
 const capabilities: ModelCapabilities = {
   textGeneration: true,
@@ -167,5 +168,12 @@ void describe("runtime architecture", () => {
 
   void it("guards sandbox runtime access before a session exists", () => {
     assert.throws(() => getSandboxSessionOrThrow(undefined), /Sandbox session/);
+  });
+
+  void it("does not stop the root agent because of tool-loop step count", async () => {
+    for (const stepCount of [1, 20, 100, 1_000]) {
+      const steps = Array.from({ length: stepCount }, () => ({}));
+      assert.equal(await ROOT_AGENT_STOP_WHEN({ steps } as never), false);
+    }
   });
 });

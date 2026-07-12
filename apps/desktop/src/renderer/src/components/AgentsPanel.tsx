@@ -653,7 +653,12 @@ function AgentDetailModal({
                     t("agents.field.runtimeStatus"),
                     labelFor(t, RUNTIME_STATUS_KEYS, runtime?.status ?? "idle"),
                   ],
-                  [t("agents.field.maxTurns"), String(runtimeConfig.maxTurns)],
+                  [
+                    t("agents.field.maxTurns"),
+                    agent.id === DEFAULT_AGENT_ID
+                      ? t("agents.value.untilComplete")
+                      : String(runtimeConfig.maxTurns),
+                  ],
                   [
                     t("agents.field.maxConcurrentSubagents"),
                     String(
@@ -664,7 +669,9 @@ function AgentDetailModal({
                   ],
                   [
                     t("agents.field.totalTimeoutMs"),
-                    String(runtimeConfig.totalTimeoutMs ?? 120_000),
+                    agent.id === DEFAULT_AGENT_ID
+                      ? t("agents.value.untilComplete")
+                      : String(runtimeConfig.totalTimeoutMs ?? 120_000),
                   ],
                   [
                     t("agents.field.contextMode"),

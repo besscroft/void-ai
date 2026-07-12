@@ -72,6 +72,7 @@ import {
   type SandboxContext,
 } from "./sandbox-agents";
 import { getSandboxSessionOrThrow } from "./sandbox-runtime";
+import { ROOT_AGENT_STOP_WHEN } from "./agent-run-policy";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
 type MessageMetadataCallback = NonNullable<
@@ -304,7 +305,6 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
       agent,
       uiMessages: options.messages,
       abortSignal: options.abortSignal,
-      timeout: { totalMs: rootRuntimeConfig.totalTimeoutMs },
       sendReasoning: true,
       sendSources: true,
       messageMetadata: tracker.messageMetadata,
@@ -387,7 +387,7 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
     activeTools: names,
     toolChoice: names.length ? "auto" : "none",
     toolApproval: createGuardrailApproval(context, new Set(base.approvalToolNames ?? [])),
-    stopWhen: isStepCount(readRuntimeConfig(context.rootAgent.runtime_config_json).maxTurns),
+    stopWhen: ROOT_AGENT_STOP_WHEN,
     onStepEnd: (event) => {
       base.onStepEnd?.(event);
       return undefined;
@@ -1354,6 +1354,7 @@ async function createRootInstructions(
     "Decide whether to answer directly, consult a child agent, or hand off ownership to a child agent.",
     "When a child agent is disabled, draft, archived, or locked, it is not available and must not be used.",
     "Use consult tools for specialist advice while you keep ownership. Use handoff tools when the child agent should own the result.",
+    "Keep working until the task is complete or the user explicitly stops the run. Do not stop merely because you have used many model or tool steps.",
     "After a successful handoff, return the handoff result's output verbatim as the final answer. Do not summarize it, add a preface, or continue using tools.",
     context.preferredAgentId
       ? "The conversation is currently owned by " +

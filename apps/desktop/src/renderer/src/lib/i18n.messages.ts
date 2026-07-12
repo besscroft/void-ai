@@ -3,6 +3,7 @@ import type { AppLanguage } from "@shared/types";
 export type Dict = Record<string, string>;
 
 const entries = {
+  "agents.value.untilComplete": { zh: "直到任务完成或手动停止", en: "Until complete or stopped" },
   "Runtime.kind.agent": { zh: "智能体", en: "Agent" },
   "Runtime.kind.approval": { zh: "审批", en: "Approval" },
   "Runtime.kind.automation": { zh: "自动化", en: "Automation" },
