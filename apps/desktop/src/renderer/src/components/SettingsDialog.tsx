@@ -26,6 +26,7 @@ import { useSettings, type SettingsResetScope } from "../lib/settings";
 import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
 import { cn } from "../lib/utils";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { DesktopPetsSettings } from "./DesktopPetsSettings";
 import {
   IconClose,
   IconKey,
@@ -70,10 +71,11 @@ interface SettingsDialogProps {
   open: boolean;
   /** 鍏抽棴鍥炶皟 */
   onClose: () => void;
+  initialTab?: "appearance" | "pets";
 }
 
 /** Tab 瀹氫箟 */
-type TabId = "appearance" | "model" | "diagnostics" | "trash";
+type TabId = "appearance" | "pets" | "model" | "diagnostics" | "trash";
 
 /**
  * 璁剧疆寮圭獥锛堝垎 Tab 缁撴瀯锛?
@@ -90,12 +92,20 @@ type TabId = "appearance" | "model" | "diagnostics" | "trash";
  * 鎵€鏈夊瑙?妯″瀷璁剧疆鍗虫椂搴旂敤骞舵寔涔呭寲锛堝疄鏃堕瑙堬級锛?
  * 鐮村潖鎬ф搷浣滐紙閲嶇疆銆佹竻缂撳瓨銆佸垹 Key锛夐€氳繃 ConfirmDialog 浜屾纭銆?
  */
-export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JSX.Element | null {
+export function SettingsDialog({
+  open,
+  onClose,
+  initialTab = "appearance",
+}: SettingsDialogProps): React.JSX.Element | null {
   const { t, locale } = useT();
   const { settings, update, reset } = useSettings();
   const [tab, setTab] = useState<TabId>("appearance");
   const [confirmResetScope, setConfirmResetScope] = useState<SettingsResetScope | null>(null);
   const [resetDoneScope, setResetDoneScope] = useState<SettingsResetScope | null>(null);
+
+  useEffect(() => {
+    if (open) setTab(initialTab);
+  }, [initialTab, open]);
 
   // ESC 鍏抽棴
   useEffect(() => {
@@ -135,6 +145,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
 
   const tabs: { id: TabId; label: string; Icon: typeof IconPalette }[] = [
     { id: "appearance", label: t("settings.tab.appearance"), Icon: IconPalette },
+    { id: "pets", label: t("settings.tab.pets"), Icon: IconSparkles },
     { id: "model", label: t("settings.tab.model"), Icon: IconCpu },
     { id: "diagnostics", label: t("settings.tab.diagnostics"), Icon: IconSliders },
     { id: "trash", label: t("settings.tab.trash"), Icon: IconTrash },
@@ -207,6 +218,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): React.JS
                 resetDone={resetDoneScope === "appearance"}
               />
             )}
+            {tab === "pets" && <DesktopPetSection />}
             {tab === "model" && <ModelTab settings={settings} update={update} />}
             {tab === "diagnostics" && <DiagnosticsTab />}
             {tab === "trash" && <TrashTab />}
@@ -748,125 +760,13 @@ function AppearanceTab({
             }
           />
         </SettingSection>
-
-        <DesktopPetSection />
       </div>
     </section>
   );
 }
 
-// ============================================================
-// 桌宠设置小节
-// ============================================================
-
-/**
- * 桌宠设置（嵌入到 Appearance Tab 末尾）。
- *
- * 直接从后端读 snapshot，避免把所有桌宠配置都拉到 AppSettings。
- * 用户修改后通过 api.desktopPet.updateConfig 持久化，
- * 主进程会通过 desktopPet:configApplied 事件下发给渲染层。
- */
 function DesktopPetSection(): React.JSX.Element {
-  const { t } = useT();
-  const [snapshot, setSnapshot] = useState<import("@shared/types").DesktopPetSnapshot | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = (): void => {
-      void api.desktopPet.getSnapshot().then((next) => {
-        if (cancelled) return;
-        setSnapshot(next);
-      });
-    };
-    load();
-    const id = window.setInterval(load, 2_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
-
-  const updateConfig = (patch: import("@shared/types").DesktopPetConfigPatch): void => {
-    void api.desktopPet.updateConfig(patch).then((next) => {
-      setSnapshot(next);
-    });
-  };
-
-  if (!snapshot) {
-    return (
-      <SettingSection
-        title={t("desktopPet.settings.title")}
-        icon={<IconSparkles className="size-3.5" />}
-      >
-        <div className="text-xs text-foreground/50">{t("common.loading")}</div>
-      </SettingSection>
-    );
-  }
-
-  const cfg = snapshot.config;
-  const enabled = snapshot.profile.enabled === 1;
-
-  return (
-    <SettingSection
-      title={t("desktopPet.settings.title")}
-      desc={t("desktopPet.toggle")}
-      icon={<IconSparkles className="size-3.5" />}
-    >
-      <SettingItem
-        title={t("desktopPet.settings.enable")}
-        desc={t("desktopPet.toggle")}
-        control={
-          <Switch
-            isSelected={enabled}
-            onChange={(v) => {
-              void api.desktopPet.setEnabled(v);
-              // 立即从后端拉一次最新 snapshot 反映状态
-              window.setTimeout(() => {
-                void api.desktopPet.getSnapshot().then((next) => setSnapshot(next));
-              }, 200);
-            }}
-            aria-label={t("desktopPet.settings.enable")}
-          />
-        }
-      />
-      <SettingItem
-        title={t("desktopPet.settings.alwaysOnTop")}
-        control={
-          <Switch
-            isSelected={cfg.window.alwaysOnTop}
-            onChange={(v) => updateConfig({ window: { alwaysOnTop: v } })}
-            aria-label={t("desktopPet.settings.alwaysOnTop")}
-          />
-        }
-      />
-      <SettingItem
-        title={t("desktopPet.settings.sound")}
-        control={
-          <Switch
-            isSelected={cfg.interaction.soundEnabled}
-            onChange={(v) => updateConfig({ interaction: { soundEnabled: v } })}
-            aria-label={t("desktopPet.settings.sound")}
-          />
-        }
-      />
-      <SettingItem
-        title={t("desktopPet.settings.resetPosition")}
-        control={
-          <Button
-            size="sm"
-            variant="secondary"
-            onPress={() => {
-              void api.desktopPet.resetPosition().then((next) => setSnapshot(next));
-              notify.success(t("desktopPet.settings.resetPosition"));
-            }}
-          >
-            <IconRotateCcw className="mr-1 size-3.5" />
-            {t("common.reset")}
-          </Button>
-        }
-      />
-    </SettingSection>
-  );
+  return <DesktopPetsSettings />;
 }
 
 // ============================================================

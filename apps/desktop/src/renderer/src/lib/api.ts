@@ -5,9 +5,13 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
-  DesktopPetConfig,
   DesktopPetConfigPatch,
+  DesktopPetSelector,
   DesktopPetSnapshot,
+  InstalledPet,
+  PetImportCandidate,
+  StorePetPage,
+  StorePetQuery,
   MemoryFileKind,
   SkillDraftRequest,
   SkillDraftResult,
@@ -175,10 +179,25 @@ export const api = {
   },
   desktopPet: {
     getSnapshot: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.getSnapshot(),
+    listPets: (): Promise<InstalledPet[]> => assertApi().desktopPet.listPets(),
+    listStore: (query: StorePetQuery): Promise<StorePetPage> =>
+      assertApi().desktopPet.listStore(query),
+    select: (selector: DesktopPetSelector): Promise<DesktopPetSnapshot> =>
+      assertApi().desktopPet.select(selector),
+    installStore: (id: string, replace = false): Promise<InstalledPet> =>
+      assertApi().desktopPet.installStore(id, replace),
+    beginLocalImport: (mode: "zip" | "folder"): Promise<PetImportCandidate | null> =>
+      assertApi().desktopPet.beginLocalImport(mode),
+    commitLocalImport: (token: string, replace = false): Promise<InstalledPet> =>
+      assertApi().desktopPet.commitLocalImport(token, replace),
+    delete: (selector: DesktopPetSelector): Promise<DesktopPetSnapshot> =>
+      assertApi().desktopPet.delete(selector),
+    acknowledge: (runId: string): Promise<DesktopPetSnapshot> =>
+      assertApi().desktopPet.acknowledge(runId),
     setEnabled: (enabled: boolean): Promise<DesktopPetSnapshot> =>
       assertApi().desktopPet.setEnabled(enabled),
-    updateConfig: (patch: DesktopPetConfigPatch): Promise<DesktopPetSnapshot> =>
-      assertApi().desktopPet.updateConfig(patch),
+    updateWindow: (patch: DesktopPetConfigPatch["window"]): Promise<DesktopPetSnapshot> =>
+      assertApi().desktopPet.updateWindow(patch),
     show: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.show(),
     hide: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.hide(),
     resetPosition: (): Promise<DesktopPetSnapshot> => assertApi().desktopPet.resetPosition(),
@@ -187,15 +206,13 @@ export const api = {
     openMain: (conversationId?: string): Promise<boolean> =>
       assertApi().desktopPet.openMain(conversationId),
     showContextMenu: (): Promise<boolean> => assertApi().desktopPet.showContextMenu(),
-    setFrameRate: (fps: number): Promise<boolean> => assertApi().desktopPet.setFrameRate(fps),
-    setWindowSize: (size: { width: number; height: number }): Promise<boolean> =>
-      assertApi().desktopPet.setWindowSize(size),
+    getLookDirection: (): Promise<number | null> => assertApi().desktopPet.getLookDirection(),
     setIgnoreMouseEvents: (ignore: boolean): Promise<boolean> =>
       assertApi().desktopPet.setIgnoreMouseEvents(ignore),
     onOpenConversation: (handler: (conversationId?: string) => void): (() => void) =>
       assertApi().desktopPet.onOpenConversation(handler),
-    onConfigApplied: (handler: (config: DesktopPetConfig) => void): (() => void) =>
-      assertApi().desktopPet.onConfigApplied(handler),
+    onSnapshotApplied: (handler: (snapshot: DesktopPetSnapshot) => void): (() => void) =>
+      assertApi().desktopPet.onSnapshotApplied(handler),
   },
   sync: {
     get: (): Promise<SyncState> => assertApi().sync.get(),

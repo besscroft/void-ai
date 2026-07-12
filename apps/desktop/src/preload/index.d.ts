@@ -6,9 +6,13 @@ import type {
   Conversation,
   CustomModelInput,
   CustomProviderInput,
-  DesktopPetConfig,
   DesktopPetConfigPatch,
+  DesktopPetSelector,
   DesktopPetSnapshot,
+  InstalledPet,
+  PetImportCandidate,
+  StorePetPage,
+  StorePetQuery,
   MemoryFileKind,
   SkillDraftRequest,
   SkillDraftResult,
@@ -154,19 +158,26 @@ export interface VoidAIApi {
   };
   desktopPet: {
     getSnapshot: () => Promise<DesktopPetSnapshot>;
+    listPets: () => Promise<InstalledPet[]>;
+    listStore: (query: StorePetQuery) => Promise<StorePetPage>;
+    select: (selector: DesktopPetSelector) => Promise<DesktopPetSnapshot>;
+    installStore: (id: string, replace?: boolean) => Promise<InstalledPet>;
+    beginLocalImport: (mode: "zip" | "folder") => Promise<PetImportCandidate | null>;
+    commitLocalImport: (token: string, replace?: boolean) => Promise<InstalledPet>;
+    delete: (selector: DesktopPetSelector) => Promise<DesktopPetSnapshot>;
+    acknowledge: (runId: string) => Promise<DesktopPetSnapshot>;
     setEnabled: (enabled: boolean) => Promise<DesktopPetSnapshot>;
-    updateConfig: (patch: DesktopPetConfigPatch) => Promise<DesktopPetSnapshot>;
+    updateWindow: (patch: DesktopPetConfigPatch["window"]) => Promise<DesktopPetSnapshot>;
     show: () => Promise<DesktopPetSnapshot>;
     hide: () => Promise<DesktopPetSnapshot>;
     resetPosition: () => Promise<DesktopPetSnapshot>;
     moveWindowBy: (delta: { dx: number; dy: number }) => Promise<boolean>;
     openMain: (conversationId?: string) => Promise<boolean>;
     showContextMenu: () => Promise<boolean>;
-    setFrameRate: (fps: number) => Promise<boolean>;
-    setWindowSize: (size: { width: number; height: number }) => Promise<boolean>;
+    getLookDirection: () => Promise<number | null>;
     setIgnoreMouseEvents: (ignore: boolean) => Promise<boolean>;
     onOpenConversation: (handler: (conversationId?: string) => void) => () => void;
-    onConfigApplied: (handler: (config: DesktopPetConfig) => void) => () => void;
+    onSnapshotApplied: (handler: (snapshot: DesktopPetSnapshot) => void) => () => void;
   };
   sync: {
     get: () => Promise<SyncState>;

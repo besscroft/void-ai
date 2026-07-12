@@ -89,8 +89,19 @@ const api = {
   },
   desktopPet: {
     getSnapshot: () => ipcRenderer.invoke("desktopPet:getSnapshot"),
+    listPets: () => ipcRenderer.invoke("desktopPet:listPets"),
+    listStore: (query: unknown) => ipcRenderer.invoke("desktopPet:listStore", query),
+    select: (selector: string) => ipcRenderer.invoke("desktopPet:select", selector),
+    installStore: (id: string, replace = false) =>
+      ipcRenderer.invoke("desktopPet:installStore", id, replace),
+    beginLocalImport: (mode: "zip" | "folder") =>
+      ipcRenderer.invoke("desktopPet:beginLocalImport", mode),
+    commitLocalImport: (token: string, replace = false) =>
+      ipcRenderer.invoke("desktopPet:commitLocalImport", token, replace),
+    delete: (selector: string) => ipcRenderer.invoke("desktopPet:delete", selector),
+    acknowledge: (runId: string) => ipcRenderer.invoke("desktopPet:acknowledge", runId),
     setEnabled: (enabled: boolean) => ipcRenderer.invoke("desktopPet:setEnabled", enabled),
-    updateConfig: (patch: unknown) => ipcRenderer.invoke("desktopPet:updateConfig", patch),
+    updateWindow: (patch: unknown) => ipcRenderer.invoke("desktopPet:updateWindow", patch),
     show: () => ipcRenderer.invoke("desktopPet:show"),
     hide: () => ipcRenderer.invoke("desktopPet:hide"),
     resetPosition: () => ipcRenderer.invoke("desktopPet:resetPosition"),
@@ -99,9 +110,7 @@ const api = {
     openMain: (conversationId?: string) =>
       ipcRenderer.invoke("desktopPet:openMain", conversationId),
     showContextMenu: () => ipcRenderer.invoke("desktopPet:showContextMenu"),
-    setFrameRate: (fps: number) => ipcRenderer.invoke("desktopPet:setFrameRate", fps),
-    setWindowSize: (size: { width: number; height: number }) =>
-      ipcRenderer.invoke("desktopPet:setWindowSize", size),
+    getLookDirection: () => ipcRenderer.invoke("desktopPet:getLookDirection"),
     setIgnoreMouseEvents: (ignore: boolean) =>
       ipcRenderer.invoke("desktopPet:setIgnoreMouseEvents", ignore),
     onOpenConversation: (handler: (conversationId?: string) => void) => {
@@ -111,12 +120,12 @@ const api = {
       ipcRenderer.on("desktopPet:openConversation", listener);
       return () => ipcRenderer.removeListener("desktopPet:openConversation", listener);
     },
-    onConfigApplied: (handler: (config: unknown) => void) => {
-      const listener = (_event: IpcRendererEvent, config: unknown): void => {
-        handler(config);
+    onSnapshotApplied: (handler: (snapshot: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, snapshot: unknown): void => {
+        handler(snapshot);
       };
-      ipcRenderer.on("desktopPet:configApplied", listener);
-      return () => ipcRenderer.removeListener("desktopPet:configApplied", listener);
+      ipcRenderer.on("desktopPet:snapshotApplied", listener);
+      return () => ipcRenderer.removeListener("desktopPet:snapshotApplied", listener);
     },
   },
   sync: {

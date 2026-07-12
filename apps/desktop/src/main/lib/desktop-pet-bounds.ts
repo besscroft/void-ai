@@ -1,4 +1,4 @@
-import type { DesktopPetConfig } from "../../shared/types";
+import { DESKTOP_PET_WINDOW_SIZE, type DesktopPetConfig } from "../../shared/types";
 
 export interface DesktopPetDisplayBounds {
   x: number;
@@ -27,8 +27,7 @@ export function clampDesktopPetBounds(
   displays: DesktopPetDisplayBounds[],
   fallbackDisplay: DesktopPetDisplayBounds,
 ): DesktopPetBounds {
-  const width = config.window.width;
-  const height = config.window.height;
+  const { width, height } = DESKTOP_PET_WINDOW_SIZE;
   const display =
     displays.find((item) => pointInBounds(config.window.x, config.window.y, item)) ??
     fallbackDisplay;

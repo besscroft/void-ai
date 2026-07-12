@@ -71,9 +71,7 @@ import {
   DEFAULT_AGENT_TOOL_POLICY,
   DEFAULT_DESKTOP_PET_CONFIG,
   DESKTOP_PET_PROFILE_ID,
-  SettingKey,
   mergeDesktopPetConfig,
-  moodFromAgentRuntimeStatus,
   normalizeAgentHandoffConfig,
   normalizeAgentRuntimeConfig,
   normalizeAgentToolPolicy,
@@ -118,6 +116,8 @@ import {
   type WorkflowDefinition,
   type WorkflowRun,
 } from "../../shared/types";
+import { resolveDesktopPet } from "./desktop-pet-assets";
+import { applyDesktopPetIdleTimeout, resolveDesktopPetActivity } from "./desktop-pet-activity";
 import {
   createWorkflowRunRecord,
   listWorkflowDefinitions,
@@ -2112,6 +2112,9 @@ export function getToolsSnapshot(): ToolsSnapshot {
   };
 }
 
+let desktopPetIdleSince = Date.now();
+let desktopPetHadActivity = false;
+
 export function listInteractionProfiles(): InteractionProfile[] {
   ensureDesktopPetProfile();
   return getDb().select().from(interactionProfiles).orderBy(interactionProfiles.kind).all();
@@ -2124,15 +2127,30 @@ export function isDesktopPetEnabled(): boolean {
 export function getDesktopPetSnapshot(): DesktopPetSnapshot {
   const profile = ensureDesktopPetProfile();
   const config = normalizeDesktopPetConfig(profile.config_json);
-  const agent = getAgent(DEFAULT_AGENT_ID);
-  const runtimeState = agentRuntimeStates.get(DEFAULT_AGENT_ID) ?? null;
+  const resolution = resolveDesktopPetActivity(listRuntimeRuns(), config.acknowledgedRunIds);
+  const now = Date.now();
+  let activity = resolution.activity;
+  if (activity.kind === "idle") {
+    if (desktopPetHadActivity) desktopPetIdleSince = now;
+    desktopPetHadActivity = false;
+    activity = applyDesktopPetIdleTimeout(activity, desktopPetIdleSince, now);
+  } else {
+    desktopPetHadActivity = true;
+    desktopPetIdleSince = now;
+  }
+  const pet = resolveDesktopPet(config.selectedPet);
   return {
     profile,
+    enabled: profile.enabled === 1,
     config,
-    agent,
-    runtimeState,
-    selectedModel: getSetting(SettingKey.SelectedModel),
-    mood: moodFromAgentRuntimeStatus(runtimeState?.status),
+    pet,
+    activity,
+    pendingActivityCount: resolution.pendingCount,
+    assetError:
+      pet?.error ??
+      (profile.enabled === 1 && (!pet || !pet.available)
+        ? "Pet asset is not available yet."
+        : null),
   };
 }
 
@@ -2145,6 +2163,17 @@ export function updateDesktopPetConfig(patch: DesktopPetConfigPatch): DesktopPet
   const profile = ensureDesktopPetProfile();
   const current = normalizeDesktopPetConfig(profile.config_json);
   updateDesktopPetProfile({ config_json: JSON.stringify(mergeDesktopPetConfig(current, patch)) });
+  return getDesktopPetSnapshot();
+}
+
+export function acknowledgeDesktopPetActivity(runId: string): DesktopPetSnapshot {
+  if (!runId.trim()) return getDesktopPetSnapshot();
+  const profile = ensureDesktopPetProfile();
+  const current = normalizeDesktopPetConfig(profile.config_json);
+  const acknowledgedRunIds = [...new Set([...current.acknowledgedRunIds, runId])].slice(-100);
+  updateDesktopPetProfile({
+    config_json: JSON.stringify(mergeDesktopPetConfig(current, { acknowledgedRunIds })),
+  });
   return getDesktopPetSnapshot();
 }
 
@@ -2757,13 +2786,28 @@ function ensureDesktopPetProfile(): InteractionProfile {
     .from(interactionProfiles)
     .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
     .get();
-  if (existing) return existing;
+  if (existing) {
+    const normalizedConfig = JSON.stringify(normalizeDesktopPetConfig(existing.config_json));
+    if (existing.status !== "ready" || existing.config_json !== normalizedConfig) {
+      getDb()
+        .update(interactionProfiles)
+        .set({ status: "ready", config_json: normalizedConfig, updated_at: Date.now() })
+        .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
+        .run();
+      return getDb()
+        .select()
+        .from(interactionProfiles)
+        .where(eq(interactionProfiles.id, DESKTOP_PET_PROFILE_ID))
+        .get() as InteractionProfile;
+    }
+    return existing;
+  }
   const row: InteractionProfile = {
     id: DESKTOP_PET_PROFILE_ID,
     kind: "desktop_pet",
     label: "Desktop companion",
     enabled: 0,
-    status: "prototype",
+    status: "ready",
     config_json: JSON.stringify(DEFAULT_DESKTOP_PET_CONFIG),
     updated_at: Date.now(),
   };

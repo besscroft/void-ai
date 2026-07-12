@@ -1,165 +1,50 @@
-# Void 智能体桌宠 · 用户指南
+# Desktop pets
 
-> 这份文档介绍 Void 桌宠（智能体桌宠）的安装、基础操作、交互与个性化设置。
+Desktop pets are optional animated companions for the main Void agent. They reflect task activity without changing how the agent works. Child agents never create separate pets.
 
----
+## Choose and wake a pet
 
-## 1. 启动与基本控制
+1. Open **Settings > Pets**.
+2. Choose a pet in **My pets**. Paimon is the single built-in pet and is available offline.
+3. Turn on **Wake pet** to show the floating companion.
 
-- 应用启动后默认开启**主窗口**（对话面板）；**桌宠窗口**是否同时出现取决于设置中的"启用桌宠"开关。
-- **启用 / 关闭桌宠**有三种方式（任选其一即可）：
-  1. **设置面板** → 外观 → 桌宠 → "启用桌宠" 开关
-  2. **系统托盘**（macOS 为菜单栏图标）右键 → 勾选 / 取消勾选"显示 智能体桌宠"
-  3. **桌宠右键菜单** → "隐藏桌宠" / "设置 → 启用"
-- **完全退出应用**：系统托盘 / 桌宠右键菜单 → "退出 Void"。
+Only one pet can be selected at a time. The selection, awake state, position, and always-on-top preference persist across restarts. Click the floating pet to open the highest-priority main-agent task, drag it to reposition it, or use its context menu to open settings, reset its position, or tuck it away.
 
----
+## Activity states
 
-## 2. 鼠标交互一览
+| Status      | Meaning                                                        | Animation |
+| ----------- | -------------------------------------------------------------- | --------- |
+| Idle        | No main-agent task currently needs attention.                  | `idle`    |
+| Sleeping    | The main agent has remained idle for at least 60 seconds.      | still     |
+| Running     | A main-agent task is queued or running.                        | `running` |
+| Needs input | A task is waiting for approval or handoff input.               | `waiting` |
+| Ready       | A completed task has not been opened from the pet.             | `review`  |
+| Run failed  | A main-agent task failed and has not been opened from the pet. | `failed`  |
 
-| 操作             | 行为                                                               | 音效（若开启）   |
-| ---------------- | ------------------------------------------------------------------ | ---------------- |
-| **左键按住拖动** | 调整桌宠位置（按住桌宠窗口内任意空白区域都可以拖，不限于宠物本体） | 放下时 `drop` 音 |
-| **单击**         | 展开 / 收起对话气泡                                                | `click` 音       |
-| **双击**         | 触发"开心"动画（弹跳 + ✨ 彩花）                                   | `happy` 三连音   |
-| **鼠标悬停**     | 桌宠"注视"光标（轻微放大）                                         | `hover` 轻音     |
-| **右键**         | 弹出原生菜单（见下节）                                             | —                |
-| **60 秒无操作**  | 自动进入"打盹"状态（Zzz）                                          | —                |
+When several main-agent tasks have activity, the pet prioritizes Needs input, Blocked, Ready, then Running. Child-agent runs are excluded. Opening a Ready or Blocked task marks that activity as read.
 
-> 桌宠界面**没有可见的关闭按钮**——关闭 / 隐藏桌宠完全通过：
->
-> - **右键菜单** → "隐藏桌宠"
-> - **系统托盘** → 取消勾选"显示 智能体桌宠"
-> - **设置面板** → 外观 → 桌宠 → 关闭"启用桌宠"
->
-> 拖动时按"鼠标真实位移"逐像素跟随，不会有"卡住 / 漂移 / 透明边界"的感觉。
->
-> 当桌宠处于 `sleep` 状态时，只要再次点击 / 悬停就会醒来。
+Pets respect the app and operating system reduced-motion preference. V2 pets use their neutral frame when motion is reduced; otherwise their additional 16 frames follow the pointer while idle.
 
----
+## Install community pets
 
-## 3. 右键菜单
+The native **Store** view reads the public safe-content catalog from [codex-pets.net](https://codex-pets.net/). Search, filter, and download a pet, then return to **My pets** to use it. Downloads are validated before they are installed. An installed store pet shows an update action when its remote version changes.
 
-桌宠窗口任意位置右键可弹出系统级菜单，包含：
+Store downloads are saved only on this device and do not sync to other installations.
 
-```
-  设置…
-  重置位置
-  ─────────
-  关于 Void
-  ─────────
-  隐藏桌宠
-  退出 Void       (Windows / Linux)
-```
+## Import local pets
 
-- "设置…" 会打开主窗口的设置面板（外观 → 桌宠）。
-- "重置位置" 把桌宠放回右下角默认位置。
-- "隐藏桌宠" 等同于关闭桌宠（不退出应用）。
+Use **Import package** for `.zip` or `.codex-pet.zip` files, or **Import folder** for an unpacked pet. A package must contain:
 
----
+- `pet.json`
+- `spritesheet.webp`
 
-## 4. 系统托盘
+Files may be at the package root or in one enclosing folder. V1 sheets are 1536×1872; V2 sheets are 1536×2288 and declare `"spriteVersionNumber": 2`. Optional Codex animation tracks are supported. Invalid paths, oversized files, malformed manifests, and incompatible dimensions are rejected before anything is written.
 
-托盘（macOS 为菜单栏图标）始终在系统托盘中显示应用入口：
+If an imported id already exists, Void asks before atomically replacing it. The `paimon` id is reserved for the bundled pet. Community and local pets can be deleted. Deleting the active pet switches to built-in Paimon first; built-in pets cannot be deleted.
 
-```
-  ☑ 显示 智能体桌宠       ← 切换显示 / 隐藏
-  ─────────
-  打开主窗口
-  桌宠设置…
-  关于 Void
-  ─────────
-  退出 Void
-```
+## Storage and network behavior
 
-点击托盘图标（单击 / 双击）会自动显示桌宠。
-
----
-
-## 5. 对话功能
-
-- **点击** 桌宠或展开的对话气泡可输入文字 → `Enter` 发送、`Shift+Enter` 换行。
-- 桌宠会**自动继承主窗口的当前智能体与对话历史**（在主窗口开启"消息"）。
-- 点击对话气泡底部的 **"打开对话"** 跳转到完整主窗口；如需更换模型 / 智能体，请到主窗口设置。
-
----
-
-## 6. 桌宠设置
-
-打开主窗口 → 设置 → 外观 → 滚动到底部看到 **"桌宠"** 一节：
-
-| 设置项         | 范围 / 选项  | 说明                                                                       |
-| -------------- | ------------ | -------------------------------------------------------------------------- |
-| 启用桌宠       | 开 / 关      | 等同于托盘开关                                                             |
-| 总在最前       | 开 / 关      | 默认关闭：桌宠位于其他窗口之下、桌面之上                                   |
-| 大小           | 50 % ~ 150 % | 整体缩放，通过 CSS 变量 `transform: scale(...)` 应用                       |
-| 透明度         | 30 % ~ 100 % | 桌宠窗口整体透明度                                                         |
-| 音效           | 开 / 关      | 开启后播放 hover/click/drop/happy 提示音（Web Audio 实时合成，无外部资源） |
-| 自动睡眠       | 0 ~ 86400 秒 | 连续无操作超过该秒数进入"打盹"状态；0 = 关闭                               |
-| 重置位置到默认 | 按钮         | 把桌宠放回默认位置                                                         |
-
----
-
-## 7. 视觉与动画
-
-桌宠形象是一颗**会呼吸的发光球体**。它在以下状态会有明显动画：
-
-| 状态                | 视觉表现                                 |
-| ------------------- | ---------------------------------------- |
-| 空闲 (`idle`)       | 缓慢上下浮动 + 呼吸光晕                  |
-| 悬停 (`hover`)      | 放大 6 %，注视光标                       |
-| 拖动 (`drag`)       | 摇摆 ±3°                                 |
-| 互动 (`interact`)   | 弹跳 + ✨ 彩花（双击触发）               |
-| 思考 (`thinking`)   | 边框脉冲 + 浮动                          |
-| 工作中 (`working`)  | 同 `thinking`                            |
-| 学习中 (`learning`) | 边框变绿                                 |
-| 出错 (`error`)      | 边框变红                                 |
-| 睡眠 (`sleep`)      | 缓慢呼吸 + 右上角 "Zzz" + 帧率降至 1 fps |
-
-> 系统设置中启用 **"减少动画"** (`prefers-reduced-motion: reduce`) 时，所有 CSS 动画自动停止，桌宠保持静态显示。
-
----
-
-## 8. 兼容性与性能
-
-- **平台**：Windows 10 及以上、macOS 12+、主流 Linux 发行版（已在 `electron-builder` 中配置）。
-- **多分辨率 / 缩放**：桌宠窗口大小与位置在 `getAllDisplays().workArea` 上做夹紧；缩放 100 % / 125 % / 150 % 都能正确放置。
-- **内存优化**：
-  - 桌宠窗口使用 `transparent + frame: false`，独立进程轻量。
-  - 处于 `sleep` 状态时 `webContents.setFrameRate(1)`，把渲染帧率从 60 降到 1。
-  - 关闭主窗口时，桌宠仍可继续运行（托盘化），不强制退出。
-
----
-
-## 9. 常见问题
-
-**Q：桌宠被其他应用窗口挡住了怎么办？**
-A：设置 → 外观 → 桌宠 → 开启"总在最前"。
-
-**Q：声音很吵 / 不想听？**
-A：设置 → 外观 → 桌宠 → 关闭"音效"。
-
-**Q：自动睡眠太快/太慢？**
-A：调大/调小"自动睡眠"秒数即可；0 = 不自动睡眠。
-
-**Q：拖动后想回到默认位置？**
-A：右键 → 重置位置；或设置中点"重置位置到默认"。
-
-**Q：完全退出后还能恢复桌宠吗？**
-A：重新启动应用即可；如果之前是"隐藏"状态，启动后仍会保持隐藏，可在托盘中再次启用。
-
----
-
-## 10. 故障排查
-
-| 现象                    | 排查                                                                                                               |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 桌宠不显示              | 1) 检查托盘是否勾选"显示 智能体桌宠"；2) 检查设置 → 外观 → 桌宠 → 启用开关；3) 调整透明度 / 大小确认是否被缩到 0。 |
-| 双击没反应              | 桌宠处于 sleep → 先单击或悬停唤醒；或拖动 5 px 以上后会被识别为拖动而非点击。                                      |
-| 拖动卡顿                | 关闭"总在最前"或调整"透明度"；开启"自动睡眠"减少长时占用。                                                         |
-| 音效无声音              | 确认系统未静音；确认设置中"音效"已开启；首次播放需用户先与页面交互（浏览器自动播放策略）。                         |
-| 升级后桌宠位置/大小异常 | 右键 → 重置位置；或在设置中把"大小"拉到 100 %。                                                                    |
-
----
-
-如需更多帮助，请到主窗口 → 设置 → 关于 → 反馈。
+- Built-in Paimon asset: bundled with the desktop application under `resources/pets/paimon`
+- Community and local pets: `<userData>/data/pets/installed/<id>`
+- Store requests always use safe-content mode.
+- A failed restore keeps the selection and awake preference but does not create a broken floating window.

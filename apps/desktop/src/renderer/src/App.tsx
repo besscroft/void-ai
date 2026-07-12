@@ -42,6 +42,7 @@ function AppContent(): React.JSX.Element {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<AppView>("chat");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"appearance" | "pets">("appearance");
   // 鏈嶅姟绔彛锛歶seChat 蹇呴』鍦ㄩ娆℃覆鏌撳氨鎷垮埌姝ｇ‘ transport锛?
   // 鍥犳绔彛灏辩华鍓嶄笉鎸傝浇 ChatView銆?
   const [serverInfo, setServerInfo] = useState<LocalServerInfo | null>(null);
@@ -116,7 +117,10 @@ function AppContent(): React.JSX.Element {
 
   // 托盘 / 桌宠右键菜单触发的"打开设置"
   useEffect(() => {
-    const offSettings = api.system.onPetOpenSettings(() => setSettingsOpen(true));
+    const offSettings = api.system.onPetOpenSettings(() => {
+      setSettingsInitialTab("pets");
+      setSettingsOpen(true);
+    });
     return () => {
       offSettings?.();
     };
@@ -131,7 +135,10 @@ function AppContent(): React.JSX.Element {
         onSelectConversation={handleSelect}
         onCreateConversation={() => void createNewConversation()}
         onDeleteConversation={handleDelete}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsInitialTab("appearance");
+          setSettingsOpen(true);
+        }}
       >
         <div
           className={activeView === "chat" ? "flex min-h-0 flex-1" : "hidden"}
@@ -148,7 +155,11 @@ function AppContent(): React.JSX.Element {
         {activeView !== "chat" ? <MainPanelView section={activeView} /> : null}
       </AppShell>
 
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsDialog
+        open={settingsOpen}
+        initialTab={settingsInitialTab}
+        onClose={() => setSettingsOpen(false)}
+      />
       <Toaster richColors closeButton position="top-right" />
     </>
   );

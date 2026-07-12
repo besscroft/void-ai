@@ -8,6 +8,7 @@ import { startMemoryWorker } from "./lib/agent-learning";
 import { startServer, stopServer } from "./server";
 import { migrateProviderApiKeysToModelKeys } from "./lib/providers";
 import { registerVoidMediaProtocol } from "./lib/media-assets";
+import { registerDesktopPetProtocol } from "./lib/desktop-pet-assets";
 import { registerIpcHandlers } from "./ipc";
 import { DesktopPetWindowController } from "./lib/desktop-pet-window";
 import { DesktopPetTrayController } from "./lib/desktop-pet-tray";
@@ -15,6 +16,15 @@ import { showDesktopPetContextMenu } from "./lib/desktop-pet-context-menu";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "void-media",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+  {
+    scheme: "void-pet",
     privileges: {
       standard: true,
       secure: true,
@@ -140,6 +150,7 @@ void app.whenReady().then(async () => {
   }
 
   registerVoidMediaProtocol();
+  registerDesktopPetProtocol();
 
   // 2. 启动本地 HTTP 服务（用于 AI SDK 流式通信）
   try {

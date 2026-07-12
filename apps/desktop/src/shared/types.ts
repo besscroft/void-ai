@@ -1168,180 +1168,173 @@ export interface InteractionProfile {
   updated_at: number;
 }
 
-export type DesktopPetMood =
-  | "idle"
-  | "hover"
-  | "thinking"
-  | "working"
-  | "learning"
-  | "happy"
-  | "sleep"
-  | "error";
+export type DesktopPetSelector = `builtin:${string}` | `installed:${string}`;
+export type DesktopPetSource = "builtin" | "store" | "local";
+export type DesktopPetFormatVersion = 1 | 2;
+export type DesktopPetKind = "object" | "animal" | "person" | "creature";
 
-/**
- * 桌宠的"活动状态"，与 mood 不同：
- * - mood 表示情绪/性格状态（来自后端）
- * - activity 表示用户交互触发的瞬时状态（前端本地维护）
- */
-export type DesktopPetActivity = "idle" | "hover" | "drag" | "interact" | "sleep" | "hidden";
+export interface DesktopPetAnimationSpec {
+  frames: number[];
+  fps?: number;
+  loop?: boolean;
+  fallback?: string;
+}
+
+export interface DesktopPetManifest {
+  id: string;
+  displayName: string;
+  description: string;
+  spritesheetPath: "spritesheet.webp";
+  spriteVersionNumber?: DesktopPetFormatVersion;
+  kind?: DesktopPetKind;
+  animations?: Record<string, DesktopPetAnimationSpec>;
+}
+
+export interface InstalledPet {
+  selector: DesktopPetSelector;
+  id: string;
+  displayName: string;
+  description: string;
+  source: DesktopPetSource;
+  formatVersion: DesktopPetFormatVersion;
+  kind: DesktopPetKind;
+  assetUrl: string;
+  removable: boolean;
+  available: boolean;
+  installedAt?: number;
+  author?: string | null;
+  remoteVersion?: string | null;
+  error?: string | null;
+  animations?: Record<string, DesktopPetAnimationSpec>;
+}
+
+export interface StorePet {
+  id: string;
+  displayName: string;
+  description: string;
+  formatVersion: DesktopPetFormatVersion;
+  kind: DesktopPetKind;
+  author: string;
+  tags: string[];
+  posterUrl: string;
+  downloadUrl: string;
+  remoteVersion: string;
+  installed: boolean;
+  updateAvailable: boolean;
+}
+
+export interface StorePetQuery {
+  query?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: "new" | "popular" | "views";
+  kind?: "all" | DesktopPetKind;
+  format?: "all" | "v1" | "v2";
+}
+
+export interface StorePetPage {
+  pets: StorePet[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface PetImportCandidate {
+  token: string;
+  pet: InstalledPet;
+  conflict: InstalledPet | null;
+  expiresAt: number;
+}
+
+export type DesktopPetActivityKind =
+  | "idle"
+  | "sleeping"
+  | "running"
+  | "needs_input"
+  | "ready"
+  | "blocked";
+
+export interface DesktopPetActivitySummary {
+  kind: DesktopPetActivityKind;
+  runId: string | null;
+  conversationId: string | null;
+  title: string;
+  detail: string | null;
+}
 
 export interface DesktopPetWindowConfig {
   x?: number;
   y?: number;
-  width: number;
-  height: number;
-  /**
-   * 是否"置顶"（永远在其他窗口之上）。
-   * 默认 false：桌宠位于其他窗口下方，贴近桌面。
-   * 用户可在设置中切换。
-   */
   alwaysOnTop: boolean;
-  /**
-   * 缩放比例（0.5 ~ 1.5），影响桌宠整体视觉大小（不影响窗口 bounds）。
-   */
-  scale: number;
-  /**
-   * 窗口整体透明度（0.3 ~ 1.0）。
-   */
-  opacity: number;
-}
-
-export interface DesktopPetInteractionConfig {
-  /**
-   * 是否播放音效（hover/click/drag-drop）。
-   */
-  soundEnabled: boolean;
-  /**
-   * 无操作多少毫秒后进入 sleep 状态；<= 0 表示禁用自动睡眠。
-   */
-  autoSleepMs: number;
 }
 
 export interface DesktopPetConfig {
-  version: 1;
-  agentId: string;
-  conversationId?: string;
+  version: 2;
+  selectedPet: DesktopPetSelector;
+  acknowledgedRunIds: string[];
   window: DesktopPetWindowConfig;
-  interaction: DesktopPetInteractionConfig;
-  visual: {
-    variant: "void-orb";
-  };
 }
 
-export type DesktopPetConfigPatch = Omit<
-  Partial<DesktopPetConfig>,
-  "window" | "visual" | "interaction"
-> & {
+export type DesktopPetConfigPatch = Omit<Partial<DesktopPetConfig>, "window"> & {
   window?: Partial<DesktopPetWindowConfig>;
-  interaction?: Partial<DesktopPetInteractionConfig>;
-  visual?: Partial<DesktopPetConfig["visual"]>;
 };
 
 export interface DesktopPetSnapshot {
   profile: InteractionProfile;
+  enabled: boolean;
   config: DesktopPetConfig;
-  agent: AgentProfile | null;
-  runtimeState: AgentRuntimeState | null;
-  selectedModel: string | null;
-  mood: DesktopPetMood;
+  pet: InstalledPet | null;
+  activity: DesktopPetActivitySummary;
+  pendingActivityCount: number;
+  assetError: string | null;
 }
 
 export const DESKTOP_PET_PROFILE_ID = "interaction-pet";
 
-/** 桌宠窗口默认尺寸（CSS px）。只够容纳"宠物球 + 状态文字"，不挡其他软件 */
-export const DEFAULT_DESKTOP_PET_WINDOW: DesktopPetWindowConfig = {
-  width: 180,
-  height: 180,
-  alwaysOnTop: false,
-  scale: 1,
-  opacity: 1,
-};
+export const DEFAULT_DESKTOP_PET_WINDOW: DesktopPetWindowConfig = { alwaysOnTop: false };
 
-/**
- * 桌宠展开对话气泡时的窗口尺寸（用户主动展开时短暂占用，不影响默认占位）
- */
-export const DESKTOP_PET_WINDOW_EXPANDED_SIZE = { width: 280, height: 360 };
-
-/** 桌宠交互默认配置 */
-export const DEFAULT_DESKTOP_PET_INTERACTION: DesktopPetInteractionConfig = {
-  soundEnabled: false,
-  autoSleepMs: 60_000,
-};
+/** Fixed transparent window around the 96x104 sprite and its compact status label. */
+export const DESKTOP_PET_WINDOW_SIZE = { width: 168, height: 144 } as const;
 
 export const DEFAULT_DESKTOP_PET_CONFIG: DesktopPetConfig = {
-  version: 1,
-  agentId: DEFAULT_AGENT_ID,
+  version: 2,
+  selectedPet: "builtin:paimon",
+  acknowledgedRunIds: [],
   window: DEFAULT_DESKTOP_PET_WINDOW,
-  interaction: DEFAULT_DESKTOP_PET_INTERACTION,
-  visual: { variant: "void-orb" },
 };
 
 export function normalizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
   const value = readDesktopPetObject(raw);
   const windowValue = readDesktopPetObject(value?.window);
-  const interactionValue = readDesktopPetObject(value?.interaction);
-  const visualValue = readDesktopPetObject(value?.visual);
-  const width = clampDesktopPetNumber(
-    windowValue?.width,
-    DEFAULT_DESKTOP_PET_WINDOW.width,
-    128,
-    520,
-  );
-  const height = clampDesktopPetNumber(
-    windowValue?.height,
-    DEFAULT_DESKTOP_PET_WINDOW.height,
-    128,
-    680,
-  );
   const x = readOptionalDesktopPetNumber(windowValue?.x);
   const y = readOptionalDesktopPetNumber(windowValue?.y);
-  const scale = clampDesktopPetNumber(
-    windowValue?.scale,
-    DEFAULT_DESKTOP_PET_WINDOW.scale,
-    0.5,
-    1.5,
-  );
-  const opacity = clampDesktopPetNumber(
-    windowValue?.opacity,
-    DEFAULT_DESKTOP_PET_WINDOW.opacity,
-    0.3,
-    1,
-  );
-  const autoSleepMs = clampDesktopPetNumber(
-    interactionValue?.autoSleepMs,
-    DEFAULT_DESKTOP_PET_INTERACTION.autoSleepMs,
-    0,
-    24 * 60 * 60_000,
-  );
+  const rawSelectedPet =
+    typeof value?.selectedPet === "string" &&
+    /^(builtin|installed):[a-z0-9][a-z0-9-]*$/.test(value.selectedPet)
+      ? (value.selectedPet as DesktopPetSelector)
+      : DEFAULT_DESKTOP_PET_CONFIG.selectedPet;
+  const selectedPet =
+    rawSelectedPet.startsWith("builtin:") || rawSelectedPet === "installed:paimon"
+      ? DEFAULT_DESKTOP_PET_CONFIG.selectedPet
+      : rawSelectedPet;
+  const acknowledgedRunIds = Array.isArray(value?.acknowledgedRunIds)
+    ? value.acknowledgedRunIds
+        .filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 128)
+        .slice(-100)
+    : [];
 
   return {
-    version: 1,
-    agentId: DEFAULT_AGENT_ID,
-    conversationId:
-      typeof value?.conversationId === "string" && value.conversationId.trim()
-        ? value.conversationId.trim()
-        : undefined,
+    version: 2,
+    selectedPet,
+    acknowledgedRunIds,
     window: {
       ...(x === undefined ? {} : { x }),
       ...(y === undefined ? {} : { y }),
-      width,
-      height,
       alwaysOnTop:
         typeof windowValue?.alwaysOnTop === "boolean"
           ? windowValue.alwaysOnTop
           : DEFAULT_DESKTOP_PET_WINDOW.alwaysOnTop,
-      scale,
-      opacity,
-    },
-    interaction: {
-      soundEnabled:
-        typeof interactionValue?.soundEnabled === "boolean"
-          ? interactionValue.soundEnabled
-          : DEFAULT_DESKTOP_PET_INTERACTION.soundEnabled,
-      autoSleepMs,
-    },
-    visual: {
-      variant: visualValue?.variant === "void-orb" ? "void-orb" : "void-orb",
     },
   };
 }
@@ -1353,30 +1346,11 @@ export function mergeDesktopPetConfig(
   return normalizeDesktopPetConfig({
     ...current,
     ...patch,
-    agentId: DEFAULT_AGENT_ID,
     window: {
       ...current.window,
       ...patch.window,
     },
-    interaction: {
-      ...current.interaction,
-      ...patch.interaction,
-    },
-    visual: {
-      ...current.visual,
-      ...patch.visual,
-    },
   });
-}
-
-export function moodFromAgentRuntimeStatus(
-  status: AgentRuntimeStatus | null | undefined,
-): DesktopPetMood {
-  if (status === "failed") return "error";
-  if (status === "learning") return "learning";
-  if (status === "queued" || status === "running" || status === "reviewing") return "thinking";
-  if (status === "handoff" || status === "tool_calling" || status === "sandbox") return "working";
-  return "idle";
 }
 
 function readDesktopPetObject(raw: unknown): Record<string, unknown> | null {
@@ -1392,12 +1366,6 @@ function readDesktopPetObject(raw: unknown): Record<string, unknown> | null {
     return raw as Record<string, unknown>;
   }
   return null;
-}
-
-function clampDesktopPetNumber(raw: unknown, fallback: number, min: number, max: number): number {
-  return typeof raw === "number" && Number.isFinite(raw)
-    ? Math.round(Math.min(max, Math.max(min, raw)))
-    : fallback;
 }
 
 function readOptionalDesktopPetNumber(raw: unknown): number | undefined {
