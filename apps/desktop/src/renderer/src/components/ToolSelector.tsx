@@ -157,7 +157,7 @@ export function ToolSelector({
       <Popover.Content
         placement="top start"
         offset={10}
-        className="z-[1000] w-[420px] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-foreground/10 bg-background p-0 shadow-2xl"
+        className="z-[1000] w-[420px] max-w-[calc(100vw-1rem)] select-none overflow-hidden rounded-xl border border-foreground/10 bg-background p-0 shadow-2xl"
       >
         <Popover.Dialog className="flex max-h-[min(560px,calc(100vh-7rem))] min-w-0 flex-col bg-background outline-none">
           <div className="flex shrink-0 items-start justify-between gap-3 border-b border-foreground/10 px-4 py-3">

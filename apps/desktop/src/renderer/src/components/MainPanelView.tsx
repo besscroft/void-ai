@@ -176,7 +176,7 @@ function MemoryPanel(): React.JSX.Element {
   return (
     <div className="flex h-full gap-4 overflow-hidden">
       {/* 左侧记忆导航 */}
-      <div className="flex w-56 shrink-0 flex-col gap-2 self-stretch overflow-y-auto rounded-lg border border-border bg-card p-3">
+      <div className="flex w-56 shrink-0 flex-col gap-2 self-stretch overflow-y-auto rounded-lg border border-border bg-card p-3 select-none">
         <h2 className="px-1 py-1 text-sm font-semibold">{t("main.title.memory")}</h2>
 
         <div className="flex flex-col gap-1">
@@ -462,7 +462,7 @@ function MemoryEntriesPanel(): React.JSX.Element {
       {/* Two columns */}
       <div className="flex min-h-0 flex-1 gap-4">
         {/* Left: search + list */}
-        <div className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card select-none">
           <div className="border-b border-border p-4">
             <div className="relative">
               <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -576,7 +576,7 @@ function MemoryListRow({
   active: boolean;
   onSelect: () => void;
 }): React.JSX.Element {
-  const { t } = useT();
+  const { t, f } = useT();
   return (
     <div
       className={cn(
@@ -591,15 +591,17 @@ function MemoryListRow({
           )}
           <span className="truncate text-sm font-medium">{memory.title}</span>
         </div>
-        <div className="mt-1 flex flex-wrap gap-1">
+        <div className="mt-1 flex flex-wrap items-center gap-1">
           <Chip size="sm" variant="soft">
             {t(`main.memory.scope.${memory.scope}`)}
           </Chip>
           <Chip size="sm" variant="secondary">
             {t(`main.memory.kind.${memory.kind}`)}
           </Chip>
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            {f.dateTime(memory.created_at)}
+          </span>
         </div>
-        <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{memory.content}</p>
       </button>
     </div>
   );
@@ -655,7 +657,7 @@ function MemoryDetail({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-md border border-border bg-background/50 p-4 text-xs sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-md border border-border bg-background/50 p-4 text-xs sm:grid-cols-3 select-none">
         <MetaItem label={t("main.memory.field.salience")} value={String(memory.salience)} />
         <MetaItem label={t("main.memory.sort.created")} value={f.dateTime(memory.created_at)} />
         <MetaItem label={t("main.memory.sort.updated")} value={f.dateTime(memory.updated_at)} />
@@ -729,7 +731,7 @@ function MemoryEditModal({
       aria-modal="true"
     >
       <div
-        className="mx-4 w-full max-w-lg overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
+        className="mx-4 w-full max-w-lg select-none overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-foreground/10 px-5 py-3">
@@ -754,6 +756,7 @@ function MemoryEditModal({
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={t("main.memory.field.title")}
                 maxLength={120}
+                className="select-text"
               />
             </div>
             <div className="grid gap-1.5">
@@ -764,6 +767,7 @@ function MemoryEditModal({
                 placeholder={t("main.memory.field.content")}
                 rows={5}
                 maxLength={4000}
+                className="select-text"
               />
             </div>
             <div className="grid gap-1.5">
@@ -855,7 +859,7 @@ function FilterSelect({
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground">{label}</span>
       <select
-        className="h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-ring"
+        className="h-8 select-none rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-ring"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >

@@ -287,7 +287,7 @@ export function AgentsPanel({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="select-none grid gap-3 md:grid-cols-3">
         <MetricCard label={t("agents.metric.total")} value={agents.length} />
         <MetricCard label={t("agents.metric.active")} value={activeChildren.length} />
         <MetricCard label={t("agents.metric.running")} value={runningCount(runtime)} />
@@ -412,7 +412,7 @@ function AgentCard({
             className="flex min-w-0 flex-1 items-start gap-3 text-left"
             onClick={onSelect}
           >
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
+            <span className="flex size-10 shrink-0 select-none items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
               {agent.avatar || agent.name.slice(0, 1)}
             </span>
             <span className="min-w-0">
@@ -515,7 +515,7 @@ function AgentDetailModal({
       >
         <header className="flex items-center justify-between gap-3 border-b border-foreground/10 px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
+            <span className="flex size-9 shrink-0 select-none items-center justify-center rounded-md bg-accent/10 text-sm font-semibold text-accent">
               {agent.avatar || agent.name.slice(0, 1)}
             </span>
             <div className="min-w-0">
@@ -825,7 +825,7 @@ function AgentEditorModal({
                 <div className="grid gap-3 md:grid-cols-2">
                   <Field label={t("agents.field.model")}>
                     <select
-                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.model_ref}
                       onChange={(event) => patch({ model_ref: event.target.value })}
                     >
@@ -866,7 +866,7 @@ function AgentEditorModal({
                 <div className="grid gap-3 md:grid-cols-3">
                   <Field label={t("agents.field.status")}>
                     <select
-                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.status}
                       onChange={(event) =>
                         patch({ status: event.target.value as AgentProfile["status"] })
@@ -887,7 +887,7 @@ function AgentEditorModal({
                   </Field>
                   <Field label={t("agents.field.reasoning")}>
                     <select
-                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.runtimeConfig.reasoning ?? "provider-default"}
                       onChange={(event) =>
                         patchRuntime({ reasoning: event.target.value as ChatReasoningLevel })
@@ -926,7 +926,7 @@ function AgentEditorModal({
                   </Field>
                   <Field label={t("agents.field.contextMode")}>
                     <select
-                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.runtimeConfig.contextPolicy?.mode ?? "semantic"}
                       onChange={(event) =>
                         patchRuntime({
@@ -994,7 +994,7 @@ function AgentEditorModal({
                 </div>
                 <Field label={t("agents.field.compactionModel")}>
                   <select
-                    className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                    className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                     value={form.runtimeConfig.compactionModelRef ?? ""}
                     onChange={(event) =>
                       patchRuntime({ compactionModelRef: event.target.value || undefined })
@@ -1042,7 +1042,7 @@ function AgentEditorModal({
                 <div className="grid gap-3 md:grid-cols-2">
                   <Field label={t("agents.field.reviewPolicy")}>
                     <select
-                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.runtimeConfig.reviewPolicy ?? "review_sensitive"}
                       onChange={(event) =>
                         patchRuntime({
@@ -1061,7 +1061,7 @@ function AgentEditorModal({
                   </Field>
                   <Field label={t("agents.field.sandboxPolicy")}>
                     <select
-                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.runtimeConfig.sandboxPolicy ?? "local"}
                       onChange={(event) =>
                         patchRuntime({
@@ -1095,7 +1095,7 @@ function AgentEditorModal({
                 <div className="grid gap-3 md:grid-cols-2">
                   <Field label={t("agents.field.handoff")}>
                     <select
-                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.handoffConfig.mode}
                       onChange={(event) =>
                         patchHandoff({ mode: event.target.value as AgentHandoffConfig["mode"] })
@@ -1110,7 +1110,7 @@ function AgentEditorModal({
                   </Field>
                   <Field label={t("agents.field.priority")}>
                     <select
-                      className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.handoffConfig.priority}
                       onChange={(event) =>
                         patchHandoff({
@@ -1149,7 +1149,7 @@ function AgentEditorModal({
               <div className="space-y-4">
                 <Field label={t("agents.field.toolMode")}>
                   <select
-                    className="h-10 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                    className="h-10 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                     value={form.toolPolicy.mode}
                     onChange={(event) =>
                       patchTools({ mode: event.target.value === "custom" ? "custom" : "inherit" })
@@ -1310,7 +1310,7 @@ function Field({
   children: ReactNode;
 }): React.JSX.Element {
   return (
-    <label className="grid gap-1.5">
+    <label className="grid select-none gap-1.5">
       <Label className="text-xs font-medium text-foreground/50">{label}</Label>
       {children}
       {error ? <span className="text-xs text-danger">{error}</span> : null}

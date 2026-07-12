@@ -66,7 +66,7 @@ export function ReasoningSelector({
         <div
           role="listbox"
           aria-label={t("reasoning.selector.label")}
-          className={`absolute z-50 w-56 overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
+          className={`absolute z-50 w-56 select-none overflow-hidden rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
         >
           <div className="border-b border-foreground/10 px-3 py-1.5 text-xs font-semibold text-foreground/50">
             {t("reasoning.selector.title")}

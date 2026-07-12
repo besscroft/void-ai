@@ -1,11 +1,3 @@
-/**
- * 涓昏繘绋嬩笌娓叉煋杩涚▼鍏变韩鐨勭被鍨嬪畾涔?
- *
- * 杩欎簺绫诲瀷鎻忚堪浜嗛€氳繃 IPC 鍦ㄤ袱涓繘绋嬮棿浼犻€掔殑鏁版嵁缁撴瀯銆?
- * main 鍜?preload 閮戒粠杩欓噷 import锛屾覆鏌撹繘绋嬮€氳繃 preload 鐨?d.ts 闂存帴鑾峰彇銆?
- */
-
-/** 浼氳瘽璁板綍 */
 export interface Conversation {
   id: string;
   title: string;

@@ -156,7 +156,7 @@ export function AppShell({
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       <aside className="app-sidebar flex w-[280px] shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.025]">
         <div className="border-b border-foreground/10 px-4 py-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex select-none items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{t("shell.brand")}</p>
               <p className="truncate text-xs text-foreground/45">{t("shell.tagline")}</p>
@@ -193,7 +193,7 @@ export function AppShell({
 
         <div className="flex min-h-0 flex-1 flex-col border-t border-foreground/10">
           <div className="flex items-center justify-between gap-2 px-3 py-3">
-            <span className="text-xs font-medium uppercase tracking-normal text-foreground/45">
+            <span className="select-none text-xs font-medium uppercase tracking-normal text-foreground/45">
               {t("shell.conversations")}
             </span>
             <Button
@@ -246,7 +246,7 @@ export function AppShell({
               <ul className="space-y-3">
                 {groupedConversations.map((group) => (
                   <li key={group.label}>
-                    <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/35">
+                    <p className="select-none px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/35">
                       {group.label}
                     </p>
                     <ul className="space-y-0.5">

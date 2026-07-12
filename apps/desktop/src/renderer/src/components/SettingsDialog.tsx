@@ -286,7 +286,7 @@ function SettingSection({
       <header className="mb-2 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           {icon && (
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
+            <span className="flex size-6 shrink-0 select-none items-center justify-center rounded-md bg-accent/10 text-accent">
               {icon}
             </span>
           )}
@@ -447,300 +447,310 @@ function AppearanceTab({
   };
 
   return (
-    <section className="space-y-5">
-      <ResettableTabHeader
-        title={t("appearance.title")}
-        onResetDefaults={onResetDefaults}
-        resetDone={resetDone}
-      />
-
-      {/* 鈥斺€?涓婚妯″紡棰勮鍗?鈥斺€?*/}
-      <SettingSection
-        title={t("appearance.mode")}
-        desc={t("appearance.mode.desc")}
-        icon={<IconPalette className="size-3.5" />}
-      >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <ThemeModePreviewCard
-            value="system"
-            label={t("shell.theme.system")}
-            active={settings.theme === "system"}
-            onSelect={handleThemeMode}
-            swatchLight={systemSwatchLight}
-            swatchDark={systemSwatchDark}
-          />
-          <ThemeModePreviewCard
-            value="light"
-            label={t("shell.theme.light")}
-            active={settings.theme === "light"}
-            onSelect={handleThemeMode}
-            swatchLight={systemSwatchLight}
-            swatchDark={systemSwatchLight}
-          />
-          <ThemeModePreviewCard
-            value="dark"
-            label={t("shell.theme.dark")}
-            active={settings.theme === "dark"}
-            onSelect={handleThemeMode}
-            swatchLight={systemSwatchDark}
-            swatchDark={systemSwatchDark}
-          />
-        </div>
-      </SettingSection>
-
-      {/* 鈥斺€?涓婚鍖?+ 寮鸿皟鑹?骞跺垪 鈥斺€?*/}
-      <div className="space-y-4">
-        <SettingSection title={t("appearance.bundle")} desc={t("appearance.bundle.desc")}>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {THEME_PRESETS.map((p) => {
-              const active = settings.themePreset === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => void update({ themePreset: p.id as ThemePresetId })}
-                  aria-pressed={active}
-                  className={[
-                    "flex min-h-20 flex-col justify-between rounded-md border p-2.5 text-left text-sm transition",
-                    active
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-foreground/15 text-foreground/75 hover:bg-foreground/5",
-                  ].join(" ")}
-                >
-                  <span className="font-medium">{t(p.labelKey)}</span>
-                  <span className="mt-2 flex gap-1">
-                    <span
-                      className="h-4 flex-1 rounded border border-foreground/10"
-                      style={{ backgroundColor: p.swatches.light }}
-                    />
-                    <span
-                      className="h-4 flex-1 rounded border border-foreground/10"
-                      style={{ backgroundColor: p.swatches.dark }}
-                    />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </SettingSection>
-
-        <SettingSection title={t("appearance.style")} desc={t("appearance.style.desc")}>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {STYLE_PRESETS.map((p) => {
-              const selected = settings.style === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => void update({ style: p.id })}
-                  aria-pressed={selected}
-                  className={[
-                    "group flex flex-col items-start gap-2 rounded-md border bg-background p-3 text-left transition",
-                    selected
-                      ? "border-foreground/40 ring-1 ring-foreground/15"
-                      : "border-foreground/10 hover:border-foreground/25",
-                  ].join(" ")}
-                >
-                  <div className="flex w-full items-center justify-between">
-                    <span className="text-sm font-medium">{t(p.labelKey)}</span>
-                    <span
-                      className="size-4 shrink-0 border border-foreground/15"
-                      style={{ borderRadius: Math.min(p.radius, 8) }}
-                    />
-                  </div>
-                  <div
-                    className="flex w-full items-center justify-center bg-foreground/[0.03] py-3 text-2xl text-foreground/70"
-                    style={{ fontFamily: p.fontStack, borderRadius: p.radius }}
-                  >
-                    Aa
-                  </div>
-                  <span className="text-xs leading-relaxed text-foreground/55">{t(p.descKey)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </SettingSection>
+    <section className="select-none flex flex-col min-h-0 flex-1 -mx-5 -my-4">
+      <div className="shrink-0 px-5 py-4">
+        <ResettableTabHeader
+          title={t("appearance.title")}
+          onResetDefaults={onResetDefaults}
+          resetDone={resetDone}
+        />
       </div>
 
-      {/* 鈥斺€?瀛椾綋 鈥斺€?*/}
-      {/* 字体与排版（合并卡片）：一行四列，字号 tabs 横向 */}
-      <SettingSection
-        title={t("appearance.fonts")}
-        desc={t("appearance.fonts.desc")}
-        bodyClassName="grid grid-cols-4 gap-3"
-      >
-        {/* UI 字体：下拉框选择 */}
-        <FontSelectRow
-          label={t("appearance.font.ui")}
-          value={settings.fontFamily}
-          presets={FONT_PRESETS}
-          onChange={(v) => void update({ fontFamily: v })}
-        />
-        {/* 等宽字体：下拉框选择 */}
-        <FontSelectRow
-          label={t("appearance.font.mono")}
-          value={settings.monoFontFamily}
-          presets={MONO_FONT_PRESETS}
-          onChange={(v) => void update({ monoFontFamily: v })}
-        />
-        {/* 字号：Slider 选择（5 档） */}
-        <div className="flex h-full flex-col gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">{t("appearance.fontSize")}</p>
-            <p className="mt-0.5 text-xs text-foreground/50">{t("appearance.fontSize.desc")}</p>
-          </div>
-          <Slider
-            value={FONT_SIZE_LEVELS.indexOf(settings.fontSize)}
-            min={0}
-            max={FONT_SIZE_LEVELS.length - 1}
-            step={1}
-            onValueChange={(v) => {
-              const idx = Array.isArray(v) ? v[0] : v;
-              if (FONT_SIZE_LEVELS[idx]) {
-                void update({ fontSize: FONT_SIZE_LEVELS[idx] });
-              }
-            }}
-          />
-        </div>
-        {/* 代码字号：Slider 选择（5 档） */}
-        <div className="flex h-full flex-col gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">{t("appearance.codeFontSize")}</p>
-            <p className="mt-0.5 text-xs text-foreground/50">{t("appearance.codeFontSize.desc")}</p>
-          </div>
-          <Slider
-            value={CODE_FONT_SIZE_PRESETS.indexOf(
-              settings.codeFontSizePx as (typeof CODE_FONT_SIZE_PRESETS)[number],
-            )}
-            min={0}
-            max={CODE_FONT_SIZE_PRESETS.length - 1}
-            step={1}
-            onValueChange={(v) => {
-              const idx = Array.isArray(v) ? v[0] : v;
-              if (CODE_FONT_SIZE_PRESETS[idx] !== undefined) {
-                void update({ codeFontSizePx: CODE_FONT_SIZE_PRESETS[idx] });
-              }
-            }}
-          />
-        </div>
-      </SettingSection>
-
-      {/* 鈥斺€?鎺掔増 鈥斺€?*/}
-
-      {/* 鈥斺€?浜や簰 鈥斺€?*/}
-      <SettingSection title={t("appearance.interaction")}>
-        <SettingItem
-          title={t("appearance.translucent")}
-          desc={t("appearance.translucent.desc")}
-          control={
-            <Switch
-              size="sm"
-              isSelected={settings.translucentSidebar}
-              onChange={(v) => void update({ translucentSidebar: v })}
-              aria-label={t("appearance.translucent")}
+      <div className="space-y-5 overflow-y-auto min-h-0 flex-1 px-5 pb-4">
+        {/* 鈥斺€?涓婚妯″紡棰勮鍗?鈥斺€?*/}
+        <SettingSection
+          title={t("appearance.mode")}
+          desc={t("appearance.mode.desc")}
+          icon={<IconPalette className="size-3.5" />}
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <ThemeModePreviewCard
+              value="system"
+              label={t("shell.theme.system")}
+              active={settings.theme === "system"}
+              onSelect={handleThemeMode}
+              swatchLight={systemSwatchLight}
+              swatchDark={systemSwatchDark}
             />
-          }
-        />
-        <SettingItem
-          title={t("appearance.pointer")}
-          desc={t("appearance.pointer.desc")}
-          control={
-            <Switch
-              size="sm"
-              isSelected={settings.usePointerCursor}
-              onChange={(v) => void update({ usePointerCursor: v })}
-              aria-label={t("appearance.pointer")}
+            <ThemeModePreviewCard
+              value="light"
+              label={t("shell.theme.light")}
+              active={settings.theme === "light"}
+              onSelect={handleThemeMode}
+              swatchLight={systemSwatchLight}
+              swatchDark={systemSwatchLight}
             />
-          }
-        />
-        <SettingItem
-          title={t("appearance.motion")}
-          desc={t("appearance.motion.desc")}
-          control={
-            <Tabs
-              value={settings.reduceMotion}
-              onValueChange={(key) => {
-                if (key === "system" || key === "on" || key === "off") {
-                  void update({ reduceMotion: key as ReduceMotion });
-                }
-              }}
-            >
-              <TabsList aria-label={t("appearance.motion")}>
-                <TabsTrigger value="system">{t("appearance.motion.system")}</TabsTrigger>
-                <TabsTrigger value="on">{t("appearance.motion.on")}</TabsTrigger>
-                <TabsTrigger value="off">{t("appearance.motion.off")}</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          }
-        />
-        <SettingItem
-          title={t("appearance.density")}
-          desc={t("appearance.density.desc")}
-          control={
-            <Tabs
-              value={settings.density}
-              onValueChange={(key) => {
-                if (key === "compact" || key === "comfortable" || key === "loose") {
-                  void update({ density: key as LayoutDensity });
-                }
-              }}
-            >
-              <TabsList aria-label={t("appearance.density")}>
-                <TabsTrigger value="compact">{t("appearance.density.compact")}</TabsTrigger>
-                <TabsTrigger value="comfortable">{t("appearance.density.comfortable")}</TabsTrigger>
-                <TabsTrigger value="loose">{t("appearance.density.loose")}</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          }
-        />
-      </SettingSection>
+            <ThemeModePreviewCard
+              value="dark"
+              label={t("shell.theme.dark")}
+              active={settings.theme === "dark"}
+              onSelect={handleThemeMode}
+              swatchLight={systemSwatchDark}
+              swatchDark={systemSwatchDark}
+            />
+          </div>
+        </SettingSection>
 
-      {/* 鈥斺€?楂樼骇/宸紓鍖?鈥斺€?*/}
-      <SettingSection title={t("appearance.advanced")}>
-        <SettingItem
-          title={t("appearance.diff")}
-          desc={t("appearance.diff.desc")}
-          control={
-            <Tabs
-              value={settings.diffMark}
-              onValueChange={(key) => {
-                if (key === "color" || key === "symbol") {
-                  void update({ diffMark: key as DiffMark });
+        {/* 鈥斺€?涓婚鍖?+ 寮鸿皟鑹?骞跺垪 鈥斺€?*/}
+        <div className="space-y-4">
+          <SettingSection title={t("appearance.bundle")} desc={t("appearance.bundle.desc")}>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {THEME_PRESETS.map((p) => {
+                const active = settings.themePreset === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => void update({ themePreset: p.id as ThemePresetId })}
+                    aria-pressed={active}
+                    className={[
+                      "flex min-h-20 flex-col justify-between rounded-md border p-2.5 text-left text-sm transition",
+                      active
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-foreground/15 text-foreground/75 hover:bg-foreground/5",
+                    ].join(" ")}
+                  >
+                    <span className="font-medium">{t(p.labelKey)}</span>
+                    <span className="mt-2 flex gap-1">
+                      <span
+                        className="h-4 flex-1 rounded border border-foreground/10"
+                        style={{ backgroundColor: p.swatches.light }}
+                      />
+                      <span
+                        className="h-4 flex-1 rounded border border-foreground/10"
+                        style={{ backgroundColor: p.swatches.dark }}
+                      />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </SettingSection>
+
+          <SettingSection title={t("appearance.style")} desc={t("appearance.style.desc")}>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              {STYLE_PRESETS.map((p) => {
+                const selected = settings.style === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => void update({ style: p.id })}
+                    aria-pressed={selected}
+                    className={[
+                      "group flex flex-col items-start gap-2 rounded-md border bg-background p-3 text-left transition",
+                      selected
+                        ? "border-foreground/40 ring-1 ring-foreground/15"
+                        : "border-foreground/10 hover:border-foreground/25",
+                    ].join(" ")}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <span className="text-sm font-medium">{t(p.labelKey)}</span>
+                      <span
+                        className="size-4 shrink-0 border border-foreground/15"
+                        style={{ borderRadius: Math.min(p.radius, 8) }}
+                      />
+                    </div>
+                    <div
+                      className="flex w-full items-center justify-center bg-foreground/[0.03] py-3 text-2xl text-foreground/70"
+                      style={{ fontFamily: p.fontStack, borderRadius: p.radius }}
+                    >
+                      Aa
+                    </div>
+                    <span className="text-xs leading-relaxed text-foreground/55">
+                      {t(p.descKey)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </SettingSection>
+        </div>
+
+        {/* 鈥斺€?瀛椾綋 鈥斺€?*/}
+        {/* 字体与排版（合并卡片）：一行四列，字号 tabs 横向 */}
+        <SettingSection
+          title={t("appearance.fonts")}
+          desc={t("appearance.fonts.desc")}
+          bodyClassName="grid grid-cols-4 gap-3"
+        >
+          {/* UI 字体：下拉框选择 */}
+          <FontSelectRow
+            label={t("appearance.font.ui")}
+            value={settings.fontFamily}
+            presets={FONT_PRESETS}
+            onChange={(v) => void update({ fontFamily: v })}
+          />
+          {/* 等宽字体：下拉框选择 */}
+          <FontSelectRow
+            label={t("appearance.font.mono")}
+            value={settings.monoFontFamily}
+            presets={MONO_FONT_PRESETS}
+            onChange={(v) => void update({ monoFontFamily: v })}
+          />
+          {/* 字号：Slider 选择（5 档） */}
+          <div className="flex h-full flex-col gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{t("appearance.fontSize")}</p>
+              <p className="mt-0.5 text-xs text-foreground/50">{t("appearance.fontSize.desc")}</p>
+            </div>
+            <Slider
+              value={FONT_SIZE_LEVELS.indexOf(settings.fontSize)}
+              min={0}
+              max={FONT_SIZE_LEVELS.length - 1}
+              step={1}
+              onValueChange={(v) => {
+                const idx = Array.isArray(v) ? v[0] : v;
+                if (FONT_SIZE_LEVELS[idx]) {
+                  void update({ fontSize: FONT_SIZE_LEVELS[idx] });
                 }
               }}
-            >
-              <TabsList aria-label={t("appearance.diff")}>
-                <TabsTrigger value="color">{t("appearance.diff.color")}</TabsTrigger>
-                <TabsTrigger value="symbol">{t("appearance.diff.symbol")}</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          }
-        />
-        <SettingItem
-          title={t("appearance.language")}
-          desc={t("appearance.language.desc")}
-          control={
-            <Tabs
-              value={settings.language}
-              onValueChange={(key) => {
-                if (key === "system" || key === "zh-CN" || key === "en") {
-                  void update({ language: key as LanguageMode });
+            />
+          </div>
+          {/* 代码字号：Slider 选择（5 档） */}
+          <div className="flex h-full flex-col gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{t("appearance.codeFontSize")}</p>
+              <p className="mt-0.5 text-xs text-foreground/50">
+                {t("appearance.codeFontSize.desc")}
+              </p>
+            </div>
+            <Slider
+              value={CODE_FONT_SIZE_PRESETS.indexOf(
+                settings.codeFontSizePx as (typeof CODE_FONT_SIZE_PRESETS)[number],
+              )}
+              min={0}
+              max={CODE_FONT_SIZE_PRESETS.length - 1}
+              step={1}
+              onValueChange={(v) => {
+                const idx = Array.isArray(v) ? v[0] : v;
+                if (CODE_FONT_SIZE_PRESETS[idx] !== undefined) {
+                  void update({ codeFontSizePx: CODE_FONT_SIZE_PRESETS[idx] });
                 }
               }}
-            >
-              <TabsList aria-label={t("appearance.language")}>
-                {LANGUAGE_OPTIONS.map((opt) => (
-                  <TabsTrigger key={opt.value} value={opt.value}>
-                    {t(opt.labelKey)}
+            />
+          </div>
+        </SettingSection>
+
+        {/* 鈥斺€?鎺掔増 鈥斺€?*/}
+
+        {/* 鈥斺€?浜や簰 鈥斺€?*/}
+        <SettingSection title={t("appearance.interaction")}>
+          <SettingItem
+            title={t("appearance.translucent")}
+            desc={t("appearance.translucent.desc")}
+            control={
+              <Switch
+                size="sm"
+                isSelected={settings.translucentSidebar}
+                onChange={(v) => void update({ translucentSidebar: v })}
+                aria-label={t("appearance.translucent")}
+              />
+            }
+          />
+          <SettingItem
+            title={t("appearance.pointer")}
+            desc={t("appearance.pointer.desc")}
+            control={
+              <Switch
+                size="sm"
+                isSelected={settings.usePointerCursor}
+                onChange={(v) => void update({ usePointerCursor: v })}
+                aria-label={t("appearance.pointer")}
+              />
+            }
+          />
+          <SettingItem
+            title={t("appearance.motion")}
+            desc={t("appearance.motion.desc")}
+            control={
+              <Tabs
+                value={settings.reduceMotion}
+                onValueChange={(key) => {
+                  if (key === "system" || key === "on" || key === "off") {
+                    void update({ reduceMotion: key as ReduceMotion });
+                  }
+                }}
+              >
+                <TabsList aria-label={t("appearance.motion")}>
+                  <TabsTrigger value="system">{t("appearance.motion.system")}</TabsTrigger>
+                  <TabsTrigger value="on">{t("appearance.motion.on")}</TabsTrigger>
+                  <TabsTrigger value="off">{t("appearance.motion.off")}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            }
+          />
+          <SettingItem
+            title={t("appearance.density")}
+            desc={t("appearance.density.desc")}
+            control={
+              <Tabs
+                value={settings.density}
+                onValueChange={(key) => {
+                  if (key === "compact" || key === "comfortable" || key === "loose") {
+                    void update({ density: key as LayoutDensity });
+                  }
+                }}
+              >
+                <TabsList aria-label={t("appearance.density")}>
+                  <TabsTrigger value="compact">{t("appearance.density.compact")}</TabsTrigger>
+                  <TabsTrigger value="comfortable">
+                    {t("appearance.density.comfortable")}
                   </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          }
-        />
-      </SettingSection>
+                  <TabsTrigger value="loose">{t("appearance.density.loose")}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            }
+          />
+        </SettingSection>
 
-      <DesktopPetSection />
+        {/* 鈥斺€?楂樼骇/宸紓鍖?鈥斺€?*/}
+        <SettingSection title={t("appearance.advanced")}>
+          <SettingItem
+            title={t("appearance.diff")}
+            desc={t("appearance.diff.desc")}
+            control={
+              <Tabs
+                value={settings.diffMark}
+                onValueChange={(key) => {
+                  if (key === "color" || key === "symbol") {
+                    void update({ diffMark: key as DiffMark });
+                  }
+                }}
+              >
+                <TabsList aria-label={t("appearance.diff")}>
+                  <TabsTrigger value="color">{t("appearance.diff.color")}</TabsTrigger>
+                  <TabsTrigger value="symbol">{t("appearance.diff.symbol")}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            }
+          />
+          <SettingItem
+            title={t("appearance.language")}
+            desc={t("appearance.language.desc")}
+            control={
+              <Tabs
+                value={settings.language}
+                onValueChange={(key) => {
+                  if (key === "system" || key === "zh-CN" || key === "en") {
+                    void update({ language: key as LanguageMode });
+                  }
+                }}
+              >
+                <TabsList aria-label={t("appearance.language")}>
+                  {LANGUAGE_OPTIONS.map((opt) => (
+                    <TabsTrigger key={opt.value} value={opt.value}>
+                      {t(opt.labelKey)}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            }
+          />
+        </SettingSection>
+
+        <DesktopPetSection />
+      </div>
     </section>
   );
 }
@@ -887,7 +897,7 @@ function FontSelectRow({
   const matchedPreset = presets.find((p) => p.value === value);
   return (
     <div className="flex h-full flex-col gap-2 rounded-lg border border-foreground/10 bg-background/60 px-3 py-2.5">
-      <label className="block min-w-0">
+      <label className="block min-w-0 select-none">
         <span className="text-sm font-medium">{label}</span>
       </label>
       <select
@@ -897,7 +907,7 @@ function FontSelectRow({
           // 选"无"时清空，否则用预设值
           onChange(next ? next.value : "");
         }}
-        className="w-full rounded-md border border-foreground/15 bg-background px-2 py-1 text-xs outline-none focus:border-accent/50"
+        className="w-full select-none rounded-md border border-foreground/15 bg-background px-2 py-1 text-xs outline-none focus:border-accent/50"
       >
         <option value="">{t("common.none")}</option>
         {presets.map((p) => (
@@ -1042,7 +1052,7 @@ function LegacyModelTab({
           desc={t("model.default.desc")}
           control={
             <select
-              className="min-w-56 rounded-md border border-foreground/15 bg-background px-3 py-1.5 text-sm outline-none focus:border-accent/50"
+              className="min-w-56 select-none rounded-md border border-foreground/15 bg-background px-3 py-1.5 text-sm outline-none focus:border-accent/50"
               value={settings.selectedModel ?? ""}
               onChange={(e) => void update({ selectedModel: e.target.value || null })}
             >
@@ -1383,12 +1393,12 @@ function ModelEditorDialog({
             <Modal.Body>
               <div className="grid gap-3 md:grid-cols-2">
                 {!isEditing && (
-                  <label className="text-sm md:col-span-2">
+                  <label className="select-none text-sm md:col-span-2">
                     <span className="mb-1 block text-xs text-foreground/60">
                       {t("model.provider")}
                     </span>
                     <select
-                      className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
+                      className="w-full select-none rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
                       value={addMode}
                       onChange={(e) =>
                         setAddMode(e.target.value === "custom" ? "custom" : "existing")
@@ -1401,12 +1411,12 @@ function ModelEditorDialog({
                 )}
 
                 {!isEditing && addMode === "existing" && (
-                  <label className="text-sm md:col-span-2">
+                  <label className="select-none text-sm md:col-span-2">
                     <span className="mb-1 block text-xs text-foreground/60">
                       {t("model.provider")}
                     </span>
                     <select
-                      className="w-full rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
+                      className="w-full select-none rounded-md border border-foreground/15 bg-background px-3 py-2 text-sm outline-none focus:border-accent/50"
                       value={modelForm.providerId}
                       onChange={(e) =>
                         setModelForm((prev) => ({ ...prev, providerId: e.target.value }))
@@ -1905,22 +1915,6 @@ function ProviderModelWorkbench({
       .catch(() => undefined);
   };
 
-  const handleClearProviderKey = (): void => {
-    if (!selectedProvider) return;
-    void notify
-      .promise(
-        api.providers.deleteProviderApiKey(selectedProvider.id),
-        {
-          loading: t("toast.apikey.clearing"),
-          success: t("toast.apikey.cleared"),
-          error: t("toast.apikey.clearFailed"),
-        },
-        locale,
-      )
-      .then(() => refreshCatalog())
-      .catch(() => undefined);
-  };
-
   const handleTestProvider = (): void => {
     if (!selectedProvider) return;
     const providerId = selectedProvider.id;
@@ -2021,7 +2015,7 @@ function ProviderModelWorkbench({
         <h3 className="text-base font-semibold">{t("settings.tab.model")}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <select
-            className="h-9 min-w-64 rounded-md border border-foreground/15 bg-background px-3 text-sm outline-none focus:border-accent/50"
+            className="h-9 min-w-64 select-none rounded-md border border-foreground/15 bg-background px-3 text-sm outline-none focus:border-accent/50"
             value={settings.selectedModel ?? ""}
             onChange={(event) => void update({ selectedModel: event.target.value || null })}
           >
@@ -2043,7 +2037,7 @@ function ProviderModelWorkbench({
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 overflow-hidden rounded-xl border border-foreground/10 bg-foreground/[0.018] lg:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 overflow-hidden rounded-xl border border-foreground/10 bg-foreground/[0.018] lg:grid-cols-[300px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
         <aside className="min-h-0 flex flex-col border-b border-foreground/10 p-3 lg:border-b-0 lg:border-r">
           <SearchField
             aria-label={t("model.provider.search")}
@@ -2075,7 +2069,7 @@ function ProviderModelWorkbench({
                     key={provider.id}
                     type="button"
                     className={[
-                      "w-full rounded-lg border px-3 py-2.5 text-left transition",
+                      "w-full select-none rounded-lg border px-3 py-2.5 text-left transition",
                       active
                         ? "border-accent/50 bg-accent/10 shadow-sm"
                         : "border-transparent hover:border-foreground/10 hover:bg-foreground/[0.04]",
@@ -2114,14 +2108,14 @@ function ProviderModelWorkbench({
           </div>
         </aside>
 
-        <div className="min-w-0 flex flex-col p-4">
+        <div className="min-h-0 min-w-0 flex flex-col overflow-hidden p-4">
           {!selectedProvider ? (
             <div className="flex flex-1 min-h-0 items-center justify-center rounded-lg border border-dashed border-foreground/15 text-sm text-foreground/50">
               {t("model.provider.empty")}
             </div>
           ) : (
-            <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto">
-              <div className="flex flex-col gap-3 border-b border-foreground/10 pb-4 md:flex-row md:items-start md:justify-between">
+            <div className="flex-1 min-h-0 flex flex-col">
+              <div className="shrink-0 flex flex-col gap-3 border-b border-foreground/10 pb-4 md:flex-row md:items-start md:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="truncate text-base font-semibold">{selectedProvider.label}</h4>
@@ -2169,6 +2163,15 @@ function ProviderModelWorkbench({
                     <IconRefresh className="mr-1 size-3.5" />
                     {t("model.provider.sync")}
                   </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onPress={handleSaveProviderKey}
+                    isDisabled={!providerApiKey.trim()}
+                  >
+                    <IconKey className="mr-1 size-3.5" />
+                    {t("common.save")}
+                  </Button>
                   {canEditProvider && (
                     <>
                       <Button
@@ -2191,7 +2194,7 @@ function ProviderModelWorkbench({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="shrink-0 grid gap-3 md:grid-cols-2">
                 <TextField>
                   <Label>{t("model.providerName")}</Label>
                   <Input
@@ -2264,25 +2267,6 @@ function ProviderModelWorkbench({
                     )}
                   </Description>
                 </TextField>
-                <div className="flex flex-wrap gap-2 md:col-span-2">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onPress={handleSaveProviderKey}
-                    isDisabled={!providerApiKey.trim()}
-                  >
-                    <IconKey className="mr-1 size-3.5" />
-                    {t("common.save")}
-                  </Button>
-                  <Button
-                    variant="tertiary"
-                    size="sm"
-                    onPress={handleClearProviderKey}
-                    isDisabled={!selectedProvider.hasApiKey}
-                  >
-                    {t("common.clear")}
-                  </Button>
-                </div>
               </div>
 
               <div className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-lg border border-foreground/10">
@@ -3524,8 +3508,8 @@ function DiagnosticsTab(): React.JSX.Element {
   useEffect(refresh, []);
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+    <section className="flex flex-col min-h-0 flex-1 -mx-5 -my-4">
+      <div className="shrink-0 flex items-center justify-between gap-3 select-none px-5 py-4">
         <div>
           <h3 className="text-base font-semibold">{t("settings.diagnostics.title")}</h3>
           <p className="mt-1 text-sm text-foreground/50">{t("settings.diagnostics.subtitle")}</p>
@@ -3536,7 +3520,7 @@ function DiagnosticsTab(): React.JSX.Element {
         </Button>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2 overflow-y-auto min-h-0 flex-1 px-5 pb-4">
         {events.length === 0 ? (
           <p className="rounded-md border border-foreground/10 p-6 text-center text-sm text-foreground/45">
             {t("tools.audit.empty")}

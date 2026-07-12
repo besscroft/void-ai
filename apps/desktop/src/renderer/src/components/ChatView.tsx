@@ -852,7 +852,7 @@ function ChatHeader({ status, runtimeSummary, runtimePanel }: ChatHeaderProps): 
   const { t } = useT();
   return (
     <header
-      className="relative z-30 grid shrink-0 grid-cols-1 items-start gap-2 border-b border-foreground/10 px-4 py-2.5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,34rem)] lg:items-center lg:gap-4"
+      className="relative z-30 grid shrink-0 grid-cols-1 select-none items-start gap-2 border-b border-foreground/10 px-4 py-2.5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,34rem)] lg:items-center lg:gap-4"
       data-streaming={status === "streaming" || status === "submitted"}
     >
       <div className="flex min-w-0 items-center gap-2.5 lg:min-h-9">
@@ -1032,7 +1032,7 @@ function EmptyState({
     <div className="flex flex-1 items-center justify-center overflow-y-auto">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-6 py-10 text-center">
         <div
-          className="flex size-14 items-center justify-center rounded-2xl bg-accent/10 text-2xl"
+          className="flex size-14 select-none items-center justify-center rounded-2xl bg-accent/10 text-2xl"
           aria-hidden
         >
           {t("chat.empty.icon")}

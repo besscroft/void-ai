@@ -129,15 +129,21 @@ export function ToolsPanel(): React.JSX.Element {
 
   return (
     <div className="flex h-full w-full flex-col gap-5">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-base font-semibold">{t("main.title.tools")}</h2>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
-            <IconRotateCcw className={cn("size-4", refreshing && "animate-spin")} />
-            {t("main.refresh")}
-          </Button>
+      <div className="grid shrink-0 gap-3 sm:grid-cols-3">
+        <MetricCard label={t("tools.metric.tools")} value={snapshot?.toolRecords.length ?? 0} />
+        <MetricCard label={t("tools.metric.mcp")} value={mcpServers.length} />
+        <MetricCard label={t("tools.metric.skills")} value={snapshot?.skills.length ?? 0} />
+      </div>
+
+      <div className="flex shrink-0 items-center justify-between">
+        <Tabs value={tab} onValueChange={(key) => setTab(toToolsTab(key))}>
+          <TabsList aria-label={t("tools.tabs.label")}>
+            <TabsTrigger value="registry">{t("tools.tab.registry")}</TabsTrigger>
+            <TabsTrigger value="mcp">{t("tools.tab.mcp")}</TabsTrigger>
+            <TabsTrigger value="skills">{t("tools.tab.skills")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="flex items-center gap-2">
           {tab === "mcp" ? (
             <Button variant="primary" size="sm" onPress={() => setMcpOpen(true)}>
               <IconPlus className="size-4" />
@@ -150,28 +156,16 @@ export function ToolsPanel(): React.JSX.Element {
               {t("tools.skill.add")}
             </Button>
           ) : null}
+          <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
+            <IconRotateCcw className={cn("size-4", refreshing && "animate-spin")} />
+            {t("main.refresh")}
+          </Button>
         </div>
-      </div>
-
-      <div className="grid shrink-0 gap-3 sm:grid-cols-3">
-        <MetricCard label={t("tools.metric.tools")} value={snapshot?.toolRecords.length ?? 0} />
-        <MetricCard label={t("tools.metric.mcp")} value={mcpServers.length} />
-        <MetricCard label={t("tools.metric.skills")} value={snapshot?.skills.length ?? 0} />
-      </div>
-
-      <div className="shrink-0">
-        <Tabs value={tab} onValueChange={(key) => setTab(toToolsTab(key))}>
-          <TabsList aria-label={t("tools.tabs.label")}>
-            <TabsTrigger value="registry">{t("tools.tab.registry")}</TabsTrigger>
-            <TabsTrigger value="mcp">{t("tools.tab.mcp")}</TabsTrigger>
-            <TabsTrigger value="skills">{t("tools.tab.skills")}</TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
 
       {tab === "registry" && snapshot ? (
         <div className="grid shrink-0 gap-2 md:grid-cols-[minmax(0,1fr)_180px_180px]">
-          <label className="relative min-w-0">
+          <label className="relative min-w-0 select-none">
             <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-foreground/35" />
             <Input
               value={query}
@@ -181,7 +175,7 @@ export function ToolsPanel(): React.JSX.Element {
             />
           </label>
           <select
-            className="h-10 min-w-0 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+            className="h-10 min-w-0 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
             value={kind}
             onChange={(event) => setKind(event.target.value as ToolKindFilter)}
           >
@@ -192,7 +186,7 @@ export function ToolsPanel(): React.JSX.Element {
             <option value="sandbox">{t("tools.kind.sandbox")}</option>
           </select>
           <select
-            className="h-10 min-w-0 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+            className="h-10 min-w-0 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
             value={status}
             onChange={(event) => setStatus(event.target.value as ToolStatusFilter)}
           >
@@ -217,7 +211,6 @@ export function ToolsPanel(): React.JSX.Element {
             servers={mcpServers}
             toolsByServer={mcpToolsByServer}
             busy={busy}
-            onAdd={() => setMcpOpen(true)}
             onDelete={(server) => setDeleteTarget({ type: "mcp", item: server })}
             onToggle={(server, enabled) =>
               runAction(() => api.tools.mcp.setEnabled(server.id, enabled), t("tools.toast.saved"))
@@ -229,7 +222,6 @@ export function ToolsPanel(): React.JSX.Element {
           <SkillsSection
             skills={snapshot.skills}
             busy={busy}
-            onAdd={() => setSkillOpen(true)}
             onDelete={(skill) => setDeleteTarget({ type: "skill", item: skill })}
             onToggle={(skill, enabled) =>
               runAction(
@@ -337,22 +329,18 @@ function McpSection({
   servers,
   toolsByServer,
   busy,
-  onAdd,
   onDelete,
   onToggle,
 }: {
   servers: ToolServer[];
   toolsByServer: Map<string, ToolRecord[]>;
   busy: boolean;
-  onAdd: () => void;
   onDelete: (server: ToolServer) => void;
   onToggle: (server: ToolServer, enabled: boolean) => void;
 }): React.JSX.Element {
   const { t } = useT();
   if (servers.length === 0) {
-    return (
-      <EmptyTools message={t("tools.mcp.empty")} action={t("tools.mcp.add")} onAction={onAdd} />
-    );
+    return <EmptyTools message={t("tools.mcp.empty")} />;
   }
   return (
     <section className="grid gap-3 xl:grid-cols-2">
@@ -444,21 +432,17 @@ function McpCard({
 function SkillsSection({
   skills,
   busy,
-  onAdd,
   onDelete,
   onToggle,
 }: {
   skills: ToolSkill[];
   busy: boolean;
-  onAdd: () => void;
   onDelete: (skill: ToolSkill) => void;
   onToggle: (skill: ToolSkill, enabled: boolean) => void;
 }): React.JSX.Element {
   const { t } = useT();
   if (skills.length === 0) {
-    return (
-      <EmptyTools message={t("tools.skill.empty")} action={t("tools.skill.add")} onAction={onAdd} />
-    );
+    return <EmptyTools message={t("tools.skill.empty")} />;
   }
   return (
     <section className="grid gap-3 xl:grid-cols-2">
@@ -600,7 +584,7 @@ function AddMcpModal({
                 <div className="grid gap-3 md:grid-cols-2">
                   <Field label="服务类型">
                     <select
-                      className="h-10 min-w-0 rounded-md border border-foreground/10 bg-background px-3 text-sm"
+                      className="h-10 min-w-0 select-none rounded-md border border-foreground/10 bg-background px-3 text-sm"
                       value={form.transport}
                       onChange={(event) =>
                         patch({ transport: event.target.value as McpTransportKind })
@@ -918,7 +902,7 @@ function Field({
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <label className="grid min-w-0 gap-1.5">
+    <label className="grid min-w-0 select-none gap-1.5">
       <Label className="text-xs font-medium text-foreground/50">{label}</Label>
       {children}
     </label>

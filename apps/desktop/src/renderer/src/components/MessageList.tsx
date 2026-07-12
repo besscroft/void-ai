@@ -253,7 +253,7 @@ function MessageActivity({ status }: { status: MessageActivityStatus }): React.J
       className="flex justify-start"
     >
       <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/60">
-        <span className="flex size-5 items-center justify-center rounded-full bg-accent/10 text-accent">
+        <span className="flex size-5 select-none items-center justify-center rounded-full bg-accent/10 text-accent">
           <Icon className="size-3 animate-pulse" />
         </span>
         <span>{activity.label}</span>

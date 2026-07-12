@@ -27,7 +27,11 @@ export function interpolateTemplate(
     try {
       return JSON.stringify(value);
     } catch {
-      return String(value);
+      const fallback =
+        value !== null && typeof value === "object"
+          ? (value.constructor?.name ?? "Object")
+          : typeof value;
+      return `[${fallback}]`;
     }
   });
 }

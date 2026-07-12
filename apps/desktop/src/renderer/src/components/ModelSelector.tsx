@@ -107,7 +107,7 @@ export function ModelSelector({
         <div
           role="listbox"
           aria-label={t("model.selector.label")}
-          className={`absolute z-50 max-h-80 w-72 overflow-y-auto rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
+          className={`absolute z-50 max-h-80 w-72 select-none overflow-y-auto rounded-lg border border-foreground/15 bg-background shadow-xl ${menuPlacement}`}
         >
           {enabledProviders.map((p) => (
             <div key={p.id}>

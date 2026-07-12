@@ -110,7 +110,7 @@ function ChipRoot({
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-1 rounded-full border font-medium leading-none",
+        "inline-flex max-w-full select-none items-center gap-1 rounded-full border font-medium leading-none",
         size === "sm" ? "min-h-5 px-2 py-0.5 text-[11px]" : "min-h-6 px-2.5 py-1 text-xs",
         variant === "secondary" && "border-border bg-secondary text-secondary-foreground",
         variant !== "secondary" &&
@@ -219,7 +219,7 @@ export const TextArea = forwardRef<
 });
 
 export function Label({ className, ...props }: HTMLAttributes<HTMLSpanElement>): React.JSX.Element {
-  return <span className={cn("text-sm font-medium", className)} {...props} />;
+  return <span className={cn("select-none text-sm font-medium", className)} {...props} />;
 }
 
 export function Description({
@@ -410,7 +410,9 @@ function SwitchContent({
   className,
   ...props
 }: HTMLAttributes<HTMLSpanElement>): React.JSX.Element {
-  return <span className={cn("inline-flex items-center gap-2", className)} {...props} />;
+  return (
+    <span className={cn("inline-flex select-none items-center gap-2", className)} {...props} />
+  );
 }
 
 function SwitchControl({

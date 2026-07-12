@@ -238,7 +238,7 @@ export function MessageInput({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={cn(
-            "rounded-[24px] border bg-background/95 shadow-[0_18px_60px_-42px_rgba(15,23,42,0.65)] transition-all duration-200",
+            "select-none rounded-[24px] border bg-background/95 shadow-[0_18px_60px_-42px_rgba(15,23,42,0.65)] transition-all duration-200",
             "focus-within:border-accent/45 focus-within:ring-4 focus-within:ring-accent/10",
             isDragging
               ? "border-accent/60 ring-4 ring-accent/15"
@@ -286,6 +286,7 @@ export function MessageInput({
                     : t("input.placeholder")
                 }
                 aria-label={t("input.placeholder")}
+                className="select-text"
               />
 
               <div className="relative flex min-h-11 items-start gap-2 px-3 pt-2">
@@ -632,7 +633,7 @@ function MediaSettingsPanel({
               max={4}
               onChange={(value) => updateOption("count", value)}
             />
-            <label className="flex h-10 items-center gap-2 rounded-lg border border-foreground/10 bg-background/70 px-2.5 text-xs text-foreground/70">
+            <label className="flex h-10 select-none items-center gap-2 rounded-lg border border-foreground/10 bg-background/70 px-2.5 text-xs text-foreground/70">
               <input
                 type="checkbox"
                 checked={options.generateAudio ?? false}
@@ -659,12 +660,12 @@ function SelectControl({
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <label className="flex min-w-0 flex-col gap-1 text-xs text-foreground/55">
+    <label className="flex min-w-0 select-none flex-col gap-1 text-xs text-foreground/55">
       <span className="font-medium">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
-        className="h-9 min-w-0 rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
+        className="h-9 min-w-0 select-none rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
       >
         {children}
       </select>
@@ -684,13 +685,13 @@ function TextControl({
   onChange: (value: string) => void;
 }): React.JSX.Element {
   return (
-    <label className="flex min-w-0 flex-col gap-1 text-xs text-foreground/55">
+    <label className="flex min-w-0 select-none flex-col gap-1 text-xs text-foreground/55">
       <span className="font-medium">{label}</span>
       <input
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.currentTarget.value)}
-        className="h-9 min-w-0 rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
+        className="h-9 min-w-0 select-none rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
       />
     </label>
   );
@@ -712,7 +713,7 @@ function NumberControl({
   onChange: (value: number | undefined) => void;
 }): React.JSX.Element {
   return (
-    <label className="flex min-w-0 flex-col gap-1 text-xs text-foreground/55">
+    <label className="flex min-w-0 select-none flex-col gap-1 text-xs text-foreground/55">
       <span className="font-medium">{label}</span>
       <input
         type="number"
@@ -724,7 +725,7 @@ function NumberControl({
           const raw = event.currentTarget.value;
           onChange(raw === "" ? undefined : Number(raw));
         }}
-        className="h-9 min-w-0 rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
+        className="h-9 min-w-0 select-none rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
       />
     </label>
   );
