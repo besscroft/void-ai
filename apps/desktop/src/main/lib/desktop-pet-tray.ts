@@ -88,12 +88,12 @@ export class DesktopPetTrayController {
         click: () => this.options.openMainSettings(),
       },
       {
-        label: "关于 Void",
+        label: "关于 Paimon",
         click: () => this.options.openAbout(),
       },
       { type: "separator" },
       {
-        label: "退出 Void",
+        label: "退出 Paimon",
         click: () => this.options.quitApp(),
       },
     ];

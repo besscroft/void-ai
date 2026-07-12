@@ -31,7 +31,7 @@ export function showDesktopPetContextMenu(
     },
     { type: "separator" },
     {
-      label: "关于 Void",
+      label: "关于 Paimon",
       click: () => options.onOpenAbout(),
     },
     { type: "separator" },
@@ -44,7 +44,7 @@ export function showDesktopPetContextMenu(
       ? []
       : [
           {
-            label: "退出 Void",
+            label: "退出 Paimon",
             click: () => options.onQuit(),
           },
         ]),

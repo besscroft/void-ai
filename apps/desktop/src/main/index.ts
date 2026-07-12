@@ -59,6 +59,7 @@ function createWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     frame: false,
+    title: "Paimon",
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
       preload: getPreloadPath(),
@@ -139,6 +140,7 @@ function quitApp(): void {
 // 应用就绪后初始化所有子系统
 void app.whenReady().then(async () => {
   electronApp.setAppUserModelId("com.void-ai");
+  app.setName("Paimon");
 
   // 默认在开发环境用 F12 打开 DevTools，生产环境忽略 Cmd/Ctrl+R
   app.on("browser-window-created", (_, window) => {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Button } from "./ui";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
@@ -36,8 +37,7 @@ interface AppShellProps {
 const primaryNav: { id: AppView; labelKey: TranslationKey; Icon: typeof IconMessage }[] = [
   { id: "chat", labelKey: "shell.nav.conversations", Icon: IconMessage },
   { id: "agents", labelKey: "main.title.agents", Icon: IconCpu },
-  // 工作流与工作流运行已下沉为 chat 页面右上角悬浮状态框（WorkflowStatusWidget）
-  // 入口不再展示，独立页面与组件（WorkflowRunsPanel / WorkflowRunDetail）已删除
+  // 工作流与工作流运行已下沉�?chat 页面右上角悬浮状态框（WorkflowStatusWidget�?  // 入口不再展示，独立页面与组件（WorkflowRunsPanel / WorkflowRunDetail）已删除
   { id: "tools", labelKey: "main.title.tools", Icon: IconWrench },
   { id: "automations", labelKey: "automation.title", Icon: IconClock },
   { id: "memory", labelKey: "main.title.memory", Icon: IconDatabase },
@@ -54,6 +54,7 @@ export function AppShell({
   children,
 }: AppShellProps): React.JSX.Element {
   const { t, locale } = useT();
+  const reduceMotion = useReducedMotion();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -71,8 +72,8 @@ export function AppShell({
     refresh();
   }, [activeConversationId]);
 
-  // 鐩戝惉鑷姩/鎵嬪姩閲嶅懡鍚嶏細浼樺厛鐢ㄤ簨浠舵惡甯︾殑 title 鐩存帴鏇存柊鏈湴 state锛?
-  // 鑻ユ病鏈?title锛堜緥濡傛潵鑷叾浠栨笭閬擄級锛屽垯闄嶇骇涓哄叏閲?refresh銆?
+  // 鐩戝惉鑷姩/鎵嬪姩閲嶅懡鍚嶏細浼樺厛鐢ㄤ簨浠舵惡甯︾�?title 鐩存帴鏇存柊鏈�?state�?
+  // 鑻ユ病鏈?title锛堜緥濡傛潵鑷叾浠栨笭閬擄級锛屽垯闄嶇骇涓哄叏�?refresh�?
   useEffect(() => {
     const handler = (e: Event): void => {
       const detail = (e as CustomEvent<{ id: string; title?: string }>).detail;
@@ -110,13 +111,12 @@ export function AppShell({
   };
 
   /**
-   * 杩囨护 + 鍒嗙粍锛堟寜 updated_at 鍊掑簭锛?
+   * 杩囨�?+ 鍒嗙粍锛堟寜 updated_at 鍊掑簭锛?
    *
-   * 鍒嗙粍绛栫暐锛?
+   * 鍒嗙粍绛栫暐�?
    *  - 浠婂ぉ锛歶pdated_at 涓庝粖澶╁湪鍚屼竴澶?
-   *  - 鏄ㄥぉ锛氱浉宸?1 澶╀笖璺ㄦ棩
-   *  - 鏈懆锛? 澶╁唴
-   *  - 鏇存棭锛氬叾浠?
+   *  - 鏄ㄥぉ锛氱浉�?1 澶╀笖璺ㄦ棩
+   *  - 鏈懆锛? 澶╁�?   *  - 鏇存棭锛氬叾�?
    */
   const groupedConversations = useMemo<Array<{ label: string; items: Conversation[] }>>(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -144,7 +144,7 @@ export function AppShell({
       (groups[label] ??= []).push(c);
     }
 
-    // 鍥哄畾鍒嗙粍椤哄簭锛氫粖澶?鈫?鏄ㄥぉ 鈫?鏈懆 鈫?鏇存棭
+    // 鍥哄畾鍒嗙粍椤哄簭锛氫粖澶╀笌鏄ㄥぉ涓庡悓鍚屼竴澶╀笌鏈懆涓庡叾浠?
     const order = [
       t("shell.group.today"),
       t("shell.group.yesterday"),
@@ -164,16 +164,38 @@ export function AppShell({
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {sidebarExpanded ? (
-          <aside className="app-sidebar flex w-[280px] shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.025]">
+        <motion.aside
+          initial={false}
+          animate={{
+            width: sidebarExpanded ? 280 : 0,
+            opacity: sidebarExpanded ? 1 : 0,
+          }}
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : {
+                  type: "spring",
+                  stiffness: 320,
+                  damping: 34,
+                  mass: 0.8,
+                  opacity: { duration: 0.18, ease: "easeOut" },
+                }
+          }
+          className="app-sidebar shrink-0 overflow-hidden bg-foreground/[0.025]"
+          aria-hidden={!sidebarExpanded}
+          inert={!sidebarExpanded}
+        >
+          <div className="flex h-full w-[280px] flex-col border-r border-foreground/10">
             <nav className="space-y-1 px-2 py-3" aria-label={t("shell.nav.primary")}>
               {primaryNav.map(({ id, labelKey, Icon }) => {
                 const active = activeView === id;
                 const label = t(labelKey);
                 return (
-                  <button
+                  <motion.button
                     key={id}
                     type="button"
+                    whileTap={{ scale: 0.96 }}
+                    transition={{ type: "tween", duration: 0.1, ease: "easeOut" }}
                     className={[
                       "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition",
                       active
@@ -185,7 +207,7 @@ export function AppShell({
                   >
                     <Icon className="size-4 shrink-0" />
                     <span className="truncate">{label}</span>
-                  </button>
+                  </motion.button>
                 );
               })}
             </nav>
@@ -206,7 +228,7 @@ export function AppShell({
                 </Button>
               </div>
 
-              {/* 鍒涙剰锛氭悳绱㈡锛堜粎鍦ㄦ湁浼氳瘽鏃舵樉绀猴級 */}
+              {/* 创意：搜索框（仅在会话时显示�?*/}
               {conversations.length > 0 && (
                 <div className="relative px-3 pb-2">
                   <div className="relative">
@@ -254,7 +276,9 @@ export function AppShell({
                               conv.id === activeConversationId && activeView === "chat";
                             return (
                               <li key={conv.id}>
-                                <div
+                                <motion.div
+                                  whileTap={{ scale: 0.97 }}
+                                  transition={{ type: "tween", duration: 0.1, ease: "easeOut" }}
                                   className={[
                                     "group/conv flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm transition",
                                     isActive ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
@@ -277,7 +301,7 @@ export function AppShell({
                                   >
                                     <IconTrash className="size-3" />
                                   </button>
-                                </div>
+                                </motion.div>
                               </li>
                             );
                           })}
@@ -299,8 +323,8 @@ export function AppShell({
                 {t("shell.settings")}
               </Button>
             </div>
-          </aside>
-        ) : null}
+          </div>
+        </motion.aside>
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
       </div>
