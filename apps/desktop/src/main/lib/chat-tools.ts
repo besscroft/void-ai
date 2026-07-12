@@ -317,7 +317,7 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
   cron: {
     id: "cron",
     label: "Automation",
-    description: "List or manage scheduled isolated agent turns in Void AI.",
+    description: "List or manage scheduled isolated agent turns in Paimon.",
     kind: "host",
     category: "automation",
     defaultAuto: false,

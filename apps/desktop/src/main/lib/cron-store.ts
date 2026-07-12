@@ -262,7 +262,7 @@ export function recoverCronJobs(now = Date.now()): void {
   const db = getDb();
   db.transaction((tx) => {
     tx.update(cronRuns)
-      .set({ status: "failed", finished_at: now, error: "Void AI stopped during this run." })
+      .set({ status: "failed", finished_at: now, error: "Paimon stopped during this run." })
       .where(eq(cronRuns.status, "running"))
       .run();
     const rows = tx.select().from(cronJobs).all();
@@ -304,7 +304,7 @@ export function recoverCronJobs(now = Date.now()): void {
               finished_at: now,
               attempt: 1,
               output: null,
-              error: "Missed while Void AI was not running.",
+              error: "Missed while Paimon was not running.",
               runtime_run_id: null,
               created_at: now,
             })

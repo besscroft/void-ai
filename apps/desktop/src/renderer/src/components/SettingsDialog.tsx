@@ -165,7 +165,7 @@ export function SettingsDialog({
         {/* 澶撮儴 */}
         <div className="flex items-center justify-between border-b border-foreground/10 px-6 py-3.5">
           <div>
-            <h2 id="settings-title" className="text-base font-semibold">
+            <h2 id="settings-title" className="text-base font-semibold select-none">
               {t("settings.title")}
             </h2>
           </div>
@@ -184,7 +184,7 @@ export function SettingsDialog({
           {/* 瀵艰埅 */}
           <nav
             aria-label={t("settings.nav")}
-            className="w-full shrink-0 space-y-1 border-r border-foreground/10 bg-foreground/[0.02] p-2 md:w-48"
+            className="w-full shrink-0 space-y-1 border-r border-foreground/10 bg-foreground/[0.02] p-2 md:w-48 select-none"
           >
             {tabs.map(({ id, label, Icon }) => {
               const active = tab === id;
@@ -1773,38 +1773,29 @@ function ProviderModelWorkbench({
   };
 
   const handleSaveProvider = (): void => {
-    if (!canSaveProvider || !selectedProvider) return;
-    void notify
-      .promise(
+    if (!selectedProvider) return;
+    if (!providerApiKey.trim() && !canSaveProvider) return;
+    const tasks: Promise<unknown>[] = [];
+    if (canSaveProvider) {
+      tasks.push(
         api.providers.upsertCustomProvider({
           id: selectedProvider.id,
           label: providerForm.label,
           baseUrl: providerForm.baseUrl,
           helpUrl: providerForm.helpUrl,
         }),
+      );
+    }
+    if (providerApiKey.trim()) {
+      tasks.push(api.providers.setProviderApiKey(selectedProvider.id, providerApiKey.trim()));
+    }
+    void notify
+      .promise(
+        Promise.all(tasks),
         {
           loading: t("toast.model.providerSaving"),
           success: t("toast.model.providerSaved"),
           error: t("toast.model.providerSaveFailed"),
-        },
-        locale,
-      )
-      .then((provider) => {
-        setSelectedProviderId(provider.id);
-        refreshCatalog();
-      })
-      .catch(() => undefined);
-  };
-
-  const handleSaveProviderKey = (): void => {
-    if (!selectedProvider || !providerApiKey.trim()) return;
-    void notify
-      .promise(
-        api.providers.setProviderApiKey(selectedProvider.id, providerApiKey.trim()),
-        {
-          loading: t("toast.apikey.saving"),
-          success: t("toast.apikey.saved"),
-          error: t("toast.apikey.saveFailed"),
         },
         locale,
       )
@@ -1910,12 +1901,12 @@ function ProviderModelWorkbench({
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-4">
+    <section className="flex min-h-0 flex-1 flex-col gap-4 select-none">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <h3 className="text-base font-semibold">{t("settings.tab.model")}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <select
-            className="h-9 min-w-64 select-none rounded-md border border-foreground/15 bg-background px-3 text-sm outline-none focus:border-accent/50"
+            className="h-9 min-w-64 select-none select-text rounded-md border border-foreground/15 bg-background px-3 text-sm outline-none focus:border-accent/50"
             value={settings.selectedModel ?? ""}
             onChange={(event) => void update({ selectedModel: event.target.value || null })}
           >
@@ -1947,7 +1938,7 @@ function ProviderModelWorkbench({
           >
             <SearchField.Group>
               <SearchField.SearchIcon />
-              <SearchField.Input placeholder={t("model.provider.search")} />
+              <SearchField.Input className="select-text" placeholder={t("model.provider.search")} />
               <SearchField.ClearButton />
             </SearchField.Group>
           </SearchField>
@@ -2063,22 +2054,13 @@ function ProviderModelWorkbench({
                     <IconRefresh className="mr-1 size-3.5" />
                     {t("model.provider.sync")}
                   </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onPress={handleSaveProviderKey}
-                    isDisabled={!providerApiKey.trim()}
-                  >
-                    <IconKey className="mr-1 size-3.5" />
-                    {t("common.save")}
-                  </Button>
                   {canEditProvider && (
                     <>
                       <Button
                         variant="secondary"
                         size="sm"
                         onPress={handleSaveProvider}
-                        isDisabled={!canSaveProvider}
+                        isDisabled={!canSaveProvider && !providerApiKey.trim()}
                       >
                         {t("common.save")}
                       </Button>
@@ -2098,6 +2080,7 @@ function ProviderModelWorkbench({
                 <TextField>
                   <Label>{t("model.providerName")}</Label>
                   <Input
+                    className="select-text"
                     value={providerForm.label}
                     disabled={!canEditProvider}
                     onChange={(event) =>
@@ -2110,11 +2093,12 @@ function ProviderModelWorkbench({
                 </TextField>
                 <TextField>
                   <Label>{t("model.providerId")}</Label>
-                  <Input value={selectedProvider.id} disabled />
+                  <Input className="select-text" value={selectedProvider.id} disabled />
                 </TextField>
                 <TextField>
                   <Label>{t("model.baseUrl")}</Label>
                   <Input
+                    className="select-text"
                     value={providerForm.baseUrl}
                     placeholder={t("model.provider.builtinEndpoint")}
                     disabled={!canEditProvider}
@@ -2129,6 +2113,7 @@ function ProviderModelWorkbench({
                 <TextField>
                   <Label>{t("model.helpUrl")}</Label>
                   <Input
+                    className="select-text"
                     value={providerForm.helpUrl ?? ""}
                     disabled={!canEditProvider}
                     onChange={(event) =>
@@ -2143,6 +2128,7 @@ function ProviderModelWorkbench({
                   <Label>{t("model.apiKey")}</Label>
                   <Input
                     type="password"
+                    className="select-text"
                     value={providerApiKey}
                     placeholder={
                       selectedProvider.hasApiKey
@@ -2421,6 +2407,7 @@ function AddProviderDialog({
                 <TextField>
                   <Label>{t("model.providerName")}</Label>
                   <Input
+                    className="select-text"
                     value={form.label}
                     placeholder={t("model.placeholder.providerName")}
                     onChange={(event) =>
@@ -2434,6 +2421,7 @@ function AddProviderDialog({
                 <TextField>
                   <Label>{t("model.providerId")}</Label>
                   <Input
+                    className="select-text"
                     value={form.id ?? ""}
                     placeholder={t("model.placeholder.providerId")}
                     onChange={(event) =>
@@ -2447,6 +2435,7 @@ function AddProviderDialog({
                 <TextField>
                   <Label>{t("model.baseUrl")}</Label>
                   <Input
+                    className="select-text"
                     value={form.baseUrl}
                     placeholder={t("model.placeholder.baseUrl")}
                     onChange={(event) =>
@@ -2460,6 +2449,7 @@ function AddProviderDialog({
                 <TextField>
                   <Label>{t("model.helpUrl")}</Label>
                   <Input
+                    className="select-text"
                     value={form.helpUrl ?? ""}
                     placeholder={t("model.placeholder.helpUrl")}
                     onChange={(event) =>
@@ -2601,6 +2591,7 @@ function ModelOptionsDialog({
                 <TextField>
                   <Label>{t("model.modelId")}</Label>
                   <Input
+                    className="select-text"
                     value={form.id}
                     disabled={isEditing}
                     placeholder={t("model.placeholder.modelId")}
@@ -2615,6 +2606,7 @@ function ModelOptionsDialog({
                 <TextField>
                   <Label>{t("model.modelName")}</Label>
                   <Input
+                    className="select-text"
                     value={form.label}
                     placeholder={t("model.placeholder.modelName")}
                     onChange={(event) =>
@@ -2679,6 +2671,7 @@ function ModelOptionsDialog({
                   <Label>{t("model.contextWindow")}</Label>
                   <Input
                     type="number"
+                    className="select-text"
                     min={1}
                     step={1024}
                     value={String(form.contextWindow)}
@@ -2698,6 +2691,7 @@ function ModelOptionsDialog({
                   <Label>{t("model.maxTokens")}</Label>
                   <Input
                     type="number"
+                    className="select-text"
                     min={1}
                     max={32768}
                     step={256}
@@ -2751,7 +2745,7 @@ function ModelOptionsDialog({
                     rows={8}
                     value={form.providerOptionsJson}
                     onChange={(event) => handleJsonChange(event.target.value)}
-                    className="font-mono text-xs"
+                    className="select-text font-mono text-xs"
                     spellCheck={false}
                   />
                   <Description className="mt-1">
@@ -3110,7 +3104,7 @@ function TrashTab(): React.JSX.Element {
   };
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4 select-none">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <h3 className="text-base font-semibold">{t("trash.title")}</h3>
         <ToggleButtonGroup

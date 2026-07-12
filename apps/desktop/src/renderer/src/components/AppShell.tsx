@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Chip } from "./ui";
+import { Button } from "./ui";
 import { api } from "../lib/api";
 import { notify } from "../lib/toast";
 import { useT, type TranslationKey } from "../lib/i18n";
@@ -166,18 +166,6 @@ export function AppShell({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {sidebarExpanded ? (
           <aside className="app-sidebar flex w-[280px] shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.025]">
-            <div className="border-b border-foreground/10 px-4 py-4">
-              <div className="flex select-none items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{t("shell.brand")}</p>
-                  <p className="truncate text-xs text-foreground/45">{t("shell.tagline")}</p>
-                </div>
-                <Chip size="sm" color="success" variant="soft">
-                  {t("common.local")}
-                </Chip>
-              </div>
-            </div>
-
             <nav className="space-y-1 px-2 py-3" aria-label={t("shell.nav.primary")}>
               {primaryNav.map(({ id, labelKey, Icon }) => {
                 const active = activeView === id;

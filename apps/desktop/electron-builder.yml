@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: desktop
+appId: com.zzzvoid.ai
+productName: Paimon
 directories:
   buildResources: build
 files:

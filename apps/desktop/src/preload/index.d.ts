@@ -57,7 +57,7 @@ import type {
 } from "../shared/types";
 
 /**
- * Void AI 鏆撮湶缁欐覆鏌撹繘绋嬬殑 API
+ * Paimon 鏆撮湶缁欐覆鏌撹繘绋嬬殑 API
  *
  * 璁捐鍘熷垯锛?
  * - 浠呴€氳繃 contextBridge 鏆撮湶鐧藉悕鍗曟柟娉曪紝娓叉煋灞傛棤娉曠洿鎺ヨ闂?Node API
