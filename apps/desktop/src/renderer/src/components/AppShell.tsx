@@ -18,6 +18,7 @@ import {
 import type { Conversation } from "@shared/types";
 import type { MainSection } from "./MainPanelView";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { WindowTitleBar } from "./WindowTitleBar";
 
 export type AppView = "chat" | MainSection;
 
@@ -56,6 +57,7 @@ export function AppShell({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
 
   const refresh = (): void => {
     void api.conversations.list().then(setConversations);
@@ -155,151 +157,165 @@ export function AppShell({
   }, [conversations, searchQuery, t]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      <aside className="app-sidebar flex w-[280px] shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.025]">
-        <div className="border-b border-foreground/10 px-4 py-4">
-          <div className="flex select-none items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{t("shell.brand")}</p>
-              <p className="truncate text-xs text-foreground/45">{t("shell.tagline")}</p>
-            </div>
-            <Chip size="sm" color="success" variant="soft">
-              {t("common.local")}
-            </Chip>
-          </div>
-        </div>
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+      <WindowTitleBar
+        sidebarExpanded={sidebarExpanded}
+        onToggleSidebar={() => setSidebarExpanded((expanded) => !expanded)}
+      />
 
-        <nav className="space-y-1 px-2 py-3" aria-label={t("shell.nav.primary")}>
-          {primaryNav.map(({ id, labelKey, Icon }) => {
-            const active = activeView === id;
-            const label = t(labelKey);
-            return (
-              <button
-                key={id}
-                type="button"
-                className={[
-                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition",
-                  active
-                    ? "bg-accent/10 text-accent"
-                    : "text-foreground/70 hover:bg-foreground/5 hover:text-foreground",
-                ].join(" ")}
-                onClick={() => onSelectView(id)}
-                aria-current={active ? "page" : undefined}
-              >
-                <Icon className="size-4 shrink-0" />
-                <span className="truncate">{label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="flex min-h-0 flex-1 flex-col border-t border-foreground/10">
-          <div className="flex items-center justify-between gap-2 px-3 py-3">
-            <span className="select-none text-xs font-medium uppercase tracking-normal text-foreground/45">
-              {t("shell.conversations")}
-            </span>
-            <Button
-              isIconOnly
-              size="sm"
-              variant="tertiary"
-              onPress={onCreateConversation}
-              aria-label={t("shell.newConversation")}
-            >
-              <IconPlus className="size-4" />
-            </Button>
-          </div>
-
-          {/* 鍒涙剰锛氭悳绱㈡锛堜粎鍦ㄦ湁浼氳瘽鏃舵樉绀猴級 */}
-          {conversations.length > 0 && (
-            <div className="relative px-3 pb-2">
-              <div className="relative">
-                <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-foreground/40" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.currentTarget.value)}
-                  placeholder={t("shell.searchPlaceholder")}
-                  aria-label={t("shell.searchPlaceholder")}
-                  className="h-7 w-full rounded-md border border-foreground/10 bg-background/60 pl-7 pr-7 text-xs text-foreground/80 outline-none transition placeholder:text-foreground/35 focus:border-accent/45 focus:ring-2 focus:ring-accent/15"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery("")}
-                    aria-label={t("common.close")}
-                    className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-foreground/40 transition hover:text-foreground"
-                  >
-                    <IconClose className="size-3" />
-                  </button>
-                )}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {sidebarExpanded ? (
+          <aside className="app-sidebar flex w-[280px] shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.025]">
+            <div className="border-b border-foreground/10 px-4 py-4">
+              <div className="flex select-none items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{t("shell.brand")}</p>
+                  <p className="truncate text-xs text-foreground/45">{t("shell.tagline")}</p>
+                </div>
+                <Chip size="sm" color="success" variant="soft">
+                  {t("common.local")}
+                </Chip>
               </div>
             </div>
-          )}
 
-          <nav
-            className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
-            aria-label={t("shell.nav.conversations")}
-          >
-            {groupedConversations.length === 0 ? (
-              <p className="whitespace-pre-line px-3 py-8 text-center text-sm text-foreground/50">
-                {searchQuery ? t("shell.noSearchResult") : t("shell.noConversation")}
-              </p>
-            ) : (
-              <ul className="space-y-3">
-                {groupedConversations.map((group) => (
-                  <li key={group.label}>
-                    <p className="select-none px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/35">
-                      {group.label}
-                    </p>
-                    <ul className="space-y-0.5">
-                      {group.items.map((conv) => {
-                        const isActive = conv.id === activeConversationId && activeView === "chat";
-                        return (
-                          <li key={conv.id}>
-                            <div
-                              className={[
-                                "group/conv flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm transition",
-                                isActive ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
-                              ].join(" ")}
-                              onClick={() => {
-                                onSelectConversation(conv.id);
-                                onSelectView("chat");
-                              }}
-                            >
-                              <IconMessage className="size-3.5 shrink-0 opacity-60" />
-                              <span className="flex-1 truncate text-xs">{conv.title}</span>
-                              <button
-                                type="button"
-                                className="opacity-0 transition group-hover/conv:opacity-100 hover:text-danger"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setPendingDelete(conv);
-                                }}
-                                aria-label={`${t("common.delete")} ${conv.title}`}
-                              >
-                                <IconTrash className="size-3" />
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </nav>
-        </div>
+            <nav className="space-y-1 px-2 py-3" aria-label={t("shell.nav.primary")}>
+              {primaryNav.map(({ id, labelKey, Icon }) => {
+                const active = activeView === id;
+                const label = t(labelKey);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={[
+                      "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition",
+                      active
+                        ? "bg-accent/10 text-accent"
+                        : "text-foreground/70 hover:bg-foreground/5 hover:text-foreground",
+                    ].join(" ")}
+                    onClick={() => onSelectView(id)}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <Icon className="size-4 shrink-0" />
+                    <span className="truncate">{label}</span>
+                  </button>
+                );
+              })}
+            </nav>
 
-        <div className="border-t border-foreground/10 p-2">
-          <Button variant="ghost" className="w-full justify-start gap-2" onPress={onOpenSettings}>
-            <IconSettings className="size-4" />
-            {t("shell.settings")}
-          </Button>
-        </div>
-      </aside>
+            <div className="flex min-h-0 flex-1 flex-col border-t border-foreground/10">
+              <div className="flex items-center justify-between gap-2 px-3 py-3">
+                <span className="select-none text-xs font-medium uppercase tracking-normal text-foreground/45">
+                  {t("shell.conversations")}
+                </span>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  onPress={onCreateConversation}
+                  aria-label={t("shell.newConversation")}
+                >
+                  <IconPlus className="size-4" />
+                </Button>
+              </div>
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
+              {/* 鍒涙剰锛氭悳绱㈡锛堜粎鍦ㄦ湁浼氳瘽鏃舵樉绀猴級 */}
+              {conversations.length > 0 && (
+                <div className="relative px-3 pb-2">
+                  <div className="relative">
+                    <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-foreground/40" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                      placeholder={t("shell.searchPlaceholder")}
+                      aria-label={t("shell.searchPlaceholder")}
+                      className="h-7 w-full rounded-md border border-foreground/10 bg-background/60 pl-7 pr-7 text-xs text-foreground/80 outline-none transition placeholder:text-foreground/35 focus:border-accent/45 focus:ring-2 focus:ring-accent/15"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        aria-label={t("common.close")}
+                        className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-foreground/40 transition hover:text-foreground"
+                      >
+                        <IconClose className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <nav
+                className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+                aria-label={t("shell.nav.conversations")}
+              >
+                {groupedConversations.length === 0 ? (
+                  <p className="whitespace-pre-line px-3 py-8 text-center text-sm text-foreground/50">
+                    {searchQuery ? t("shell.noSearchResult") : t("shell.noConversation")}
+                  </p>
+                ) : (
+                  <ul className="space-y-3">
+                    {groupedConversations.map((group) => (
+                      <li key={group.label}>
+                        <p className="select-none px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/35">
+                          {group.label}
+                        </p>
+                        <ul className="space-y-0.5">
+                          {group.items.map((conv) => {
+                            const isActive =
+                              conv.id === activeConversationId && activeView === "chat";
+                            return (
+                              <li key={conv.id}>
+                                <div
+                                  className={[
+                                    "group/conv flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm transition",
+                                    isActive ? "bg-accent/10 text-accent" : "hover:bg-foreground/5",
+                                  ].join(" ")}
+                                  onClick={() => {
+                                    onSelectConversation(conv.id);
+                                    onSelectView("chat");
+                                  }}
+                                >
+                                  <IconMessage className="size-3.5 shrink-0 opacity-60" />
+                                  <span className="flex-1 truncate text-xs">{conv.title}</span>
+                                  <button
+                                    type="button"
+                                    className="opacity-0 transition group-hover/conv:opacity-100 hover:text-danger"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setPendingDelete(conv);
+                                    }}
+                                    aria-label={`${t("common.delete")} ${conv.title}`}
+                                  >
+                                    <IconTrash className="size-3" />
+                                  </button>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </nav>
+            </div>
+
+            <div className="border-t border-foreground/10 p-2">
+              <Button
+                variant="ghost"
+                className="w-full justify-start gap-2"
+                onPress={onOpenSettings}
+              >
+                <IconSettings className="size-4" />
+                {t("shell.settings")}
+              </Button>
+            </div>
+          </aside>
+        ) : null}
+
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
+      </div>
 
       <ConfirmDialog
         open={!!pendingDelete}

@@ -275,6 +275,43 @@ body {
   flex-direction: column;
 }
 
+.window-drag-region {
+  -webkit-app-region: drag;
+}
+
+.window-no-drag,
+.window-control-button {
+  -webkit-app-region: no-drag;
+}
+
+.window-control-button {
+  display: flex;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in oklch, var(--color-foreground) 58%, transparent);
+  outline: none;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.window-control-button:hover {
+  color: var(--color-foreground);
+  background: color-mix(in oklch, var(--color-foreground) 7%, transparent);
+}
+
+.window-control-button:focus-visible {
+  color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+}
+
+.window-close-button:hover,
+.window-close-button:focus-visible {
+  color: oklch(0.985 0 0);
+  background: oklch(0.58 0.2 25);
+}
+
 html[data-surface="pet"] body {
   user-select: none;
 }

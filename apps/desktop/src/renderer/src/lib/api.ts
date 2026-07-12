@@ -76,6 +76,14 @@ export function safeApi(): NonNullable<Window["api"]> | null {
 }
 
 export const api = {
+  windowControls: {
+    minimize: (): Promise<void> => assertApi().windowControls.minimize(),
+    toggleMaximize: (): Promise<boolean> => assertApi().windowControls.toggleMaximize(),
+    isMaximized: (): Promise<boolean> => assertApi().windowControls.isMaximized(),
+    close: (): Promise<void> => assertApi().windowControls.close(),
+    onMaximizedChange: (handler: (maximized: boolean) => void): (() => void) =>
+      assertApi().windowControls.onMaximizedChange(handler),
+  },
   conversations: {
     list: (): Promise<Conversation[]> => assertApi().conversations.list(),
     listDeleted: (): Promise<Conversation[]> => assertApi().conversations.listDeleted(),

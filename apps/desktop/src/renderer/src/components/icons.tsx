@@ -27,7 +27,10 @@ import {
   MoreHorizontal,
   Moon,
   Monitor,
+  Minus,
   Paperclip,
+  PanelLeftClose,
+  PanelLeftOpen,
   Palette,
   Pencil,
   Pin,
@@ -37,6 +40,7 @@ import {
   Search,
   Send,
   Settings,
+  Square,
   SlidersHorizontal,
   Smile,
   Sparkles,
@@ -63,6 +67,11 @@ export const IconSettings = fromLucide(Settings);
 export const IconSun = fromLucide(Sun);
 export const IconMoon = fromLucide(Moon);
 export const IconMonitor = fromLucide(Monitor);
+export const IconMinimize = fromLucide(Minus);
+export const IconMaximize = fromLucide(Square);
+export const IconRestore = fromLucide(Copy);
+export const IconSidebarCollapse = fromLucide(PanelLeftClose);
+export const IconSidebarExpand = fromLucide(PanelLeftOpen);
 export const IconSend = fromLucide(Send);
 export const IconArrowUp = fromLucide(ArrowUp);
 export const IconArrowDown = fromLucide(ArrowDown);

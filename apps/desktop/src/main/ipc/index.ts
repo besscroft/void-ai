@@ -1,4 +1,4 @@
-import { app, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { getServerInfo, getServerPort } from "../server";
 import {
   listConversations,
@@ -139,6 +139,24 @@ import {
  */
 
 export function registerIpcHandlers(): void {
+  // ---------- Main window controls ----------
+  ipcMain.handle("window:minimize", (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+  ipcMain.handle("window:toggleMaximize", (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return false;
+    if (window.isMaximized()) window.unmaximize();
+    else window.maximize();
+    return window.isMaximized();
+  });
+  ipcMain.handle("window:isMaximized", (event) => {
+    return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
+  });
+  ipcMain.handle("window:close", (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
   // ---------- 浼氳瘽鍘嗗彶 ----------
   ipcMain.handle("conversations:list", () => listConversations());
 

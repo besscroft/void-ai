@@ -58,7 +58,7 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    frame: false,
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
       preload: getPreloadPath(),
@@ -73,6 +73,13 @@ function createWindow(): BrowserWindow {
   mainWindow.on("closed", () => {
     if (mainWindowRef === mainWindow) mainWindowRef = null;
   });
+  const sendMaximizedState = (): void => {
+    if (!mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("window:maximized-changed", mainWindow.isMaximized());
+    }
+  };
+  mainWindow.on("maximize", sendMaximizedState);
+  mainWindow.on("unmaximize", sendMaximizedState);
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url);

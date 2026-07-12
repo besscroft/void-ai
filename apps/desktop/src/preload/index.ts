@@ -11,6 +11,17 @@ import { electronAPI } from "@electron-toolkit/preload";
  * - API key 鏄庢枃涓嶅嚭涓昏繘绋嬶紙鏃?get 鏂规硶锛?
  */
 const api = {
+  windowControls: {
+    minimize: () => ipcRenderer.invoke("window:minimize"),
+    toggleMaximize: () => ipcRenderer.invoke("window:toggleMaximize"),
+    isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
+    close: () => ipcRenderer.invoke("window:close"),
+    onMaximizedChange: (handler: (maximized: boolean) => void) => {
+      const listener = (_event: IpcRendererEvent, maximized: boolean): void => handler(maximized);
+      ipcRenderer.on("window:maximized-changed", listener);
+      return () => ipcRenderer.removeListener("window:maximized-changed", listener);
+    },
+  },
   conversations: {
     list: () => ipcRenderer.invoke("conversations:list"),
     listDeleted: () => ipcRenderer.invoke("conversations:listDeleted"),

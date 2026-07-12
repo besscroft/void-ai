@@ -65,6 +65,13 @@ import type {
  * - 鎵€鏈夋柟娉曡繑鍥?Promise锛坕pcRenderer.invoke 鐨勮涔夛級
  */
 export interface VoidAIApi {
+  windowControls: {
+    minimize: () => Promise<void>;
+    toggleMaximize: () => Promise<boolean>;
+    isMaximized: () => Promise<boolean>;
+    close: () => Promise<void>;
+    onMaximizedChange: (handler: (maximized: boolean) => void) => () => void;
+  };
   // 浼氳瘽鍘嗗彶
   conversations: {
     list: () => Promise<Conversation[]>;
