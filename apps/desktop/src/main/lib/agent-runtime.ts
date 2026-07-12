@@ -36,6 +36,8 @@ import { z } from "zod";
 import {
   auditChatToolApprovalResponses,
   buildChatToolRuntime,
+  createMemoryHostTools,
+  MEMORY_TOOL_IDS,
   type ChatToolModelContext,
   type ChatToolRuntimeConfig,
 } from "./chat-tools";
@@ -330,55 +332,75 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
     agentId: DEFAULT_AGENT_ID,
   });
 
-  if (!context.modelContext.capabilities.toolCalling || base.toolChoice === "none") {
+  if (!context.modelContext.capabilities.toolCalling) {
     return base;
   }
 
   const tools: ToolSet = { ...base.tools };
   const activeTools = new Set<string>(base.activeTools ?? []);
-  if (context.disableCronTools) {
-    delete tools.cron;
-    activeTools.delete("cron");
-  }
-  const policy = readToolPolicy(context.rootAgent.tool_policy_json);
 
-  const sandboxToolIds = selectedSandboxToolIds(context, policy);
-  if (sandboxToolIds.length > 0) {
-    context.sandbox = await getOrCreateSandboxSession({
-      conversationId: context.conversationId,
-      runId: context.runId,
-      agentId: DEFAULT_AGENT_ID,
-      preferredMode:
-        readRuntimeConfig(context.rootAgent.runtime_config_json).sandboxPolicy === "docker"
-          ? "docker"
-          : "local",
-    });
-    for (const [toolName, value] of Object.entries(createSandboxTools(context, sandboxToolIds))) {
-      assignTool(tools, toolName, value);
-      activeTools.add(toolName);
-    }
+  // The root agent (Paimon) always has the memory tools available, independent of
+  // the user's chat tool selection. They remain hidden from the chat page UI.
+  const memoryHostTools = createMemoryHostTools({
+    model: context.modelContext,
+    conversationId: context.conversationId,
+    agentId: DEFAULT_AGENT_ID,
+  });
+  for (const id of MEMORY_TOOL_IDS) {
+    const memoryTool = memoryHostTools[id];
+    if (!memoryTool) continue;
+    assignTool(tools, id, memoryTool);
+    activeTools.add(id);
   }
 
-  for (const child of context.enabledChildren) {
-    const handoff = readHandoffConfig(child.handoff_config_json);
-    const slug = toolSlug(child);
-    if (handoff.mode === "consult" || handoff.mode === "both") {
-      const toolName = "consult_" + slug;
-      assignTool(tools, toolName, createConsultTool(context, child, "/root"));
-      activeTools.add(toolName);
+  // The remaining orchestration tools follow the user's selection as before.
+  // When the user turns chat tools off, only the silently-enabled memory tools
+  // above remain available to the root agent.
+  if (base.toolChoice !== "none") {
+    if (context.disableCronTools) {
+      delete tools.cron;
+      activeTools.delete("cron");
     }
-    if (handoff.mode === "handoff" || handoff.mode === "both") {
-      const toolName = "handoff_" + slug;
-      assignTool(tools, toolName, createHandoffTool(context, child, "/root"));
-      activeTools.add(toolName);
-    }
-  }
+    const policy = readToolPolicy(context.rootAgent.tool_policy_json);
 
-  // 仅有 Void 自身可调用工作流：把控制权转交给编排好的多步流程。
-  // Child agent 不挂此工具，避免循环调度。
-  const runWorkflowName = "run_workflow";
-  assignTool(tools, runWorkflowName, createRunWorkflowTool(context));
-  activeTools.add(runWorkflowName);
+    const sandboxToolIds = selectedSandboxToolIds(context, policy);
+    if (sandboxToolIds.length > 0) {
+      context.sandbox = await getOrCreateSandboxSession({
+        conversationId: context.conversationId,
+        runId: context.runId,
+        agentId: DEFAULT_AGENT_ID,
+        preferredMode:
+          readRuntimeConfig(context.rootAgent.runtime_config_json).sandboxPolicy === "docker"
+            ? "docker"
+            : "local",
+      });
+      for (const [toolName, value] of Object.entries(createSandboxTools(context, sandboxToolIds))) {
+        assignTool(tools, toolName, value);
+        activeTools.add(toolName);
+      }
+    }
+
+    for (const child of context.enabledChildren) {
+      const handoff = readHandoffConfig(child.handoff_config_json);
+      const slug = toolSlug(child);
+      if (handoff.mode === "consult" || handoff.mode === "both") {
+        const toolName = "consult_" + slug;
+        assignTool(tools, toolName, createConsultTool(context, child, "/root"));
+        activeTools.add(toolName);
+      }
+      if (handoff.mode === "handoff" || handoff.mode === "both") {
+        const toolName = "handoff_" + slug;
+        assignTool(tools, toolName, createHandoffTool(context, child, "/root"));
+        activeTools.add(toolName);
+      }
+    }
+
+    // 仅有 Void 自身可调用工作流：把控制权转交给编排好的多步流程。
+    // Child agent 不挂此工具，避免循环调度。
+    const runWorkflowName = "run_workflow";
+    assignTool(tools, runWorkflowName, createRunWorkflowTool(context));
+    activeTools.add(runWorkflowName);
+  }
 
   const names = [...activeTools];
   return {

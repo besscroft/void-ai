@@ -1037,7 +1037,6 @@ export const DEFAULT_AGENT_TOOL_POLICY: AgentToolPolicy = {
   allowedToolIds: [],
   requireApprovalToolIds: [
     "conversation_search",
-    "memory_save",
     "sandbox_write_file",
     "sandbox_run_command",
     "sandbox_restore",

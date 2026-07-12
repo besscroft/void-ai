@@ -826,6 +826,36 @@ function createHostTools({
   };
 }
 
+export const MEMORY_TOOL_IDS: ChatToolId[] = [
+  "memory_search",
+  "memory_save",
+  "memory_update",
+  "memory_delete",
+];
+
+export function createMemoryHostTools({
+  model,
+  conversationId,
+  agentId,
+}: {
+  model: ChatToolModelContext;
+  conversationId?: string;
+  agentId?: string | null;
+}): Partial<Record<ChatToolId, ToolSet[string]>> {
+  const hostTools = createHostTools({
+    model,
+    descriptors: createChatToolDescriptors(model),
+    conversationId,
+    agentId,
+  });
+  const result: Partial<Record<ChatToolId, ToolSet[string]>> = {};
+  for (const id of MEMORY_TOOL_IDS) {
+    const memoryTool = hostTools[id];
+    if (memoryTool) result[id] = memoryTool;
+  }
+  return result;
+}
+
 async function executeCronTool(input: CronToolInput): Promise<unknown> {
   switch (input.action) {
     case "list":
