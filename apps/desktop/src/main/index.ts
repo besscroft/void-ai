@@ -13,6 +13,8 @@ import { registerIpcHandlers } from "./ipc";
 import { DesktopPetWindowController } from "./lib/desktop-pet-window";
 import { DesktopPetTrayController } from "./lib/desktop-pet-tray";
 import { showDesktopPetContextMenu } from "./lib/desktop-pet-context-menu";
+import { startCronScheduler, stopCronScheduler } from "./lib/cron-scheduler";
+import { ensureBuiltinCatalogSources } from "./lib/catalog-service";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "void-media",
@@ -141,6 +143,7 @@ void app.whenReady().then(async () => {
   try {
     initDb();
     migrateProviderApiKeysToModelKeys();
+    ensureBuiltinCatalogSources();
     scheduleMemoryFileConsolidation();
     startMemoryWorker();
     console.log("[main] 数据库已初始化");
@@ -155,6 +158,7 @@ void app.whenReady().then(async () => {
   // 2. 启动本地 HTTP 服务（用于 AI SDK 流式通信）
   try {
     const port = await startServer();
+    startCronScheduler();
     console.log(`[main] AI 服务端口: ${port}`);
   } catch (err) {
     console.error("[main] AI 服务启动失败:", err);
@@ -225,6 +229,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   desktopPetControllerRef?.prepareForAppQuit();
   desktopPetTrayRef?.dispose();
+  stopCronScheduler();
   stopServer();
   closeDb();
 });

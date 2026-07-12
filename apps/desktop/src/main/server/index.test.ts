@@ -10,6 +10,7 @@ import {
 } from "ai/test";
 import { createApp } from "./index";
 import {
+  CHAT_REASONING_LEVELS,
   CHAT_SESSION_HEADER,
   type MediaGenerationErrorResponse,
   type MediaGenerationKind,
@@ -107,6 +108,39 @@ void describe("local chat server", () => {
     assert.equal(response.status, 400);
     const body = (await response.json()) as { error: string };
     assert.match(body.error, /reasoning must be one of/);
+  });
+
+  void it("preserves every supported top-level reasoning value including none", async () => {
+    const captured: Array<RunAgentChatOptions["reasoning"]> = [];
+    const model = new MockLanguageModelV4({});
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: () => ({
+        model,
+        temperature: 0.7,
+        topP: 1,
+        maxOutputTokens: 256,
+      }),
+      buildAgentSystemPrompt: async () => "test",
+      runAgentChat: async (options) => {
+        captured.push(options.reasoning);
+        return agentRuntimeResponse("runtime-stream");
+      },
+    });
+
+    for (const reasoning of CHAT_REASONING_LEVELS) {
+      const response = await app.request("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [CHAT_SESSION_HEADER]: token,
+        },
+        body: JSON.stringify({ messages: validMessages, model: "mock/chat", reasoning }),
+      });
+      assert.equal(response.status, 200);
+    }
+
+    assert.deepEqual(captured, [...CHAT_REASONING_LEVELS]);
   });
 
   void it("routes chat responses through the provider-neutral agent runtime", async () => {
@@ -289,16 +323,16 @@ void describe("local chat server", () => {
     assert.equal(await response.text(), "reaction-stream");
   });
 
-  void it("normalizes provider-default, none, and incompatible minimal reasoning", async () => {
+  void it("keeps provider-default, none, and compatible-provider minimal reasoning", async () => {
     const model = new MockLanguageModelV4({});
     const cases: Array<{
       reasoning: string;
       providerKind?: ModelProviderKind;
       expected: RunAgentChatOptions["reasoning"];
     }> = [
-      { reasoning: "provider-default", expected: undefined },
-      { reasoning: "none", expected: undefined },
-      { reasoning: "minimal", providerKind: "openai-compatible", expected: undefined },
+      { reasoning: "provider-default", expected: "provider-default" },
+      { reasoning: "none", expected: "none" },
+      { reasoning: "minimal", providerKind: "openai-compatible", expected: "minimal" },
     ];
 
     for (const testCase of cases) {

@@ -49,10 +49,10 @@ function matchIntent(
   chineseWords: { action: string; target: string },
   englishBidirectional = true,
 ): boolean {
-  const enA = new RegExp(`\\b${englishWords.action}\\b.*\\b${englishWords.target}\\b`);
-  const enB = new RegExp(`\\b${englishWords.target}\\b.*\\b${englishWords.action}\\b`);
-  const zhA = new RegExp(`${chineseWords.action}.*${chineseWords.target}`);
-  const zhB = new RegExp(`${chineseWords.target}.*${chineseWords.action}`);
+  const enA = new RegExp(`\\b(?:${englishWords.action})\\b.*\\b(?:${englishWords.target})\\b`);
+  const enB = new RegExp(`\\b(?:${englishWords.target})\\b.*\\b(?:${englishWords.action})\\b`);
+  const zhA = new RegExp(`(?:${chineseWords.action}).*(?:${chineseWords.target})`);
+  const zhB = new RegExp(`(?:${chineseWords.target}).*(?:${chineseWords.action})`);
   const enMatched = englishBidirectional ? enA.test(lower) || enB.test(lower) : enA.test(lower);
   return enMatched || zhA.test(normalized) || zhB.test(normalized);
 }
@@ -88,12 +88,14 @@ export function detectMediaIntent(
   // 语音类意图：英文只匹配"动作在前"的语序（如 "text to speech"、"generate speech"），
   // 因为语音的动作短语大多不可拆解成 A+B（target 通常是动作短语的一部分）。
   if (
+    /\b(text to speech|tts|read aloud|voice over|generate speech|generate audio|synthesize speech)\b/.test(
+      lower,
+    ) ||
     matchIntent(
       lower,
       normalized,
       {
-        action:
-          "text to speech|tts|read aloud|voice over|generate speech|generate audio|synthesize speech",
+        action: "generate|create|make|synthesize|read",
         target: "speech|audio|voice|narration",
       },
       { action: "生成|合成|朗读|读出", target: "语音|音频|旁白|声音" },

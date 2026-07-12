@@ -15,6 +15,7 @@ import type {
 } from "../../shared/types";
 import type { ChatToolRuntimeConfig } from "./chat-tools";
 import type { NativeChatTool } from "./providers";
+import type { ExactTokenCountInput } from "./context-engine";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
 type MessageMetadataCallback = NonNullable<
@@ -33,6 +34,7 @@ export interface ResolvedChatModel {
   contextWindow?: number;
   providerOptions?: StreamTextOptions["providerOptions"];
   nativeTools?: NativeChatTool[];
+  countInputTokens?: (input: ExactTokenCountInput) => Promise<number>;
 }
 
 export interface BuildChatAgentOptions {
@@ -75,7 +77,7 @@ export function buildChatAgent({
     },
   };
 
-  if (reasoning) agentSettings.reasoning = reasoning;
+  if (reasoning !== undefined) agentSettings.reasoning = reasoning;
   if (toolRuntime.activeTools?.length) agentSettings.activeTools = toolRuntime.activeTools;
   if (toolRuntime.toolChoice) agentSettings.toolChoice = toolRuntime.toolChoice;
   if (toolRuntime.toolApproval) agentSettings.toolApproval = toolRuntime.toolApproval;
@@ -156,6 +158,22 @@ function createExecutionTracker({
     const finishedAt = Date.now();
     const inputTokens = readTokenTotal(part.totalUsage, "inputTokens");
     const outputTokens = readTokenTotal(part.totalUsage, "outputTokens");
+    const textOutputTokens = readUsageDetail(part.totalUsage, "outputTokenDetails", "textTokens");
+    const reasoningTokens = readUsageDetail(
+      part.totalUsage,
+      "outputTokenDetails",
+      "reasoningTokens",
+    );
+    const cacheReadTokens = readUsageDetail(
+      part.totalUsage,
+      "inputTokenDetails",
+      "cacheReadTokens",
+    );
+    const cacheWriteTokens = readUsageDetail(
+      part.totalUsage,
+      "inputTokenDetails",
+      "cacheWriteTokens",
+    );
     const totalTokens =
       inputTokens !== undefined || outputTokens !== undefined
         ? (inputTokens ?? 0) + (outputTokens ?? 0)
@@ -171,6 +189,10 @@ function createExecutionTracker({
         finishReason: String(part.finishReason),
         inputTokens,
         outputTokens,
+        textOutputTokens,
+        reasoningTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
         totalTokens,
         stepCount: stepCount || undefined,
         toolCallCount: toolCallCount || undefined,
@@ -193,6 +215,18 @@ function readTokenTotal(usage: unknown, key: "inputTokens" | "outputTokens"): nu
   if (!value || typeof value !== "object") return undefined;
   const total = (value as Record<string, unknown>).total;
   return typeof total === "number" && Number.isFinite(total) ? total : undefined;
+}
+
+function readUsageDetail(
+  usage: unknown,
+  group: "inputTokenDetails" | "outputTokenDetails",
+  key: string,
+): number | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const details = (usage as Record<string, unknown>)[group];
+  if (!details || typeof details !== "object") return undefined;
+  const value = (details as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function readReactionMetadata(metadata: unknown): ChatReactionMetadata | null {

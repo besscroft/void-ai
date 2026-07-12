@@ -13,6 +13,7 @@ import {
   IconWrench,
   IconSearch,
   IconClose,
+  IconClock,
 } from "./icons";
 import type { Conversation } from "@shared/types";
 import type { MainSection } from "./MainPanelView";
@@ -37,6 +38,7 @@ const primaryNav: { id: AppView; labelKey: TranslationKey; Icon: typeof IconMess
   // 工作流与工作流运行已下沉为 chat 页面右上角悬浮状态框（WorkflowStatusWidget）
   // 入口不再展示，独立页面与组件（WorkflowRunsPanel / WorkflowRunDetail）已删除
   { id: "tools", labelKey: "main.title.tools", Icon: IconWrench },
+  { id: "automations", labelKey: "automation.title", Icon: IconClock },
   { id: "memory", labelKey: "main.title.memory", Icon: IconDatabase },
 ];
 

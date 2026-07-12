@@ -23,6 +23,7 @@ import {
 import { useT } from "../lib/i18n";
 import { AgentsPanel } from "./AgentsPanel";
 import { ToolsPanel } from "./ToolsPanel";
+import { AutomationPanel } from "./AutomationPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
   IconDatabase,
@@ -36,7 +37,7 @@ import {
 } from "./icons";
 import { cn } from "../lib/utils";
 
-export type MainSection = "agents" | "tools" | "memory";
+export type MainSection = "agents" | "tools" | "memory" | "automations";
 
 interface MainPanelViewProps {
   section: MainSection;
@@ -90,6 +91,14 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
     return (
       <main className="flex min-h-0 flex-1 overflow-hidden p-6">
         <ToolsPanel />
+      </main>
+    );
+  }
+
+  if (section === "automations") {
+    return (
+      <main className="flex min-h-0 flex-1 overflow-hidden p-6">
+        <AutomationPanel />
       </main>
     );
   }

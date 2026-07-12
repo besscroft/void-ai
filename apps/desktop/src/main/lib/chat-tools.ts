@@ -28,6 +28,16 @@ import {
 } from "./db";
 import { createMcpToolDescriptors, createMcpToolSet } from "./mcp-manager";
 import { createSkillToolDescriptors, createSkillToolSet } from "./skill-runtime";
+import {
+  createCronJob,
+  deleteCronJob,
+  getCronJob,
+  listCronJobs,
+  setCronJobPaused,
+  updateCronJob,
+} from "./cron-store";
+import { getCronScheduler } from "./cron-scheduler";
+import type { CronJobInput } from "../../shared/types";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
 
@@ -142,6 +152,12 @@ interface MemoryUpdateInput {
   kind?: MemoryKind;
   salience?: number;
   pinned?: boolean;
+}
+
+interface CronToolInput {
+  action: "create" | "list" | "get" | "update" | "pause" | "resume" | "run" | "delete";
+  id?: string;
+  job?: CronJobInput;
 }
 
 const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
@@ -295,6 +311,15 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
     description: "Register a local preview port for the sandbox after approval.",
     kind: "host",
     category: "sandbox",
+    defaultAuto: false,
+    requiresApproval: true,
+  },
+  cron: {
+    id: "cron",
+    label: "Automation",
+    description: "List or manage scheduled isolated agent turns in Void AI.",
+    kind: "host",
+    category: "automation",
     defaultAuto: false,
     requiresApproval: true,
   },
@@ -532,6 +557,8 @@ export async function executeChatHostTool({
           return await updateChatMemory(input as MemoryUpdateInput);
         case "memory_delete":
           return await deleteChatMemory(input as { id: string });
+        case "cron":
+          return await executeCronTool(input as CronToolInput);
         case "sandbox_list_files":
         case "sandbox_read_file":
         case "sandbox_write_file":
@@ -771,7 +798,60 @@ function createHostTools({
           async () => await deleteChatMemory(input),
         ),
     }),
+    cron: tool({
+      description: TOOL_DEFINITIONS.cron.description,
+      inputSchema: jsonSchema<CronToolInput>({
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["create", "list", "get", "update", "pause", "resume", "run", "delete"],
+          },
+          id: { type: "string", description: "Automation job id." },
+          job: {
+            type: "object",
+            description: "Job fields for create or update.",
+            additionalProperties: true,
+          },
+        },
+        required: ["action"],
+        additionalProperties: false,
+      }),
+      needsApproval: (input) => input.action !== "list" && input.action !== "get",
+      execute: (input) =>
+        executeWithAudit("cron", `Automation: ${input.action}`, model, conversationId, async () =>
+          executeCronTool(input),
+        ),
+    }),
   };
+}
+
+async function executeCronTool(input: CronToolInput): Promise<unknown> {
+  switch (input.action) {
+    case "list":
+      return listCronJobs();
+    case "get":
+      return getCronJob(requireCronId(input));
+    case "create":
+      if (!input.job) throw new Error("job is required for cron.create");
+      return createCronJob(input.job);
+    case "update":
+      if (!input.job) throw new Error("job is required for cron.update");
+      return updateCronJob(requireCronId(input), input.job);
+    case "pause":
+      return setCronJobPaused(requireCronId(input), true);
+    case "resume":
+      return setCronJobPaused(requireCronId(input), false);
+    case "run":
+      return await getCronScheduler().runNow(requireCronId(input));
+    case "delete":
+      return { deleted: deleteCronJob(requireCronId(input)) };
+  }
+}
+
+function requireCronId(input: CronToolInput): string {
+  if (!input.id?.trim()) throw new Error(`id is required for cron.${input.action}`);
+  return input.id.trim();
 }
 
 function getCurrentSystemTime(): {

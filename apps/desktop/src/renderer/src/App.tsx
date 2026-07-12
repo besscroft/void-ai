@@ -115,6 +115,19 @@ function AppContent(): React.JSX.Element {
     });
   }, []);
 
+  useEffect(() => {
+    const handleOpenConversation = (event: Event): void => {
+      const conversationId = (event as CustomEvent<{ conversationId?: string }>).detail
+        ?.conversationId;
+      if (!conversationId) return;
+      setActiveId(conversationId);
+      setActiveView("chat");
+      void api.settings.set(SettingKey.ActiveConversationId, conversationId);
+    };
+    window.addEventListener("void-ai:open-conversation", handleOpenConversation);
+    return () => window.removeEventListener("void-ai:open-conversation", handleOpenConversation);
+  }, []);
+
   // 托盘 / 桌宠右键菜单触发的"打开设置"
   useEffect(() => {
     const offSettings = api.system.onPetOpenSettings(() => {

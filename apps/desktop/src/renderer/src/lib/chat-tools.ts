@@ -144,6 +144,13 @@ const TOOL_METADATA: Record<
     category: "sandbox",
     requiresApproval: true,
   },
+  cron: {
+    label: "Automation",
+    description: "List or manage scheduled isolated agent turns.",
+    kind: "host",
+    category: "automation",
+    requiresApproval: true,
+  },
 };
 
 export interface SelectedChatModelInfo {

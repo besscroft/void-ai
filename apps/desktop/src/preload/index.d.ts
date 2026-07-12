@@ -4,6 +4,14 @@ import type {
   AgentMemoryFileSnapshot,
   AgentProfile,
   Conversation,
+  ArtifactInstallation,
+  CatalogInstallInput,
+  CatalogSearchInput,
+  CatalogSearchResult,
+  CatalogSnapshot,
+  CronJob,
+  CronJobInput,
+  CronRun,
   CustomModelInput,
   CustomProviderInput,
   DesktopPetConfigPatch,
@@ -28,7 +36,10 @@ import type {
   MemoryKind,
   MemoryRecord,
   MemoryScope,
+  MessagePatch,
+  MessagePatchResult,
   MessageRow,
+  MessageSnapshot,
   ToolDiscoveryResult,
   ToolServer,
   ToolServerInput,
@@ -69,10 +80,28 @@ export interface VoidAIApi {
   };
   // 娑堟伅
   messages: {
-    list: (conversationId: string) => Promise<MessageRow[]>;
+    list: (conversationId: string) => Promise<MessageSnapshot>;
     save: (msg: MessageRow) => Promise<boolean>;
     saveBatch: (msgs: MessageRow[]) => Promise<boolean>;
-    replaceSnapshot: (conversationId: string, msgs: MessageRow[]) => Promise<boolean>;
+    applyPatch: (patch: MessagePatch) => Promise<MessagePatchResult>;
+  };
+  cron: {
+    list: () => Promise<CronJob[]>;
+    get: (id: string) => Promise<CronJob | null>;
+    create: (input: CronJobInput) => Promise<CronJob>;
+    update: (id: string, patch: Partial<CronJobInput>) => Promise<CronJob>;
+    pause: (id: string) => Promise<CronJob>;
+    resume: (id: string) => Promise<CronJob>;
+    run: (id: string) => Promise<CronRun>;
+    delete: (id: string) => Promise<boolean>;
+    runs: (id: string, limit?: number) => Promise<CronRun[]>;
+  };
+  catalog: {
+    snapshot: () => Promise<CatalogSnapshot>;
+    search: (input?: CatalogSearchInput) => Promise<CatalogSearchResult>;
+    install: (input: CatalogInstallInput) => Promise<ArtifactInstallation>;
+    enable: (id: string, enabled: boolean) => Promise<ArtifactInstallation>;
+    uninstall: (id: string) => Promise<boolean>;
   };
   // 搴旂敤璁剧疆
   settings: {

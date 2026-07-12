@@ -342,6 +342,10 @@ function MessageItem({
   const parts = message.parts ?? [];
   const messageStreaming = isLastMessage && isStreaming;
   const reasoningParts = parts.filter(isReasoningPart);
+  const toolParts = parts.filter(isToolPart);
+  const compactionParts = parts.filter(
+    (part) => part.type === "custom" && (part as { kind?: unknown }).kind === "openai.compaction",
+  );
   const reasoningDisplay = getReasoningDisplay(parts, messageStreaming);
   const reasoningText = reasoningDisplay?.text ?? "";
   const isReasoningStreaming = reasoningDisplay?.isStreaming ?? false;
@@ -352,6 +356,37 @@ function MessageItem({
   const fullText = textParts.join("\n\n");
   const metadata = readChatMessageMetadata(message);
   const executionTime = formatExecutionTime(metadata.execution?.durationMs, f);
+  const reasoningMetrics = [
+    executionTime ? t("msg.cot.duration", { duration: executionTime }) : null,
+    metadata.execution?.reasoningTokens !== undefined
+      ? t("msg.cot.reasoningTokens", {
+          count: f.number(metadata.execution.reasoningTokens),
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+  const cachedTokens =
+    metadata.execution?.cacheReadTokens !== undefined ||
+    metadata.execution?.cacheWriteTokens !== undefined
+      ? (metadata.execution.cacheReadTokens ?? 0) + (metadata.execution.cacheWriteTokens ?? 0)
+      : undefined;
+  const responseMetrics = [
+    metadata.execution?.inputTokens !== undefined
+      ? t("msg.cot.inputTokens", { count: f.number(metadata.execution.inputTokens) })
+      : null,
+    metadata.execution?.outputTokens !== undefined
+      ? t("msg.cot.outputTokens", { count: f.number(metadata.execution.outputTokens) })
+      : null,
+    cachedTokens !== undefined ? t("msg.cot.cacheTokens", { count: f.number(cachedTokens) }) : null,
+    metadata.execution?.contextUtilization !== undefined
+      ? t("msg.cot.contextUsage", {
+          percent: f.number(Math.round(metadata.execution.contextUtilization * 100)),
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
   const isUser = message.role === "user";
   const isMediaError = message.role === "assistant" && isMediaGenerationError(message);
   // 是否允许 hover 动作（仅在非流式中）
@@ -448,22 +483,22 @@ function MessageItem({
     <Message from={message.role}>
       {/* 气泡本体：思维链、附件、各类 part */}
       <MessageContent data-from={message.role}>
-        {(reasoningParts.length > 0 || sourceParts.length > 0 || imageParts.length > 0) && (
+        {(reasoningParts.length > 0 ||
+          toolParts.length > 0 ||
+          compactionParts.length > 0 ||
+          sourceParts.length > 0 ||
+          imageParts.length > 0) && (
           <ChainOfThought
-            active={isReasoningStreaming}
-            defaultOpen={reasoningParts.length > 0}
-            title={isReasoningStreaming ? t("msg.cot.reasoningActive") : t("msg.cot.reasoning")}
+            active={messageStreaming}
+            defaultOpen={messageStreaming}
+            title={messageStreaming ? t("msg.cot.activityActive") : t("msg.cot.activity")}
           >
             {reasoningParts.length > 0 ? (
               <ChainOfThoughtStep
                 icon="think"
                 status={isReasoningStreaming ? "active" : "complete"}
                 label={isReasoningStreaming ? t("msg.cot.thinking") : t("msg.cot.reasoned")}
-                description={
-                  reasoningText
-                    ? t("msg.cot.chars", { count: f.number(reasoningText.length) })
-                    : undefined
-                }
+                description={reasoningMetrics || undefined}
               >
                 {reasoningText ? (
                   <p
@@ -474,6 +509,28 @@ function MessageItem({
                   </p>
                 ) : null}
               </ChainOfThoughtStep>
+            ) : null}
+
+            {toolParts.length > 0 ? (
+              <ChainOfThoughtStep
+                icon="tool"
+                status={
+                  toolParts.some((part) => isActiveToolState(normalizeToolState(part.state)))
+                    ? "active"
+                    : "complete"
+                }
+                label={t("msg.cot.tools", { count: f.number(toolParts.length) })}
+              />
+            ) : null}
+
+            {compactionParts.length > 0 ? (
+              <ChainOfThoughtStep
+                icon="think"
+                status="complete"
+                label={t("msg.cot.contextCompacted", {
+                  count: f.number(compactionParts.length),
+                })}
+              />
             ) : null}
 
             {sourceParts.length > 0 ? (
@@ -518,6 +575,15 @@ function MessageItem({
                   ))}
                 </div>
               </ChainOfThoughtStep>
+            ) : null}
+
+            {fullText || messageStreaming ? (
+              <ChainOfThoughtStep
+                icon="sparkles"
+                status={messageStreaming ? "active" : "complete"}
+                label={messageStreaming ? t("msg.cot.responding") : t("msg.cot.responded")}
+                description={!messageStreaming && responseMetrics ? responseMetrics : undefined}
+              />
             ) : null}
           </ChainOfThought>
         )}

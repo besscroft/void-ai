@@ -41,7 +41,7 @@ import { commandLooksDangerous, inputHasPathEscape } from "./approval-policy";
 import { loadAgentGraph } from "./agent-graph";
 import type { AgentGraph } from "./agent-graph";
 import { AgentCoordinator } from "./agent-coordinator";
-import { AgentContextManager } from "./agent-context-manager";
+import { ContextEngine } from "./context-engine";
 import {
   createContextCheckpoint,
   getConversationAgentState,
@@ -85,6 +85,7 @@ export interface RunAgentChatOptions {
   buildAgentSystemPrompt: (agentId?: string | null, conversationId?: string) => Promise<string>;
   resolveModel?: (modelRef: string) => ResolvedChatModel;
   abortSignal?: AbortSignal;
+  disableCronTools?: boolean;
 }
 
 interface RuntimeContext {
@@ -107,6 +108,7 @@ interface RuntimeContext {
   sandbox?: SandboxContext;
   approvalRequested: boolean;
   abortSignal?: AbortSignal;
+  disableCronTools: boolean;
   protocolRecorder: (event: AgentRuntimeProtocolEvent) => void;
 }
 
@@ -250,34 +252,40 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
     finalAgentId: DEFAULT_AGENT_ID,
     approvalRequested: false,
     abortSignal: options.abortSignal,
+    disableCronTools: options.disableCronTools === true,
     protocolRecorder,
   };
   emitProtocol(context, "agent.lifecycle", "/root", null, "start", { status: "running" });
 
   try {
     const toolRuntime = await buildRootToolRuntime(context);
+    const rootInstructions = await createRootInstructions(context, toolRuntime.instructions);
+    const contextEngine = createContextManager(context, {
+      agentPath: "/root",
+      modelRef: rootModelRef,
+      resolved,
+      runtimeConfig: rootRuntimeConfig,
+      staticInstructions: rootInstructions,
+      toolSchemas: toolRuntime.activeTools,
+    });
     const tracker = createExecutionTracker({
       runId,
       modelRef: rootModelRef,
       agentId: DEFAULT_AGENT_ID,
       context,
+      contextEngine,
     });
     const agent = createToolLoopAgent({
       id: DEFAULT_AGENT_ID,
       modelRef: rootModelRef,
       resolved,
-      instructions: await createRootInstructions(context, toolRuntime.instructions),
+      instructions: rootInstructions,
       messages: options.messages,
       runtimeConfig: rootRuntimeConfig,
       reasoning: context.reasoning,
       toolRuntime,
       messageStepRecorder: tracker.recordModelStep,
-      contextManager: createContextManager(context, {
-        agentPath: "/root",
-        modelRef: rootModelRef,
-        resolved,
-        runtimeConfig: rootRuntimeConfig,
-      }),
+      contextManager: contextEngine,
       protocol: { context, agentPath: "/root", parentAgentPath: null },
     });
 
@@ -317,6 +325,10 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
 
   const tools: ToolSet = { ...base.tools };
   const activeTools = new Set<string>(base.activeTools ?? []);
+  if (context.disableCronTools) {
+    delete tools.cron;
+    activeTools.delete("cron");
+  }
   const policy = readToolPolicy(context.rootAgent.tool_policy_json);
 
   const sandboxToolIds = selectedSandboxToolIds(context, policy);
@@ -396,7 +408,7 @@ function createToolLoopAgent({
   reasoning?: StreamTextOptions["reasoning"];
   toolRuntime: ChatToolRuntimeConfig;
   messageStepRecorder?: () => void;
-  contextManager?: AgentContextManager;
+  contextManager?: ContextEngine;
   protocol?: {
     context: RuntimeContext;
     agentPath: string;
@@ -415,7 +427,11 @@ function createToolLoopAgent({
     temperature: runtimeConfig.temperature ?? resolved.temperature,
     topP: runtimeConfig.topP ?? resolved.topP,
     maxOutputTokens: runtimeConfig.maxOutputTokens ?? resolved.maxOutputTokens,
-    providerOptions: resolved.providerOptions,
+    providerOptions: contextManager
+      ? (contextManager.withProviderOptions(
+          resolved.providerOptions as Record<string, unknown> | undefined,
+        ) as StreamTextOptions["providerOptions"])
+      : resolved.providerOptions,
     reasoning,
     prepareStep: contextManager
       ? async ({ messages: stepMessages }) => {
@@ -740,7 +756,8 @@ function buildSafeChildToolRuntime(
   }
   const policy = readToolPolicy(child.tool_policy_json);
   const allowed = selectedBaseToolIds(context.toolSelection, policy).filter(
-    (id) => !policy.requireApprovalToolIds.includes(id),
+    (id) =>
+      !policy.requireApprovalToolIds.includes(id) && !(context.disableCronTools && id === "cron"),
   );
   const base = buildChatToolRuntime({
     selection: { mode: allowed.length ? "manual" : "off", selectedToolIds: allowed },
@@ -1188,11 +1205,13 @@ function createExecutionTracker({
   modelRef,
   agentId,
   context,
+  contextEngine,
 }: {
   runId: string;
   modelRef: string;
   agentId: string;
   context: RuntimeContext;
+  contextEngine?: ContextEngine;
 }): {
   messageMetadata: MessageMetadataCallback;
   recordModelStep: () => void;
@@ -1220,9 +1239,19 @@ function createExecutionTracker({
       finishReason: String(part.finishReason),
       inputTokens: readTokenTotal(part.totalUsage, "inputTokens"),
       outputTokens: readTokenTotal(part.totalUsage, "outputTokens"),
+      textOutputTokens: readUsageDetail(part.totalUsage, "outputTokenDetails", "textTokens"),
+      reasoningTokens: readUsageDetail(part.totalUsage, "outputTokenDetails", "reasoningTokens"),
+      cacheReadTokens: readUsageDetail(part.totalUsage, "inputTokenDetails", "cacheReadTokens"),
+      cacheWriteTokens: readUsageDetail(part.totalUsage, "inputTokenDetails", "cacheWriteTokens"),
       totalTokens: undefined as number | undefined,
       stepCount: stepCount || undefined,
       toolCallCount: toolCallCount || undefined,
+      contextUtilization: contextEngine?.usage.utilization,
+      contextWindow: contextEngine?.usage.contextWindow,
+      compactionCount: contextEngine?.usage.compactionCount,
+      tokenCountAccuracy: contextEngine?.usage.accuracy,
+      reasoningLevel: isChatReasoningLevel(context.reasoning) ? context.reasoning : undefined,
+      reasoningOverridden: hasProviderReasoningOverride(context.resolved.providerOptions),
     };
     execution.totalTokens =
       execution.inputTokens !== undefined || execution.outputTokens !== undefined
@@ -1246,6 +1275,40 @@ function createExecutionTracker({
       });
     },
   };
+}
+
+function readUsageDetail(
+  usage: unknown,
+  group: "inputTokenDetails" | "outputTokenDetails",
+  key: string,
+): number | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const details = (usage as Record<string, unknown>)[group];
+  if (!details || typeof details !== "object") return undefined;
+  const value = (details as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function hasProviderReasoningOverride(providerOptions: unknown): boolean {
+  if (!providerOptions || typeof providerOptions !== "object" || Array.isArray(providerOptions)) {
+    return false;
+  }
+  for (const [key, value] of Object.entries(providerOptions)) {
+    const normalized = key.replace(/[_-]/g, "").toLowerCase();
+    if (
+      normalized === "reasoningeffort" ||
+      normalized === "thinkingbudget" ||
+      normalized === "budgettokens"
+    ) {
+      return value !== undefined && value !== null;
+    }
+    if (normalized === "thinking" && value && typeof value === "object") {
+      const type = (value as Record<string, unknown>).type;
+      if (type === "enabled" || type === "adaptive") return true;
+    }
+    if (hasProviderReasoningOverride(value)) return true;
+  }
+  return false;
 }
 
 async function createRootInstructions(
@@ -1509,7 +1572,7 @@ function toChatToolModelContext(
 function normalizeRuntimeReasoning(
   value: ChatReasoningLevel | StreamTextOptions["reasoning"] | undefined,
 ): StreamTextOptions["reasoning"] | undefined {
-  if (!value || value === "provider-default" || value === "none") return undefined;
+  if (!value || value === "provider-default") return undefined;
   return value as StreamTextOptions["reasoning"];
 }
 
@@ -1556,8 +1619,10 @@ function createContextManager(
     modelRef: string;
     resolved: ResolvedChatModel;
     runtimeConfig: AgentRuntimeConfig;
+    staticInstructions?: string;
+    toolSchemas?: unknown;
   },
-): AgentContextManager | undefined {
+): ContextEngine | undefined {
   const policy: AgentContextPolicy =
     input.runtimeConfig.contextPolicy ?? DEFAULT_AGENT_RUNTIME_CONFIG.contextPolicy!;
   if (policy.mode === "off") return undefined;
@@ -1569,16 +1634,21 @@ function createContextManager(
       console.warn("[agent-runtime] compaction model unavailable, using active model:", error);
     }
   }
-  return new AgentContextManager({
+  return new ContextEngine({
     runId: context.runId,
     conversationId: context.conversationId,
     agentInstanceId: input.agentInstanceId,
     agentPath: input.agentPath,
     modelRef: input.modelRef,
     model: input.resolved.model,
+    providerKind: input.resolved.providerKind,
     compactionModel,
     contextWindow: input.resolved.contextWindow ?? 32_000,
+    maxOutputTokens: input.runtimeConfig.maxOutputTokens ?? input.resolved.maxOutputTokens,
     policy,
+    staticInstructions: input.staticInstructions,
+    toolSchemas: input.toolSchemas,
+    countInputTokens: input.resolved.countInputTokens,
     onCheckpoint: createContextCheckpoint,
     onEvent: context.protocolRecorder,
   });

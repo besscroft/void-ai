@@ -3,6 +3,14 @@ import type {
   AgentMemoryFileSnapshot,
   AgentProfile,
   Conversation,
+  ArtifactInstallation,
+  CatalogInstallInput,
+  CatalogSearchInput,
+  CatalogSearchResult,
+  CatalogSnapshot,
+  CronJob,
+  CronJobInput,
+  CronRun,
   CustomModelInput,
   CustomProviderInput,
   DesktopPetConfigPatch,
@@ -27,7 +35,10 @@ import type {
   MemoryKind,
   MemoryRecord,
   MemoryScope,
+  MessagePatch,
+  MessagePatchResult,
   MessageRow,
+  MessageSnapshot,
   ToolDiscoveryResult,
   ToolServer,
   ToolServerInput,
@@ -82,12 +93,34 @@ export const api = {
       assertApi().conversations.touch(id, title),
   },
   messages: {
-    list: (conversationId: string): Promise<MessageRow[]> =>
+    list: (conversationId: string): Promise<MessageSnapshot> =>
       assertApi().messages.list(conversationId),
     save: (msg: MessageRow): Promise<boolean> => assertApi().messages.save(msg),
     saveBatch: (msgs: MessageRow[]): Promise<boolean> => assertApi().messages.saveBatch(msgs),
-    replaceSnapshot: (conversationId: string, msgs: MessageRow[]): Promise<boolean> =>
-      assertApi().messages.replaceSnapshot(conversationId, msgs),
+    applyPatch: (patch: MessagePatch): Promise<MessagePatchResult> =>
+      assertApi().messages.applyPatch(patch),
+  },
+  cron: {
+    list: (): Promise<CronJob[]> => assertApi().cron.list(),
+    get: (id: string): Promise<CronJob | null> => assertApi().cron.get(id),
+    create: (input: CronJobInput): Promise<CronJob> => assertApi().cron.create(input),
+    update: (id: string, patch: Partial<CronJobInput>): Promise<CronJob> =>
+      assertApi().cron.update(id, patch),
+    pause: (id: string): Promise<CronJob> => assertApi().cron.pause(id),
+    resume: (id: string): Promise<CronJob> => assertApi().cron.resume(id),
+    run: (id: string): Promise<CronRun> => assertApi().cron.run(id),
+    delete: (id: string): Promise<boolean> => assertApi().cron.delete(id),
+    runs: (id: string, limit?: number): Promise<CronRun[]> => assertApi().cron.runs(id, limit),
+  },
+  catalog: {
+    snapshot: (): Promise<CatalogSnapshot> => assertApi().catalog.snapshot(),
+    search: (input?: CatalogSearchInput): Promise<CatalogSearchResult> =>
+      assertApi().catalog.search(input),
+    install: (input: CatalogInstallInput): Promise<ArtifactInstallation> =>
+      assertApi().catalog.install(input),
+    enable: (id: string, enabled: boolean): Promise<ArtifactInstallation> =>
+      assertApi().catalog.enable(id, enabled),
+    uninstall: (id: string): Promise<boolean> => assertApi().catalog.uninstall(id),
   },
   settings: {
     get: (key: string): Promise<string | null> => assertApi().settings.get(key),

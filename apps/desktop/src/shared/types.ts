@@ -3,6 +3,7 @@ export interface Conversation {
   title: string;
   created_at: number;
   updated_at: number;
+  message_revision: number;
   deleted_at: number | null;
   purge_after_at: number | null;
 }
@@ -17,6 +18,139 @@ export interface MessageRow {
   content_json?: string;
   metadata_json?: string;
   created_at: number;
+}
+
+export interface MessageSnapshot {
+  messages: MessageRow[];
+  revision: number;
+}
+
+export interface MessagePatch {
+  conversationId: string;
+  baseRevision: number;
+  upserts: MessageRow[];
+  deleteIds: string[];
+}
+
+export interface MessagePatchResult {
+  applied: boolean;
+  revision: number;
+}
+
+export type CronSchedule =
+  | { kind: "once"; at: string }
+  | { kind: "interval"; everyMs: number; anchorAt?: string }
+  | { kind: "cron"; expression: string; timezone: string };
+
+export interface CronPayload {
+  prompt: string;
+  agentId?: string;
+  modelRef?: string;
+  reasoning?: ChatReasoningLevel;
+  skillIds?: string[];
+  toolSelection?: ChatToolSelectionRequest;
+}
+
+export type CronJobStatus = "active" | "paused" | "completed" | "error";
+
+export interface CronJob {
+  id: string;
+  name: string;
+  description: string;
+  schedule: CronSchedule;
+  payload: CronPayload;
+  status: CronJobStatus;
+  conversationId: string;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  retryCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CronRun {
+  id: string;
+  jobId: string;
+  conversationId: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "skipped" | "cancelled";
+  scheduledFor: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  attempt: number;
+  output: string | null;
+  error: string | null;
+  runtimeRunId: string | null;
+  createdAt: number;
+}
+
+export interface CronJobInput {
+  name: string;
+  description?: string;
+  schedule: CronSchedule;
+  payload: CronPayload;
+}
+
+export type CatalogArtifactType = "skill" | "mcp";
+
+export interface CatalogItem {
+  id: string;
+  sourceId: string;
+  artifactType: CatalogArtifactType;
+  externalId: string;
+  name: string;
+  description: string;
+  version: string | null;
+  installUrl: string | null;
+  detail: JsonObject;
+  contentHash: string | null;
+  cachedAt: number;
+  installed: boolean;
+  updateAvailable: boolean;
+}
+
+export interface ArtifactInstallation {
+  id: string;
+  itemId: string | null;
+  sourceId: string | null;
+  artifactType: CatalogArtifactType;
+  name: string;
+  version: string | null;
+  contentHash: string | null;
+  installPath: string | null;
+  status: "disabled" | "enabled" | "error" | "update-available";
+  safety: JsonObject;
+  config: JsonObject;
+  toolServerId: string | null;
+  skillId: string | null;
+  lastError: string | null;
+  installedAt: number;
+  updatedAt: number;
+}
+
+export interface CatalogInstallInput {
+  itemId: string;
+  enable?: boolean;
+  secrets?: Record<string, string>;
+  config?: JsonObject;
+}
+
+export interface CatalogSnapshot {
+  installations: ArtifactInstallation[];
+}
+
+export interface CatalogSearchInput {
+  query?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface CatalogSearchResult {
+  items: CatalogItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  offline: boolean;
+  error?: string;
 }
 
 export type AgentStatus = "active" | "draft" | "archived";
@@ -149,6 +283,28 @@ export interface AgentContextCheckpoint {
   estimated_tokens_after: number;
   model_ref: string | null;
   created_at: number;
+}
+
+export interface ContextUsage {
+  inputTokens: number;
+  contextWindow: number;
+  availableInputTokens: number;
+  utilization: number;
+  accuracy: "exact" | "estimate";
+  pruneCount: number;
+  compactionCount: number;
+}
+
+export interface CompactionCheckpoint extends AgentContextCheckpoint {
+  strategy: "server" | "semantic";
+  providerItemId?: string;
+}
+
+export interface ContextEngineResult {
+  messages: unknown[];
+  changed: boolean;
+  usage: ContextUsage;
+  checkpoints: CompactionCheckpoint[];
 }
 
 export interface AgentRuntimeProtocolEvent {
@@ -784,8 +940,18 @@ export interface ChatExecutionMetadata {
   agentPath?: string | null;
   finishReason?: string;
   inputTokens?: number;
+  textOutputTokens?: number;
+  reasoningTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  contextUtilization?: number;
+  contextWindow?: number;
+  compactionCount?: number;
+  tokenCountAccuracy?: "exact" | "estimate";
+  reasoningLevel?: ChatReasoningLevel;
+  reasoningOverridden?: boolean;
   stepCount?: number;
   toolCallCount?: number;
 }
@@ -820,6 +986,7 @@ export const CHAT_TOOL_IDS = [
   "sandbox_restore",
   "sandbox_list_artifacts",
   "sandbox_preview_port",
+  "cron",
 ] as const;
 
 export type ChatToolId = (typeof CHAT_TOOL_IDS)[number];
@@ -849,6 +1016,7 @@ export interface ChatToolDescriptor {
     | "model"
     | "conversation"
     | "sandbox"
+    | "automation"
     | "mcp"
     | "skill";
   defaultAuto: boolean;
@@ -1924,7 +2092,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
   themePreset: "default",
-  style: "lyra",
+  style: "mira",
   fontFamily: "",
   monoFontFamily: "",
   translucentSidebar: true,

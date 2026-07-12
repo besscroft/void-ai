@@ -7,6 +7,7 @@ export const conversations = sqliteTable(
     title: text("title").notNull().default("New conversation"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
+    message_revision: integer("message_revision").notNull().default(0),
     deleted_at: integer("deleted_at"),
     purge_after_at: integer("purge_after_at"),
   },
@@ -29,6 +30,138 @@ export const messages = sqliteTable(
     created_at: integer("created_at").notNull(),
   },
   (table) => [index("idx_messages_conversation").on(table.conversation_id)],
+);
+
+export const cronJobs = sqliteTable(
+  "cron_jobs",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    schedule_json: text("schedule_json").notNull(),
+    payload_json: text("payload_json").notNull(),
+    status: text("status", { enum: ["active", "paused", "completed", "error"] })
+      .notNull()
+      .default("active"),
+    conversation_id: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    next_run_at: integer("next_run_at"),
+    last_run_at: integer("last_run_at"),
+    claimed_at: integer("claimed_at"),
+    claim_token: text("claim_token"),
+    retry_count: integer("retry_count").notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_cron_jobs_due").on(table.status, table.next_run_at),
+    index("idx_cron_jobs_conversation").on(table.conversation_id),
+  ],
+);
+
+export const cronRuns = sqliteTable(
+  "cron_runs",
+  {
+    id: text("id").primaryKey(),
+    job_id: text("job_id")
+      .notNull()
+      .references(() => cronJobs.id, { onDelete: "cascade" }),
+    conversation_id: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    status: text("status", {
+      enum: ["queued", "running", "succeeded", "failed", "skipped", "cancelled"],
+    })
+      .notNull()
+      .default("queued"),
+    scheduled_for: integer("scheduled_for").notNull(),
+    started_at: integer("started_at"),
+    finished_at: integer("finished_at"),
+    attempt: integer("attempt").notNull().default(1),
+    output: text("output"),
+    error: text("error"),
+    runtime_run_id: text("runtime_run_id"),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_cron_runs_job").on(table.job_id, table.created_at),
+    index("idx_cron_runs_status").on(table.status),
+  ],
+);
+
+export const catalogSources = sqliteTable(
+  "catalog_sources",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    kind: text("kind", { enum: ["modelscope-skills"] }).notNull(),
+    url: text("url").notNull(),
+    enabled: integer("enabled").notNull().default(1),
+    builtin: integer("builtin").notNull().default(0),
+    config_json: text("config_json").notNull().default("{}"),
+    last_synced_at: integer("last_synced_at"),
+    last_error: text("last_error"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [index("idx_catalog_sources_kind").on(table.kind, table.enabled)],
+);
+
+export const catalogItems = sqliteTable(
+  "catalog_items",
+  {
+    id: text("id").primaryKey(),
+    source_id: text("source_id")
+      .notNull()
+      .references(() => catalogSources.id, { onDelete: "cascade" }),
+    artifact_type: text("artifact_type", { enum: ["skill", "mcp"] }).notNull(),
+    external_id: text("external_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    version: text("version"),
+    install_url: text("install_url"),
+    detail_json: text("detail_json").notNull().default("{}"),
+    content_hash: text("content_hash"),
+    cached_at: integer("cached_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_catalog_items_source").on(table.source_id, table.artifact_type),
+    index("idx_catalog_items_name").on(table.name),
+  ],
+);
+
+export const artifactInstallations = sqliteTable(
+  "artifact_installations",
+  {
+    id: text("id").primaryKey(),
+    item_id: text("item_id").references(() => catalogItems.id, { onDelete: "set null" }),
+    source_id: text("source_id").references(() => catalogSources.id, { onDelete: "set null" }),
+    artifact_type: text("artifact_type", { enum: ["skill", "mcp"] }).notNull(),
+    name: text("name").notNull(),
+    version: text("version"),
+    content_hash: text("content_hash"),
+    install_path: text("install_path"),
+    status: text("status", {
+      enum: ["disabled", "enabled", "error", "update-available"],
+    })
+      .notNull()
+      .default("disabled"),
+    safety_json: text("safety_json").notNull().default("{}"),
+    config_json: text("config_json").notNull().default("{}"),
+    tool_server_id: text("tool_server_id").references(() => toolServers.id, {
+      onDelete: "set null",
+    }),
+    skill_id: text("skill_id").references(() => tools.id, { onDelete: "set null" }),
+    last_error: text("last_error"),
+    installed_at: integer("installed_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_artifact_installations_item").on(table.item_id),
+    index("idx_artifact_installations_type").on(table.artifact_type, table.status),
+  ],
 );
 
 export const agents = sqliteTable(
@@ -728,6 +861,11 @@ export const sandboxArtifacts = sqliteTable(
 export const schema = {
   conversations,
   messages,
+  cronJobs,
+  cronRuns,
+  catalogSources,
+  catalogItems,
+  artifactInstallations,
   agents,
   agentPolicies,
   runtimeRuns,
@@ -758,6 +896,13 @@ export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type MessageRow = typeof messages.$inferSelect;
 export type NewMessageRow = typeof messages.$inferInsert;
+export type CronJob = typeof cronJobs.$inferSelect;
+export type NewCronJob = typeof cronJobs.$inferInsert;
+export type CronRun = typeof cronRuns.$inferSelect;
+export type NewCronRun = typeof cronRuns.$inferInsert;
+export type CatalogSource = typeof catalogSources.$inferSelect;
+export type CatalogItem = typeof catalogItems.$inferSelect;
+export type ArtifactInstallation = typeof artifactInstallations.$inferSelect;
 export type AgentProfile = typeof agents.$inferSelect;
 export type NewAgentProfile = typeof agents.$inferInsert;
 export type AgentPolicy = typeof agentPolicies.$inferSelect;

@@ -23,7 +23,7 @@
  *     </ChainOfThoughtStep>
  *   </ChainOfThought>
  */
-import { type HTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { useT } from "../../lib/i18n";
 import {
@@ -75,14 +75,29 @@ export function ChainOfThought({
 }: ChainOfThoughtProps): React.JSX.Element {
   const { t } = useT();
   const resolvedTitle = title ?? t("msg.cot.title");
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const wasActive = useRef(Boolean(active));
+
+  useEffect(() => {
+    if (open !== undefined) return;
+    if (active && !wasActive.current) setInternalOpen(true);
+    if (!active && wasActive.current) setInternalOpen(false);
+    wasActive.current = Boolean(active);
+  }, [active, open]);
+
+  const resolvedOpen = open ?? internalOpen;
+  const handleOpenChange = (nextOpen: boolean): void => {
+    if (open === undefined) setInternalOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
 
   return (
     <AnimatedDisclosure
       data-slot="chain-of-thought"
       active={active}
       defaultOpen={defaultOpen}
-      open={open}
-      onOpenChange={onOpenChange}
+      open={resolvedOpen}
+      onOpenChange={handleOpenChange}
       className={cn(
         "group/cot overflow-hidden rounded-2xl border border-foreground/10 bg-foreground/[0.025]",
         className,

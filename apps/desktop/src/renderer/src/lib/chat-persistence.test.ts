@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createSnapshotPersistenceQueue, persistMessagesSnapshot } from "./chat-persistence";
+import {
+  createSnapshotPersistenceQueue,
+  mergeMessagePersistenceRequests,
+  persistMessagesPatch,
+} from "./chat-persistence";
 
 void describe("chat snapshot persistence queue", () => {
   void it("serializes writes and coalesces queued snapshots to the latest value", async () => {
@@ -34,17 +38,17 @@ void describe("chat snapshot persistence queue", () => {
     assert.deepEqual(persisted, ["final"]);
   });
 
-  void it("replaces the stored snapshot even when the conversation is empty", async () => {
-    const calls: Array<{ conversationId: string; rowCount: number }> = [];
+  void it("does not write an empty hydrated snapshot", async () => {
+    let callCount = 0;
     const previousWindow = globalThis.window;
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
         api: {
           messages: {
-            replaceSnapshot: async (conversationId: string, rows: unknown[]) => {
-              calls.push({ conversationId, rowCount: rows.length });
-              return true;
+            applyPatch: async () => {
+              callCount += 1;
+              return { applied: true, revision: 1 };
             },
           },
         } as unknown as NonNullable<Window["api"]>,
@@ -52,7 +56,7 @@ void describe("chat snapshot persistence queue", () => {
     });
 
     try {
-      await persistMessagesSnapshot("conversation-1", [], new Map());
+      await persistMessagesPatch("conversation-1", { messages: [] }, new Map(), { current: 0 });
     } finally {
       Object.defineProperty(globalThis, "window", {
         configurable: true,
@@ -60,6 +64,74 @@ void describe("chat snapshot persistence queue", () => {
       });
     }
 
-    assert.deepEqual(calls, [{ conversationId: "conversation-1", rowCount: 0 }]);
+    assert.equal(callCount, 0);
+  });
+
+  void it("reloads the revision and retries without deleting concurrent messages", async () => {
+    const patches: Array<{ baseRevision: number; deleteIds: string[] }> = [];
+    const previousWindow = globalThis.window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        api: {
+          messages: {
+            applyPatch: async (patch: { baseRevision: number; deleteIds: string[] }) => {
+              patches.push({ baseRevision: patch.baseRevision, deleteIds: patch.deleteIds });
+              return patches.length === 1
+                ? { applied: false, revision: 4 }
+                : { applied: true, revision: 5 };
+            },
+            list: async () => ({
+              revision: 4,
+              messages: [
+                {
+                  id: "concurrent",
+                  conversation_id: "conversation-1",
+                  role: "assistant",
+                  content:
+                    '{"id":"concurrent","role":"assistant","parts":[{"type":"text","text":"saved elsewhere"}]}',
+                  created_at: 1,
+                },
+              ],
+            }),
+          },
+        } as unknown as NonNullable<Window["api"]>,
+      },
+    });
+
+    const revision = { current: 3 };
+    try {
+      await persistMessagesPatch(
+        "conversation-1",
+        {
+          messages: [{ id: "local", role: "user", parts: [{ type: "text", text: "hello" }] }],
+        },
+        new Map(),
+        revision,
+      );
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: previousWindow,
+      });
+    }
+
+    assert.deepEqual(patches, [
+      { baseRevision: 3, deleteIds: [] },
+      { baseRevision: 4, deleteIds: [] },
+    ]);
+    assert.equal(revision.current, 5);
+  });
+
+  void it("coalesces explicit deletes while keeping the newest message snapshot", () => {
+    const merged = mergeMessagePersistenceRequests(
+      { messages: [], deleteIds: ["old-a"] },
+      {
+        messages: [{ id: "new", role: "user", parts: [{ type: "text", text: "new" }] }],
+        deleteIds: ["old-b"],
+      },
+    );
+    assert.deepEqual(merged.deleteIds, ["old-a", "old-b"]);
+    assert.equal(merged.messages[0]?.id, "new");
   });
 });

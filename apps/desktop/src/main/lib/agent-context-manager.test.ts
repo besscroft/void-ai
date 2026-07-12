@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 import type { LanguageModel, ModelMessage } from "ai";
 import {
   AgentContextManager,
+  ContextEngine,
+  createPromptCacheKey,
   estimateMessageTokens,
+  findLatestCompactionIndex,
   splitRecentMessages,
 } from "./agent-context-manager";
 
@@ -69,5 +72,117 @@ void describe("AgentContextManager", () => {
     const split = splitRecentMessages(messages, 40);
     assert.equal(split.recent.at(-1), messages.at(-1));
     assert.equal(split.older.length + split.recent.length, messages.length);
+  });
+
+  void it("uses OpenAI server compaction and trims only model input before the latest item", async () => {
+    const messages: ModelMessage[] = [
+      { role: "user", content: "old visible message" },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "custom",
+            kind: "openai.compaction",
+            providerOptions: {
+              openai: {
+                itemId: "cmp_123",
+                encryptedContent: "encrypted-is-never-emitted-to-diagnostics",
+              },
+            },
+          } as never,
+        ],
+      },
+      { role: "user", content: "latest" },
+    ];
+    const engine = new ContextEngine({
+      runId: "run-openai",
+      agentPath: "/root",
+      modelRef: "openai/gpt-test",
+      providerKind: "openai",
+      model: fakeModel,
+      contextWindow: 20_000,
+      policy: {
+        mode: "semantic",
+        pruneThreshold: 0.6,
+        compactThreshold: 0.75,
+        targetRatio: 0.5,
+        keepRecentTokens: 20_000,
+      },
+    });
+
+    const result = await engine.prepareResult(messages);
+    assert.equal(findLatestCompactionIndex(messages), 1);
+    assert.deepEqual(result.messages, messages.slice(1));
+    assert.equal(result.checkpoints[0]?.strategy, "server");
+    assert.equal(result.checkpoints[0]?.providerItemId, "cmp_123");
+    assert.equal(JSON.stringify(result.checkpoints).includes("encrypted-is-never-emitted"), false);
+  });
+
+  void it("adds stable OpenAI compaction and prompt cache options", () => {
+    const engine = new ContextEngine({
+      runId: "run-options",
+      agentPath: "/root",
+      modelRef: "openai/gpt-test",
+      providerKind: "openai",
+      model: fakeModel,
+      contextWindow: 100_000,
+      maxOutputTokens: 5_000,
+      staticInstructions: "stable instructions",
+      toolSchemas: ["search", "read"],
+      policy: {
+        mode: "semantic",
+        pruneThreshold: 0.6,
+        compactThreshold: 0.75,
+        targetRatio: 0.5,
+        keepRecentTokens: 20_000,
+      },
+    });
+    const options = engine.withProviderOptions({ openai: { reasoningSummary: "detailed" } }) as {
+      openai: Record<string, unknown>;
+    };
+    assert.equal(options.openai.promptCacheKey, engine.promptCacheKey);
+    assert.deepEqual(options.openai.contextManagement, [
+      { type: "compaction", compactThreshold: 68_178 },
+    ]);
+    assert.equal(
+      createPromptCacheKey({
+        modelRef: "openai/gpt-test",
+        agentPath: "/root",
+        staticInstructions: "stable instructions",
+        toolSchemas: ["search", "read"],
+      }),
+      engine.promptCacheKey,
+    );
+  });
+
+  void it("caches exact OpenAI token counts by stable request hash", async () => {
+    let calls = 0;
+    const engine = new ContextEngine({
+      runId: "run-count",
+      agentPath: "/root",
+      modelRef: "openai/gpt-count-unique",
+      providerKind: "openai",
+      model: fakeModel,
+      contextWindow: 1_500,
+      maxOutputTokens: 100,
+      toolReserveTokens: 100,
+      policy: {
+        mode: "semantic",
+        pruneThreshold: 0.001,
+        compactThreshold: 0.75,
+        targetRatio: 0.5,
+        keepRecentTokens: 20_000,
+      },
+      countInputTokens: async () => {
+        calls += 1;
+        return 321;
+      },
+    });
+    const messages: ModelMessage[] = [{ role: "user", content: "count me" }];
+    const first = await engine.prepareResult(messages);
+    const second = await engine.prepareResult(messages);
+    assert.equal(first.usage.accuracy, "exact");
+    assert.equal(second.usage.inputTokens, 321);
+    assert.equal(calls, 1);
   });
 });

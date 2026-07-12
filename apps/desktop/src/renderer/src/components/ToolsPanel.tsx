@@ -26,7 +26,13 @@ import {
 import { filterToolRecords, type ToolKindFilter, type ToolStatusFilter } from "../lib/tools-filter";
 import { cn } from "../lib/utils";
 import { isChatToolId } from "@shared/types";
-import type { McpTransportKind, ToolRecord, ToolServer, ToolSkill } from "@shared/types";
+import type {
+  CatalogItem,
+  McpTransportKind,
+  ToolRecord,
+  ToolServer,
+  ToolSkill,
+} from "@shared/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
   IconCheck,
@@ -41,6 +47,7 @@ import {
 } from "./icons";
 
 type ToolsTab = "registry" | "mcp" | "skills";
+type CatalogTab = "discover" | "installed";
 type DeleteTarget = { type: "mcp"; item: ToolServer } | { type: "skill"; item: ToolSkill } | null;
 
 const EMPTY_MCP_FORM: McpFormState = {
@@ -61,6 +68,31 @@ const EMPTY_MCP_FORM: McpFormState = {
 };
 
 export function ToolsPanel(): React.JSX.Element {
+  const { t } = useT();
+  const [tab, setTab] = useState<CatalogTab>("discover");
+  return (
+    <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">{t("catalog.title")}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t("catalog.subtitle")}</p>
+        </div>
+        <Tabs value={tab} onValueChange={(value) => setTab(toCatalogTab(value))}>
+          <TabsList aria-label={t("catalog.tabs.label")}>
+            <TabsTrigger value="discover">{t("catalog.tab.discover")}</TabsTrigger>
+            <TabsTrigger value="installed">{t("catalog.tab.installed")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {tab === "discover" ? <CatalogDiscover /> : null}
+        {tab === "installed" ? <InstalledToolsPanel /> : null}
+      </div>
+    </div>
+  );
+}
+
+function InstalledToolsPanel(): React.JSX.Element {
   const { t, locale } = useT();
   const [snapshot, setSnapshot] = useState<ToolsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -129,6 +161,7 @@ export function ToolsPanel(): React.JSX.Element {
 
   return (
     <div className="flex h-full w-full flex-col gap-5">
+      <CatalogInstalledArtifacts />
       <div className="grid shrink-0 gap-3 sm:grid-cols-3">
         <MetricCard label={t("tools.metric.tools")} value={snapshot?.toolRecords.length ?? 0} />
         <MetricCard label={t("tools.metric.mcp")} value={mcpServers.length} />
@@ -1004,6 +1037,321 @@ async function handleSkillZip(
   }
 }
 
+function CatalogDiscover(): React.JSX.Element {
+  const { t, f, locale } = useT();
+  const [items, setItems] = useState<CatalogItem[]>([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [reviewItem, setReviewItem] = useState<CatalogItem | null>(null);
+  const pageSize = 40;
+
+  const loadPage = async (nextPage: number, append: boolean): Promise<void> => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+    try {
+      const result = await api.catalog.search({
+        ...(query.trim() ? { query: query.trim() } : {}),
+        page: nextPage,
+        pageSize,
+      });
+      setItems((current) => {
+        if (!append) return result.items;
+        const byId = new Map(current.map((item) => [item.id, item]));
+        for (const item of result.items) byId.set(item.id, item);
+        return [...byId.values()];
+      });
+      setPage(result.page);
+      setTotal(result.total);
+      setOffline(result.offline);
+      setWarning(result.error ?? null);
+      setError(null);
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadPage(1, false), 250);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  const install = async (item: CatalogItem): Promise<void> => {
+    setBusyId(item.id);
+    try {
+      await api.catalog.install({ itemId: item.id, enable: false });
+      await loadPage(1, false);
+      setReviewItem(null);
+      notify.success(
+        item.installed ? t("catalog.updatedDisabled") : t("catalog.installedDisabled"),
+      );
+    } catch (reason) {
+      notify.error(t("catalog.installFailed"), reason, locale);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="flex h-full flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 flex-col gap-2">
+        <label className="relative">
+          <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            placeholder={t("catalog.search")}
+          />
+        </label>
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>{t("catalog.modelscopeDescription")}</span>
+          <span className="shrink-0">{t("catalog.total", { count: f.number(total) })}</span>
+        </div>
+      </div>
+      {error ? (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/30 px-3 py-2 text-sm text-destructive"
+        >
+          {error}
+        </p>
+      ) : null}
+      {offline ? (
+        <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          {t("catalog.offlineCache")}
+          {warning ? ` ${warning}` : ""}
+        </p>
+      ) : null}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {loading ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">{t("catalog.loading")}</p>
+        ) : items.length === 0 ? (
+          <Card>
+            <Card.Header>
+              <Card.Title>{t("catalog.empty")}</Card.Title>
+              <Card.Description>{t("catalog.emptyDescription")}</Card.Description>
+            </Card.Header>
+          </Card>
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {items.map((item) => (
+              <Card key={item.id}>
+                <Card.Header>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Card.Title className="truncate">{item.name}</Card.Title>
+                      <Card.Description className="line-clamp-2">
+                        {item.description || item.externalId}
+                      </Card.Description>
+                    </div>
+                    <Chip size="sm" variant="soft">
+                      <Chip.Label>Skill</Chip.Label>
+                    </Chip>
+                  </div>
+                </Card.Header>
+                <Card.Content className="flex flex-col gap-2">
+                  <p className="text-[11px] text-muted-foreground">{t("catalog.thirdPartyRisk")}</p>
+                  <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    {item.externalId}
+                  </p>
+                </Card.Content>
+                <Card.Footer className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] text-muted-foreground">
+                    {item.installed ? t("catalog.installed") : t("catalog.reviewFlow")}
+                  </span>
+                  <Button
+                    size="sm"
+                    isPending={busyId === item.id}
+                    isDisabled={(item.installed && !item.updateAvailable) || busyId !== null}
+                    onPress={() => setReviewItem(item)}
+                  >
+                    {item.updateAvailable
+                      ? t("catalog.updateReview")
+                      : item.installed
+                        ? t("catalog.installed")
+                        : t("catalog.downloadReview")}
+                  </Button>
+                </Card.Footer>
+              </Card>
+            ))}
+          </div>
+        )}
+        {!loading && items.length < total ? (
+          <div className="flex justify-center py-5">
+            <Button
+              variant="secondary"
+              isPending={loadingMore}
+              isDisabled={loadingMore || busyId !== null}
+              onPress={() => void loadPage(page + 1, true)}
+            >
+              {t("catalog.loadMore")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+      <CatalogInstallReview
+        item={reviewItem}
+        busy={reviewItem !== null && busyId === reviewItem.id}
+        onClose={() => setReviewItem(null)}
+        onInstall={(item) => void install(item)}
+      />
+    </div>
+  );
+}
+
+function CatalogInstallReview({
+  item,
+  busy,
+  onClose,
+  onInstall,
+}: {
+  item: CatalogItem | null;
+  busy: boolean;
+  onClose: () => void;
+  onInstall: (item: CatalogItem) => void;
+}): React.JSX.Element {
+  const { t } = useT();
+
+  const confirm = (): void => {
+    if (!item) return;
+    onInstall(item);
+  };
+
+  return (
+    <Modal isOpen={item !== null} onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <Modal.Backdrop isDismissable>
+        <Modal.Container>
+          <Modal.Dialog className="w-[min(720px,calc(100vw-24px))]">
+            <Modal.Header>
+              <Modal.Heading>
+                {item?.updateAvailable ? t("catalog.updateReview") : t("catalog.installReview")}
+              </Modal.Heading>
+              <p className="mt-1 text-xs text-muted-foreground">{item?.name}</p>
+            </Modal.Header>
+            <Modal.Body className="flex flex-col gap-4">
+              <div className="rounded-md border border-border bg-muted/30 p-3 text-xs">
+                <p className="font-medium">{t("catalog.thirdPartyRisk")}</p>
+                {item?.installUrl ? (
+                  <p className="mt-2 break-all font-mono text-[10px] text-muted-foreground">
+                    {item.installUrl}
+                  </p>
+                ) : null}
+              </div>
+              <pre className="max-h-48 overflow-auto rounded-md border border-border p-3 text-[10px]">
+                {JSON.stringify(item?.detail ?? {}, null, 2)}
+              </pre>
+            </Modal.Body>
+            <Modal.Footer className="flex justify-end gap-2">
+              <Button variant="tertiary" onPress={onClose}>
+                {t("common.cancel")}
+              </Button>
+              <Button isPending={busy} onPress={confirm}>
+                {item?.updateAvailable ? t("catalog.updateDisabled") : t("catalog.installDisabled")}
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  );
+}
+
+function CatalogInstalledArtifacts(): React.JSX.Element | null {
+  const { t, locale } = useT();
+  const [installations, setInstallations] = useState<
+    Awaited<ReturnType<typeof api.catalog.snapshot>>["installations"]
+  >([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const refresh = (): void => {
+    void api.catalog
+      .snapshot()
+      .then((value) => setInstallations(value.installations))
+      .catch(console.error);
+  };
+  useEffect(refresh, []);
+  if (installations.length === 0) return null;
+  const action = async (id: string, callback: () => Promise<unknown>): Promise<void> => {
+    setBusyId(id);
+    try {
+      await callback();
+      refresh();
+    } catch (reason) {
+      notify.error(t("catalog.actionFailed"), reason, locale);
+    } finally {
+      setBusyId(null);
+    }
+  };
+  return (
+    <Card className="shrink-0">
+      <Card.Header>
+        <Card.Title>{t("catalog.catalogInstalls")}</Card.Title>
+        <Card.Description>{t("catalog.catalogInstallsDescription")}</Card.Description>
+      </Card.Header>
+      <Card.Content className="flex flex-wrap gap-2">
+        {installations.map((item) => (
+          <div
+            key={item.id}
+            className="flex min-w-[18rem] flex-1 flex-col gap-2 rounded-md border border-border px-3 py-2.5"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-xs font-medium">{item.name}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {item.artifactType.toUpperCase()} / {item.status}
+                </p>
+              </div>
+              <Chip size="sm" variant="soft">
+                <Chip.Label>{item.status}</Chip.Label>
+              </Chip>
+            </div>
+            <details className="rounded-md bg-muted/35 px-2.5 py-2 text-[10px]">
+              <summary className="cursor-pointer text-xs font-medium">
+                {t("catalog.safetyDetails")}
+              </summary>
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all text-muted-foreground">
+                {JSON.stringify({ safety: item.safety, config: item.config }, null, 2)}
+              </pre>
+              {item.lastError ? (
+                <p className="mt-2 whitespace-pre-wrap text-destructive">{item.lastError}</p>
+              ) : null}
+            </details>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="tertiary"
+                isDisabled={busyId !== null}
+                onPress={() =>
+                  void action(item.id, () => api.catalog.enable(item.id, item.status !== "enabled"))
+                }
+              >
+                {item.status === "enabled" ? t("catalog.disable") : t("catalog.reviewEnable")}
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                isDisabled={busyId !== null}
+                onPress={() => void action(item.id, () => api.catalog.uninstall(item.id))}
+              >
+                {t("catalog.uninstall")}
+              </Button>
+            </div>
+          </div>
+        ))}
+      </Card.Content>
+    </Card>
+  );
+}
+
 function localizeToolName(t: (key: string) => string, tool: ToolRecord): string {
   if (isChatToolId(tool.name)) return t(`chatTools.${tool.name}.label`);
   return tool.title ?? tool.name;
@@ -1053,4 +1401,8 @@ function safeJsonObject(raw: string): Record<string, unknown> {
 
 function toToolsTab(value: unknown): ToolsTab {
   return value === "mcp" || value === "skills" ? value : "registry";
+}
+
+function toCatalogTab(value: unknown): CatalogTab {
+  return value === "installed" ? value : "discover";
 }

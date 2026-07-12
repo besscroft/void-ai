@@ -93,6 +93,16 @@ export function MessageInput({
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false);
   const [activeMediaKind, setActiveMediaKind] = useState<MediaGenerationKind | null>(null);
+  const selectedReasoningModel = useMemo(() => {
+    if (!selectedModel) return undefined;
+    const separator = selectedModel.indexOf("/");
+    if (separator <= 0) return undefined;
+    const providerId = selectedModel.slice(0, separator);
+    const modelId = selectedModel.slice(separator + 1);
+    return providers
+      .find((provider) => provider.id === providerId)
+      ?.models.find((model) => model.id === modelId);
+  }, [providers, selectedModel]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -364,6 +374,7 @@ export function MessageInput({
                     value={reasoningLevel}
                     onChange={onReasoningLevelChange}
                     placement="top"
+                    model={selectedReasoningModel}
                   />
 
                   {contextMetrics ? (

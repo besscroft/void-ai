@@ -11,10 +11,10 @@ import {
   permanentlyDeleteConversations,
   purgeExpiredDeletedConversations,
   touchConversation,
-  listMessages,
+  getMessagesSnapshot,
   saveMessage,
   saveMessagesBatch,
-  replaceMessagesSnapshot,
+  applyMessagesPatch,
   getSetting,
   setSetting,
   listApiKeyProviders,
@@ -83,12 +83,16 @@ import type {
   AgentInput,
   AgentProfile,
   Conversation,
+  CatalogInstallInput,
+  CatalogSearchInput,
+  CronJobInput,
   CustomModelInput,
   CustomProviderInput,
   SkillDraftRequest,
   ToolSecretInput,
   ToolSkillInput,
   MemoryRecord,
+  MessagePatch,
   MessageRow,
   ToolServerInput,
 } from "../../shared/types";
@@ -104,6 +108,23 @@ import { runToolSkill } from "../lib/skill-runtime";
 import { generateSkillDraft } from "../lib/skill-drafts";
 import { cancelWorkflowRun } from "../lib/workflow-cancellation";
 import { getActiveWorkflowRunForConversation } from "../lib/workflow-runs";
+import {
+  createCronJob,
+  deleteCronJob,
+  getCronJob,
+  listCronJobs,
+  listCronRuns,
+  setCronJobPaused,
+  updateCronJob,
+} from "../lib/cron-store";
+import { getCronScheduler } from "../lib/cron-scheduler";
+import {
+  getCatalogSnapshot,
+  installCatalogItem,
+  searchCatalogSkills,
+  setArtifactInstallationEnabled,
+  uninstallArtifact,
+} from "../lib/catalog-service";
 
 /**
  * IPC handlers 娉ㄥ唽
@@ -156,7 +177,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("conversations:purgeExpired", () => purgeExpiredDeletedConversations());
 
   // ---------- 娑堟伅 ----------
-  ipcMain.handle("messages:list", (_e, conversationId: string) => listMessages(conversationId));
+  ipcMain.handle("messages:list", (_e, conversationId: string) =>
+    getMessagesSnapshot(conversationId),
+  );
 
   ipcMain.handle("messages:save", (_e, msg: MessageRow) => {
     saveMessage(msg);
@@ -168,10 +191,27 @@ export function registerIpcHandlers(): void {
     return true;
   });
 
-  ipcMain.handle("messages:replaceSnapshot", (_e, conversationId: string, msgs: MessageRow[]) => {
-    replaceMessagesSnapshot(conversationId, msgs);
-    return true;
-  });
+  ipcMain.handle("messages:applyPatch", (_e, patch: MessagePatch) => applyMessagesPatch(patch));
+
+  ipcMain.handle("cron:list", () => listCronJobs());
+  ipcMain.handle("cron:get", (_e, id: string) => getCronJob(id));
+  ipcMain.handle("cron:create", (_e, input: CronJobInput) => createCronJob(input));
+  ipcMain.handle("cron:update", (_e, id: string, patch: Partial<CronJobInput>) =>
+    updateCronJob(id, patch),
+  );
+  ipcMain.handle("cron:pause", (_e, id: string) => setCronJobPaused(id, true));
+  ipcMain.handle("cron:resume", (_e, id: string) => setCronJobPaused(id, false));
+  ipcMain.handle("cron:run", (_e, id: string) => getCronScheduler().runNow(id));
+  ipcMain.handle("cron:delete", (_e, id: string) => deleteCronJob(id));
+  ipcMain.handle("cron:runs", (_e, id: string, limit?: number) => listCronRuns(id, limit));
+
+  ipcMain.handle("catalog:snapshot", () => getCatalogSnapshot());
+  ipcMain.handle("catalog:search", (_e, input?: CatalogSearchInput) => searchCatalogSkills(input));
+  ipcMain.handle("catalog:install", (_e, input: CatalogInstallInput) => installCatalogItem(input));
+  ipcMain.handle("catalog:enable", (_e, id: string, enabled: boolean) =>
+    setArtifactInstallationEnabled(id, enabled),
+  );
+  ipcMain.handle("catalog:uninstall", (_e, id: string) => uninstallArtifact(id));
 
   // ---------- 璁剧疆 ----------
   ipcMain.handle("settings:get", (_e, key: string) => getSetting(key));

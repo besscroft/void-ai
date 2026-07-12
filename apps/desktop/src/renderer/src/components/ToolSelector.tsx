@@ -67,6 +67,7 @@ const ICONS: Record<ChatToolId, (props: SVGProps<SVGSVGElement>) => React.JSX.El
   sandbox_restore: IconDatabase,
   sandbox_list_artifacts: IconList,
   sandbox_preview_port: IconGlobe,
+  cron: IconClock,
 };
 
 export function ToolSelector({

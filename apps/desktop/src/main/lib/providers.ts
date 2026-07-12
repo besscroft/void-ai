@@ -9,6 +9,7 @@ import type {
   streamText,
   TranscriptionModel,
 } from "ai";
+import type { ExactTokenCountInput } from "./context-engine";
 import {
   deleteApiKey,
   deleteModelApiKey,
@@ -71,6 +72,7 @@ export interface ResolvedModelConfig {
   contextWindow: number;
   providerOptions?: ProviderOptions;
   nativeTools: NativeChatTool[];
+  countInputTokens?: (input: ExactTokenCountInput) => Promise<number>;
 }
 
 export interface NativeChatTool {
@@ -1159,7 +1161,44 @@ export function resolveModel(modelRef: string): ResolvedModelConfig {
     contextWindow: model.contextWindow,
     providerOptions: model.providerOptions as ProviderOptions,
     nativeTools: createNativeChatTools(config, apiKey),
+    countInputTokens:
+      config.kind === "openai"
+        ? (input) => countOpenAIInputTokens(config.baseUrl, apiKey, modelId, input)
+        : undefined,
   };
+}
+
+async function countOpenAIInputTokens(
+  baseUrl: string | undefined,
+  apiKey: string,
+  modelId: string,
+  input: ExactTokenCountInput,
+): Promise<number> {
+  const endpoint = `${(baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "")}/responses/input_tokens`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: modelId,
+      instructions: input.staticInstructions,
+      input: input.messages.map((message) => ({
+        role: message.role,
+        content:
+          typeof message.content === "string" ? message.content : JSON.stringify(message.content),
+      })),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`OpenAI input token count failed (${response.status}).`);
+  }
+  const body = (await response.json()) as { input_tokens?: unknown };
+  if (typeof body.input_tokens !== "number" || !Number.isFinite(body.input_tokens)) {
+    throw new Error("OpenAI input token count returned an invalid response.");
+  }
+  return body.input_tokens;
 }
 
 function createLanguageModel(config: ProviderInfo, apiKey: string, modelId: string): LanguageModel {

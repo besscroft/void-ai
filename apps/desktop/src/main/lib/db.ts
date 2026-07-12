@@ -96,7 +96,10 @@ import {
   type MemoryRecord,
   type MemoryScope,
   type MemoryStatus,
+  type MessagePatch,
+  type MessagePatchResult,
   type MessageRow,
+  type MessageSnapshot,
   type RunStatus,
   type RuntimeEvent,
   type RuntimeSnapshot,
@@ -279,6 +282,7 @@ export function createConversation(id: string, title = "New conversation"): Conv
     title,
     created_at: now,
     updated_at: now,
+    message_revision: 0,
     deleted_at: null,
     purge_after_at: null,
   };
@@ -353,21 +357,31 @@ export function purgeExpiredDeletedConversations(now = Date.now()): number {
 
 export function saveMessage(msg: MessageRow): void {
   const row = messageToDb(msg);
-  getDb()
-    .insert(messages)
-    .values(row)
-    .onConflictDoUpdate({
-      target: messages.id,
-      set: {
-        conversation_id: row.conversation_id,
-        role: row.role,
-        content_json: row.content_json,
-        metadata_json: row.metadata_json,
-        created_at: row.created_at,
-      },
-    })
-    .run();
-  touchConversation(msg.conversation_id);
+  getDb().transaction((tx) => {
+    tx.insert(messages)
+      .values(row)
+      .onConflictDoUpdate({
+        target: messages.id,
+        set: {
+          conversation_id: row.conversation_id,
+          role: row.role,
+          content_json: row.content_json,
+          metadata_json: row.metadata_json,
+          created_at: row.created_at,
+        },
+      })
+      .run();
+    const conversation = tx
+      .select({ revision: conversations.message_revision })
+      .from(conversations)
+      .where(eq(conversations.id, msg.conversation_id))
+      .get();
+    if (!conversation) throw new Error("Conversation does not exist.");
+    tx.update(conversations)
+      .set({ message_revision: conversation.revision + 1, updated_at: Date.now() })
+      .where(eq(conversations.id, msg.conversation_id))
+      .run();
+  });
 }
 
 export function saveMessagesBatch(rows: MessageRow[]): void {
@@ -389,32 +403,48 @@ export function saveMessagesBatch(rows: MessageRow[]): void {
         })
         .run();
     }
+    if (rows[0]) {
+      const conversation = tx
+        .select({ revision: conversations.message_revision })
+        .from(conversations)
+        .where(eq(conversations.id, rows[0].conversation_id))
+        .get();
+      if (!conversation) throw new Error("Conversation does not exist.");
+      tx.update(conversations)
+        .set({ message_revision: conversation.revision + 1, updated_at: Date.now() })
+        .where(eq(conversations.id, rows[0].conversation_id))
+        .run();
+    }
   });
-  if (rows[0]) touchConversation(rows[0].conversation_id);
 }
 
-export function replaceMessagesSnapshot(conversationId: string, rows: MessageRow[]): void {
-  if (rows.some((row) => row.conversation_id !== conversationId)) {
-    throw new Error("Message snapshot contains rows from another conversation.");
+export function applyMessagesPatch(patch: MessagePatch): MessagePatchResult {
+  const { conversationId, baseRevision, upserts, deleteIds } = patch;
+  if (upserts.some((row) => row.conversation_id !== conversationId)) {
+    throw new Error("Message patch contains rows from another conversation.");
+  }
+  if (!Number.isSafeInteger(baseRevision) || baseRevision < 0) {
+    throw new Error("Message patch base revision is invalid.");
   }
 
   const db = getDb();
-  db.transaction((tx) => {
-    const messageIds = new Set(rows.map((row) => row.id));
-    const storedIds = tx
-      .select({ id: messages.id })
-      .from(messages)
-      .where(eq(messages.conversation_id, conversationId))
-      .all();
-    for (const stored of storedIds) {
-      if (!messageIds.has(stored.id)) {
-        tx.delete(messages)
-          .where(and(eq(messages.conversation_id, conversationId), eq(messages.id, stored.id)))
-          .run();
-      }
+  return db.transaction((tx) => {
+    const conversation = tx
+      .select({ revision: conversations.message_revision })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .get();
+    if (!conversation) throw new Error("Conversation does not exist.");
+    if (conversation.revision !== baseRevision) {
+      return { applied: false, revision: conversation.revision };
     }
 
-    for (const msg of rows) {
+    for (const id of new Set(deleteIds.filter(Boolean))) {
+      tx.delete(messages)
+        .where(and(eq(messages.conversation_id, conversationId), eq(messages.id, id)))
+        .run();
+    }
+    for (const msg of upserts) {
       const row = messageToDb(msg);
       tx.insert(messages)
         .values(row)
@@ -430,8 +460,15 @@ export function replaceMessagesSnapshot(conversationId: string, rows: MessageRow
         })
         .run();
     }
+    const revision = baseRevision + 1;
+    tx.update(conversations)
+      .set({ message_revision: revision, updated_at: Date.now() })
+      .where(
+        and(eq(conversations.id, conversationId), eq(conversations.message_revision, baseRevision)),
+      )
+      .run();
+    return { applied: true, revision };
   });
-  touchConversation(conversationId);
 }
 
 export function listMessages(conversationId: string): MessageRow[] {
@@ -442,6 +479,16 @@ export function listMessages(conversationId: string): MessageRow[] {
     .orderBy(messages.created_at)
     .all()
     .map(dbMessageToShared);
+}
+
+export function getMessagesSnapshot(conversationId: string): MessageSnapshot {
+  const conversation = getDb()
+    .select({ revision: conversations.message_revision })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  if (!conversation) throw new Error("Conversation does not exist.");
+  return { messages: listMessages(conversationId), revision: conversation.revision };
 }
 
 export function getSetting(key: string): string | null {

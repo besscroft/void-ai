@@ -85,6 +85,7 @@ export function hydrateStoredMessage(row: MessageRow): UIMessage {
     if (isUIMessage(parsed)) return parsed;
   } catch {
     // Fall through to plain-text compatibility for legacy rows.
+    console.warn("[chat] preserving malformed or legacy stored message", row.id);
   }
 
   return {

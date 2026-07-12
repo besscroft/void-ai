@@ -23,4 +23,7 @@ export default defineConfig({
   run: {
     cache: true,
   },
+  test: {
+    include: ["tests/vite-plus/**/*.test.ts"],
+  },
 });

@@ -20,11 +20,9 @@ import {
   type MediaGenerationErrorResponse,
   type MediaGenerationRequest,
   type MediaGenerationResponse,
-  type ModelCapabilities,
   type ModelProviderKind,
 } from "../../shared/types";
 import type { ResolvedChatModel } from "../lib/chat-agent";
-import type { ChatToolModelContext } from "../lib/chat-tools";
 
 const ALLOWED_ORIGIN_PATTERNS = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
 
@@ -42,18 +40,6 @@ interface CreateAppOptions {
   runAgentChat?: typeof import("../lib/agent-runtime").runAgentChat;
 }
 
-const DEFAULT_CHAT_MODEL_CAPABILITIES: ModelCapabilities = {
-  textGeneration: true,
-  vision: false,
-  imageOutput: false,
-  speechOutput: false,
-  transcription: false,
-  videoOutput: false,
-  toolCalling: true,
-  reasoning: false,
-  embedding: false,
-};
-
 function allowRendererOrigin(origin: string): string | null {
   if (origin === "null") return origin;
   return ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin)) ? origin : null;
@@ -68,23 +54,11 @@ function isAuthorized(
 
 function parseChatReasoningLevel(raw: unknown): {
   ok: boolean;
-  value?: Exclude<ChatReasoningLevel, "provider-default" | "none">;
+  value?: ChatReasoningLevel;
 } {
   if (raw === undefined) return { ok: true };
   if (!isChatReasoningLevel(raw)) return { ok: false };
-  if (raw === "provider-default" || raw === "none") return { ok: true };
   return { ok: true, value: raw };
-}
-
-function normalizeChatReasoningForModel(
-  reasoning: ReturnType<typeof parseChatReasoningLevel>,
-  model: ChatToolModelContext,
-): ReturnType<typeof parseChatReasoningLevel> {
-  if (!reasoning.ok || !reasoning.value) return reasoning;
-  if (model.providerKind === "openai-compatible" && reasoning.value === "minimal") {
-    return { ok: true };
-  }
-  return reasoning;
 }
 
 /** Create the local loopback HTTP app used by the renderer chat transport. */
@@ -275,6 +249,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       conversationId?: string;
       reasoning?: unknown;
       toolSelection?: ChatToolSelectionRequest;
+      cronRun?: boolean;
     };
 
     const messages = body.messages?.filter(
@@ -299,8 +274,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       const buildAgentSystemPrompt =
         options.buildAgentSystemPrompt ?? (await import("../lib/db")).buildAgentSystemPrompt;
       const resolved = resolveModel(body.model);
-      const chatToolModelContext = toChatToolModelContext(body.model, resolved);
-      const reasoning = normalizeChatReasoningForModel(parsedReasoning, chatToolModelContext);
+      const reasoning = parsedReasoning;
       const runAgentChat =
         options.runAgentChat ?? (await import("../lib/agent-runtime")).runAgentChat;
       return await runAgentChat({
@@ -311,6 +285,7 @@ export function createApp(options: CreateAppOptions = {}): Hono {
         preferredAgentId: body.agentId,
         reasoning: reasoning.value,
         toolSelection: body.toolSelection,
+        disableCronTools: body.cronRun === true,
         buildAgentSystemPrompt: async (agentId, conversationId) =>
           body.system ?? (await buildAgentSystemPrompt(agentId, conversationId)),
         resolveModel,
@@ -711,23 +686,6 @@ function sanitizeTitle(raw: string): string {
   // 截断到 40 字
   if (text.length > 40) text = text.slice(0, 40);
   return text.trim();
-}
-
-function toChatToolModelContext(
-  modelRef: string,
-  resolved: ResolvedChatModel,
-): ChatToolModelContext {
-  const slashIdx = modelRef.indexOf("/");
-  const providerId =
-    resolved.providerId ?? (slashIdx > 0 ? modelRef.slice(0, slashIdx) : "unknown");
-  const modelId = resolved.modelId ?? (slashIdx > 0 ? modelRef.slice(slashIdx + 1) : modelRef);
-  return {
-    providerId,
-    providerKind: resolved.providerKind ?? "openai-compatible",
-    modelId,
-    capabilities: resolved.capabilities ?? DEFAULT_CHAT_MODEL_CAPABILITIES,
-    nativeTools: resolved.nativeTools ?? [],
-  };
 }
 
 function getHttpErrorStatus(err: unknown): 400 | 500 {

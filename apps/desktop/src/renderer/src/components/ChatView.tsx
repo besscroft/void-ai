@@ -20,6 +20,7 @@ import {
 } from "ai";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
+import { Button } from "./ui";
 import { api, type RuntimeSnapshot } from "../lib/api";
 import { hasMeaningfulConversationTitle } from "../lib/conversation-title";
 import { getChatErrorMessage } from "../lib/errors";
@@ -31,7 +32,12 @@ import {
   isNonEmptyUIMessage,
   toFileUIParts,
 } from "../lib/chat-messages";
-import { createSnapshotPersistenceQueue, persistMessagesSnapshot } from "../lib/chat-persistence";
+import {
+  createSnapshotPersistenceQueue,
+  mergeMessagePersistenceRequests,
+  persistMessagesPatch,
+  type MessagePersistenceRequest,
+} from "../lib/chat-persistence";
 import {
   buildMediaErrorMessage,
   buildMediaGenerationRequest,
@@ -121,7 +127,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     DEFAULT_SETTINGS.chatReasoningLevel,
   );
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [hydrationState, setHydrationState] = useState<"loading" | "ready" | "error">("loading");
+  const [hydrationRetry, setHydrationRetry] = useState(0);
   const [chatError, setChatError] = useState<string | null>(null);
   const [isStopped, setIsStopped] = useState(false);
   const [isMediaGenerating, setIsMediaGenerating] = useState(false);
@@ -153,14 +160,19 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const mediaSettingsRef = useRef<MediaGenerationSettings>(DEFAULT_MEDIA_GENERATION_SETTINGS);
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const hydratedConversationRef = useRef<string | null>(null);
+  const hydrationStateRef = useRef<"loading" | "ready" | "error">("loading");
+  const revisionRef = useRef(0);
+  const persistenceDirtyRef = useRef(false);
   const persistenceQueue = useMemo(
     () =>
-      createSnapshotPersistenceQueue<UIMessage[]>(
-        async (messages) => {
-          await persistMessagesSnapshot(conversationId, messages, createdAtRef.current);
+      createSnapshotPersistenceQueue<MessagePersistenceRequest>(
+        async (request) => {
+          await persistMessagesPatch(conversationId, request, createdAtRef.current, revisionRef);
           await api.conversations.touch(conversationId);
+          persistenceDirtyRef.current = false;
         },
         (error) => console.error("[chat] failed to persist streaming snapshot:", error),
+        mergeMessagePersistenceRequests,
       ),
     [conversationId],
   );
@@ -190,7 +202,10 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       setChatError(detail);
       console.error(`[chat] ${source} failed:`, err);
       if (opts.persistSnapshot) {
-        persistenceQueue.request(opts.persistSnapshot);
+        if (hydrationStateRef.current === "ready") {
+          persistenceDirtyRef.current = true;
+          persistenceQueue.request({ messages: opts.persistSnapshot });
+        }
       }
       notify.error(t(opts.toastKey ?? "toast.chat.failed"), detail, locale);
     },
@@ -202,14 +217,16 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
    * 行为等价于"先 persistMessagesSnapshot 后 conversations.touch"，用于消除两处 IPC 总是成对出现的样板代码。
    */
   const persistAndTouch = useCallback(
-    async (messages: UIMessage[]): Promise<void> => {
-      await persistenceQueue.flush(messages);
+    async (messages: UIMessage[], deleteIds: string[] = []): Promise<void> => {
+      if (hydrationStateRef.current !== "ready") return;
+      persistenceDirtyRef.current = true;
+      await persistenceQueue.flush({ messages, deleteIds });
     },
     [persistenceQueue],
   );
   const persistInBackground = useCallback(
-    (messages: UIMessage[], source: string): void => {
-      void persistAndTouch(messages).catch((error) =>
+    (messages: UIMessage[], source: string, deleteIds: string[] = []): void => {
+      void persistAndTouch(messages, deleteIds).catch((error) =>
         console.error(`[chat] failed to persist ${source}:`, error),
       );
     },
@@ -285,6 +302,22 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   }, [reasoningLevel]);
 
   useEffect(() => {
+    if (reasoningLevel === "provider-default" || reasoningLevel === "none" || !selectedModel) {
+      return;
+    }
+    const separator = selectedModel.indexOf("/");
+    const providerId = selectedModel.slice(0, separator);
+    const modelId = selectedModel.slice(separator + 1);
+    const model = providers
+      .find((provider) => provider.id === providerId)
+      ?.models.find((item) => item.id === modelId);
+    if (!model || model.capabilities.reasoning) return;
+    reasoningLevelRef.current = "provider-default";
+    setReasoningLevel("provider-default");
+    void api.settings.set(SettingKey.ChatReasoningLevel, "provider-default");
+  }, [providers, reasoningLevel, selectedModel]);
+
+  useEffect(() => {
     toolSelectionRef.current = toolSelection;
   }, [toolSelection]);
 
@@ -308,35 +341,52 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   );
 
   useEffect(() => {
-    setHistoryLoaded(false);
+    setHydrationState("loading");
+    hydrationStateRef.current = "loading";
     setChatError(null);
     setIsStopped(false);
     setToolSelection(DEFAULT_CHAT_TOOL_SELECTION);
     createdAtRef.current = new Map();
+    revisionRef.current = 0;
+    persistenceDirtyRef.current = false;
     hydratedConversationRef.current = null;
     // 涓嶉噸缃?titledRef锛氫繚鐣欒法浼氳瘽璁板綍锛岄伩鍏嶉噸澶嶇敓鎴愶紙鍒囨崲鍥炲埌鏃у璇濅篃涓嶉噸鐢熸垚锛?
 
-    void api.messages.list(conversationId).then((rows) => {
-      const hydratedMessages = rows.map(hydrateStoredMessage);
-      const messages = hydratedMessages.filter(isNonEmptyUIMessage);
-      createdAtRef.current = new Map(rows.map((row) => [row.id, row.created_at]));
-      setInitialMessages(messages);
-      setHistoryLoaded(true);
-      if (messages.length !== hydratedMessages.length) {
-        persistenceQueue.request(messages);
-      }
-      // 濡傛灉鍘嗗彶涓凡缁忔湁鏍囬锛圖B 宸叉湁锛夛紝鏍囪涓哄凡鐢熸垚锛岄伩鍏嶅啀娆¤Е鍙?
-      void api.conversations.get(conversationId).then((conv) => {
-        if (hasMeaningfulConversationTitle(conv?.title)) {
-          titledRef.current.add(conversationId);
-        }
+    let cancelled = false;
+    void api.messages
+      .list(conversationId)
+      .then((snapshot) => {
+        if (cancelled) return;
+        const rows = snapshot.messages;
+        const hydratedMessages = rows.map(hydrateStoredMessage);
+        const messages = hydratedMessages.filter(isNonEmptyUIMessage);
+        createdAtRef.current = new Map(rows.map((row) => [row.id, row.created_at]));
+        revisionRef.current = snapshot.revision;
+        setInitialMessages(messages);
+        setHydrationState("ready");
+        hydrationStateRef.current = "ready";
+        // 濡傛灉鍘嗗彶涓凡缁忔湁鏍囬锛圖B 宸叉湁锛夛紝鏍囪涓哄凡鐢熸垚锛岄伩鍏嶅啀娆¤Е鍙?
+        void api.conversations.get(conversationId).then((conv) => {
+          if (hasMeaningfulConversationTitle(conv?.title)) {
+            titledRef.current.add(conversationId);
+          }
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("[chat] failed to load message history:", error);
+        setChatError(getChatErrorMessage(error, locale));
+        setHydrationState("error");
+        hydrationStateRef.current = "error";
       });
-    });
 
     void api.settings.get(SettingKey.ChatTools).then((raw) => {
       setToolSelection(getChatToolSelectionForConversation(raw, conversationId));
     });
-  }, [conversationId, persistenceQueue]);
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, hydrationRetry, locale, persistenceQueue]);
 
   const chat = useChat({
     id: conversationId,
@@ -364,33 +414,35 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   latestMessagesRef.current = chat.messages;
 
   useEffect(() => {
-    if (!historyLoaded || hydratedConversationRef.current === conversationId) return;
+    if (hydrationState !== "ready" || hydratedConversationRef.current === conversationId) return;
     chat.setMessages(initialMessages);
     hydratedConversationRef.current = conversationId;
-  }, [chat, conversationId, historyLoaded, initialMessages]);
+  }, [chat, conversationId, hydrationState, initialMessages]);
 
   const isChatLoading = chat.status === "submitted" || chat.status === "streaming";
   const isLoading = isChatLoading || isMediaGenerating;
 
   useEffect(() => {
-    if (!historyLoaded || !isChatLoading) return;
+    if (hydrationState !== "ready" || !isChatLoading) return;
     const persistLatest = (): void => {
-      persistenceQueue.request(latestMessagesRef.current);
+      persistenceDirtyRef.current = true;
+      persistenceQueue.request({ messages: latestMessagesRef.current });
     };
     persistLatest();
     const id = window.setInterval(persistLatest, 750);
     return () => {
       window.clearInterval(id);
       void persistenceQueue
-        .flush(latestMessagesRef.current)
+        .flush({ messages: latestMessagesRef.current })
         .catch((error) => console.error("[chat] failed to flush streaming snapshot:", error));
     };
-  }, [historyLoaded, isChatLoading, persistenceQueue]);
+  }, [hydrationState, isChatLoading, persistenceQueue]);
 
   useEffect(
     () => () => {
+      if (hydrationStateRef.current !== "ready" || !persistenceDirtyRef.current) return;
       void persistenceQueue
-        .flush(latestMessagesRef.current)
+        .flush({ messages: latestMessagesRef.current })
         .catch((error) => console.error("[chat] failed to flush final snapshot:", error));
     },
     [persistenceQueue],
@@ -701,7 +753,11 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     createdAtRef.current.delete(messageId);
 
     // 2. 鎸佷箙鍖栨柊蹇収锛堝垹闄ゅ悗缁秷鎭級
-    persistInBackground(nextMessages, "edited message");
+    persistInBackground(
+      nextMessages,
+      "edited message",
+      chat.messages.slice(idx + 1).map((message) => message.id),
+    );
     setIsStopped(false);
     setChatError(null);
     chat.clearError();
@@ -730,7 +786,11 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     chat.clearError();
 
     // 2. 鎸佷箙鍖栵紙鍒犻櫎鍚庣画娑堟伅锛?
-    persistInBackground(nextMessages, "resent message");
+    persistInBackground(
+      nextMessages,
+      "resent message",
+      chat.messages.slice(idx + 1).map((message) => message.id),
+    );
 
     // 3. 瑙﹀彂閲嶆柊鐢熸垚
     try {
@@ -750,9 +810,11 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
     // 1. 鍒犻櫎鐩爣 + 濡傛灉鐩爣鏄?user 娑堟伅锛岀揣璺熺殑 assistant 涔熶竴骞跺垹闄?
     const next = [...chat.messages];
+    const deletedIds = [target.id];
     next.splice(idx, 1);
     if (target.role === "user" && next[idx]?.role === "assistant") {
-      next.splice(idx, 1);
+      const [assistant] = next.splice(idx, 1);
+      if (assistant) deletedIds.push(assistant.id);
     }
     chat.setMessages(next);
     latestMessagesRef.current = next;
@@ -762,14 +824,34 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     }
 
     // 2. 鎸佷箙鍖栵紙鐩爣娑堟伅涓庡彲鑳界殑 assistant 鍚屾浠?DB 涓垹闄わ級
-    persistInBackground(next, "message deletion");
+    persistInBackground(next, "message deletion", deletedIds);
     notify.success(t("chat.messageDeleted"));
   };
 
-  if (!historyLoaded) {
+  if (hydrationState === "loading") {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-foreground/40">
         {t("chat.loadingHistory")}
+      </div>
+    );
+  }
+
+  if (hydrationState === "error") {
+    return (
+      <div className="flex flex-1 items-center justify-center px-6">
+        <div className="flex max-w-md flex-col items-center gap-3 text-center" role="alert">
+          <h2 className="text-base font-semibold">{t("chat.historyLoadFailed")}</h2>
+          <p className="text-sm text-muted-foreground">{chatError}</p>
+          <Button
+            size="sm"
+            onClick={() => {
+              setChatError(null);
+              setHydrationRetry((value) => value + 1);
+            }}
+          >
+            {t("chat.retryHistory")}
+          </Button>
+        </div>
       </div>
     );
   }

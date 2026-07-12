@@ -28,8 +28,25 @@ const api = {
     list: (conversationId: string) => ipcRenderer.invoke("messages:list", conversationId),
     save: (msg: unknown) => ipcRenderer.invoke("messages:save", msg),
     saveBatch: (msgs: unknown[]) => ipcRenderer.invoke("messages:saveBatch", msgs),
-    replaceSnapshot: (conversationId: string, msgs: unknown[]) =>
-      ipcRenderer.invoke("messages:replaceSnapshot", conversationId, msgs),
+    applyPatch: (patch: unknown) => ipcRenderer.invoke("messages:applyPatch", patch),
+  },
+  cron: {
+    list: () => ipcRenderer.invoke("cron:list"),
+    get: (id: string) => ipcRenderer.invoke("cron:get", id),
+    create: (input: unknown) => ipcRenderer.invoke("cron:create", input),
+    update: (id: string, patch: unknown) => ipcRenderer.invoke("cron:update", id, patch),
+    pause: (id: string) => ipcRenderer.invoke("cron:pause", id),
+    resume: (id: string) => ipcRenderer.invoke("cron:resume", id),
+    run: (id: string) => ipcRenderer.invoke("cron:run", id),
+    delete: (id: string) => ipcRenderer.invoke("cron:delete", id),
+    runs: (id: string, limit?: number) => ipcRenderer.invoke("cron:runs", id, limit),
+  },
+  catalog: {
+    snapshot: () => ipcRenderer.invoke("catalog:snapshot"),
+    search: (input?: unknown) => ipcRenderer.invoke("catalog:search", input),
+    install: (input: unknown) => ipcRenderer.invoke("catalog:install", input),
+    enable: (id: string, enabled: boolean) => ipcRenderer.invoke("catalog:enable", id, enabled),
+    uninstall: (id: string) => ipcRenderer.invoke("catalog:uninstall", id),
   },
   settings: {
     get: (key: string) => ipcRenderer.invoke("settings:get", key),
