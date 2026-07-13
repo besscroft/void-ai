@@ -7,6 +7,8 @@ import {
   appendOrReplaceMessage,
   buildMessageSnapshotRows,
   buildUserMessage,
+  getAgentLearningQueueKey,
+  hasPendingToolApproval,
   hydrateStoredMessage,
   isNonEmptyUIMessage,
   readChatMessageMetadata,
@@ -139,6 +141,37 @@ void describe("chat message helpers", () => {
     );
     assert.equal(isNonEmptyUIMessage(messages[0]), true);
     assert.equal(isNonEmptyUIMessage(messages[1]), false);
+  });
+
+  void it("queues learning only for successful final responses without pending approvals", () => {
+    const completed: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Question" }] },
+      { id: "a1", role: "assistant", parts: [{ type: "text", text: "Answer" }] },
+    ];
+    const pending: UIMessage[] = [
+      completed[0],
+      {
+        id: "a2",
+        role: "assistant",
+        parts: [
+          {
+            type: "dynamic-tool",
+            toolName: "sandbox_run_command",
+            toolCallId: "call-1",
+            state: "approval-requested",
+            input: {},
+            approval: { id: "approval-1" },
+          },
+        ],
+      },
+    ];
+
+    assert.equal(hasPendingToolApproval(completed), false);
+    assert.equal(getAgentLearningQueueKey("c1", completed, false), "c1:a1");
+    assert.equal(hasPendingToolApproval(pending), true);
+    assert.equal(getAgentLearningQueueKey("c1", pending, false), null);
+    assert.equal(getAgentLearningQueueKey("c1", completed, true), null);
+    assert.equal(getAgentLearningQueueKey("c1", [completed[0]], false), null);
   });
 
   void it("updates assistant reaction metadata and keeps it in persisted snapshots", () => {

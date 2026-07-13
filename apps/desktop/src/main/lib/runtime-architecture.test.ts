@@ -14,6 +14,7 @@ import {
 import { getSandboxSessionOrThrow } from "./sandbox-runtime";
 import { buildToolRegistryPreview } from "./tool-registry";
 import { ROOT_AGENT_STOP_WHEN } from "./agent-run-policy";
+import { rootToolRequiresApproval } from "./root-tool-approval";
 
 const capabilities: ModelCapabilities = {
   textGeneration: true,
@@ -164,6 +165,29 @@ void describe("runtime architecture", () => {
     assert.equal(inputHasPathEscape({ path: "../outside.txt" }), true);
     assert.equal(commandLooksDangerous({ command: "npm", args: ["install"] }), true);
     assert.equal(commandLooksDangerous({ command: "node", args: ["--version"] }), false);
+  });
+
+  void it("never requires approval for silent root memory tools", () => {
+    for (const toolName of ["memory_search", "memory_save", "memory_update", "memory_delete"]) {
+      assert.equal(
+        rootToolRequiresApproval({
+          toolName,
+          reviewAll: true,
+          dynamicallyRequiresApproval: true,
+          policyRequiresApproval: true,
+        }),
+        false,
+      );
+    }
+    assert.equal(
+      rootToolRequiresApproval({
+        toolName: "conversation_search",
+        reviewAll: false,
+        dynamicallyRequiresApproval: false,
+        policyRequiresApproval: false,
+      }),
+      true,
+    );
   });
 
   void it("guards sandbox runtime access before a session exists", () => {

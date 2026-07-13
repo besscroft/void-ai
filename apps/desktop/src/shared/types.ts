@@ -516,7 +516,6 @@ export interface AgentMemoryFileSnapshot {
   charLimit: number;
   charCount: number;
   updatedAt: number;
-  userLocked: boolean;
 }
 
 export type WorkflowStatus = "enabled" | "paused" | "draft";
@@ -990,6 +989,18 @@ export const CHAT_TOOL_IDS = [
 ] as const;
 
 export type ChatToolId = (typeof CHAT_TOOL_IDS)[number];
+
+export const SILENT_ROOT_MEMORY_TOOL_IDS = [
+  "memory_search",
+  "memory_save",
+  "memory_update",
+  "memory_delete",
+] as const satisfies readonly ChatToolId[];
+
+export function isSilentRootMemoryTool(id: string): id is ChatToolId {
+  return (SILENT_ROOT_MEMORY_TOOL_IDS as readonly string[]).includes(id);
+}
+
 export type ChatToolMode = "off" | "auto" | "manual";
 
 export interface ChatToolSelectionRequest {

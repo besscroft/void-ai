@@ -37,11 +37,12 @@ import {
   auditChatToolApprovalResponses,
   buildChatToolRuntime,
   createMemoryHostTools,
-  MEMORY_TOOL_IDS,
+  mergeSilentRootMemoryTools,
   type ChatToolModelContext,
   type ChatToolRuntimeConfig,
 } from "./chat-tools";
 import { commandLooksDangerous, inputHasPathEscape } from "./approval-policy";
+import { rootToolRequiresApproval } from "./root-tool-approval";
 import { loadAgentGraph } from "./agent-graph";
 import type { AgentGraph } from "./agent-graph";
 import { AgentCoordinator } from "./agent-coordinator";
@@ -336,9 +337,6 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
     return base;
   }
 
-  const tools: ToolSet = { ...base.tools };
-  const activeTools = new Set<string>(base.activeTools ?? []);
-
   // The root agent (Paimon) always has the memory tools available, independent of
   // the user's chat tool selection. They remain hidden from the chat page UI.
   const memoryHostTools = createMemoryHostTools({
@@ -346,12 +344,9 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
     conversationId: context.conversationId,
     agentId: DEFAULT_AGENT_ID,
   });
-  for (const id of MEMORY_TOOL_IDS) {
-    const memoryTool = memoryHostTools[id];
-    if (!memoryTool) continue;
-    assignTool(tools, id, memoryTool);
-    activeTools.add(id);
-  }
+  const silentMemoryRuntime = mergeSilentRootMemoryTools(base, memoryHostTools);
+  const tools = silentMemoryRuntime.tools;
+  const activeTools = new Set<string>(silentMemoryRuntime.activeTools);
 
   // The remaining orchestration tools follow the user's selection as before.
   // When the user turns chat tools off, only the silently-enabled memory tools
@@ -1157,10 +1152,12 @@ function evaluateToolGuardrail(
   const reviewAll =
     readRuntimeConfig(context.rootAgent.runtime_config_json).reviewPolicy === "review_all";
   if (
-    reviewAll ||
-    toolApprovalToolNames.has(toolName) ||
-    (mappedTool && policy.requireApprovalToolIds.includes(mappedTool)) ||
-    toolName === "conversation_search"
+    rootToolRequiresApproval({
+      toolName,
+      reviewAll,
+      dynamicallyRequiresApproval: toolApprovalToolNames.has(toolName),
+      policyRequiresApproval: !!mappedTool && policy.requireApprovalToolIds.includes(mappedTool),
+    })
   ) {
     return {
       decision: "require_review",

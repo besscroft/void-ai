@@ -28,6 +28,7 @@ import { AgentStatusWidget } from "./WorkflowStatusWidget";
 import {
   appendOrReplaceMessage,
   buildUserMessage,
+  getAgentLearningQueueKey,
   hydrateStoredMessage,
   isNonEmptyUIMessage,
   toFileUIParts,
@@ -163,6 +164,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const hydrationStateRef = useRef<"loading" | "ready" | "error">("loading");
   const revisionRef = useRef(0);
   const persistenceDirtyRef = useRef(false);
+  const learningQueueKeyRef = useRef<string | null>(null);
   const persistenceQueue = useMemo(
     () =>
       createSnapshotPersistenceQueue<MessagePersistenceRequest>(
@@ -217,10 +219,11 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
    * 行为等价于"先 persistMessagesSnapshot 后 conversations.touch"，用于消除两处 IPC 总是成对出现的样板代码。
    */
   const persistAndTouch = useCallback(
-    async (messages: UIMessage[], deleteIds: string[] = []): Promise<void> => {
-      if (hydrationStateRef.current !== "ready") return;
+    async (messages: UIMessage[], deleteIds: string[] = []): Promise<boolean> => {
+      if (hydrationStateRef.current !== "ready") return false;
       persistenceDirtyRef.current = true;
       await persistenceQueue.flush({ messages, deleteIds });
+      return true;
     },
     [persistenceQueue],
   );
@@ -396,9 +399,25 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     onFinish: ({ messages, isError }) => {
       if (!isError) setChatError(null);
       setIsStopped(false);
+      const learningKey = getAgentLearningQueueKey(conversationId, messages, isError);
+      const shouldQueueLearning =
+        learningKey != null && learningQueueKeyRef.current !== learningKey;
+      if (shouldQueueLearning) learningQueueKeyRef.current = learningKey;
       void persistAndTouch(messages)
-        .then(() => api.agents.queueLearning(conversationId))
-        .catch((err) => console.error("[chat] failed to persist messages or queue learning:", err));
+        .then((persisted) => {
+          if (!persisted && shouldQueueLearning && learningQueueKeyRef.current === learningKey) {
+            learningQueueKeyRef.current = null;
+          }
+          return persisted && shouldQueueLearning
+            ? api.agents.queueLearning(conversationId)
+            : undefined;
+        })
+        .catch((err) => {
+          if (shouldQueueLearning && learningQueueKeyRef.current === learningKey) {
+            learningQueueKeyRef.current = null;
+          }
+          console.error("[chat] failed to persist messages or queue learning:", err);
+        });
       // 鑷姩鐢熸垚鏍囬锛氭湰杞彂閫佷簡娑堟伅 + assistant 瀹屾暣浜х敓 + 杩樻病鐢熸垚杩?
       tryAutoTitle(conversationId, messages, titledRef);
       // 异步生成追问建议

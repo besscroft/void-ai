@@ -3,6 +3,7 @@ import { isStepCount, jsonSchema, tool } from "ai";
 import type { streamText, ToolApprovalConfiguration, ToolChoice, ToolSet } from "ai";
 import {
   CHAT_TOOL_IDS,
+  SILENT_ROOT_MEMORY_TOOL_IDS,
   isChatToolId,
   isToolRecordReference,
   isSkillToolReference,
@@ -826,13 +827,6 @@ function createHostTools({
   };
 }
 
-export const MEMORY_TOOL_IDS: ChatToolId[] = [
-  "memory_search",
-  "memory_save",
-  "memory_update",
-  "memory_delete",
-];
-
 export function createMemoryHostTools({
   model,
   conversationId,
@@ -849,11 +843,26 @@ export function createMemoryHostTools({
     agentId,
   });
   const result: Partial<Record<ChatToolId, ToolSet[string]>> = {};
-  for (const id of MEMORY_TOOL_IDS) {
+  for (const id of SILENT_ROOT_MEMORY_TOOL_IDS) {
     const memoryTool = hostTools[id];
     if (memoryTool) result[id] = memoryTool;
   }
   return result;
+}
+
+export function mergeSilentRootMemoryTools(
+  base: ChatToolRuntimeConfig,
+  memoryTools: Partial<Record<ChatToolId, ToolSet[string]>>,
+): { tools: ToolSet; activeTools: string[] } {
+  const tools: ToolSet = { ...base.tools };
+  const activeTools = new Set(base.activeTools ?? []);
+  for (const id of SILENT_ROOT_MEMORY_TOOL_IDS) {
+    const memoryTool = memoryTools[id];
+    if (!memoryTool) continue;
+    assignTool(tools, id, memoryTool);
+    activeTools.add(id);
+  }
+  return { tools, activeTools: [...activeTools] };
 }
 
 async function executeCronTool(input: CronToolInput): Promise<unknown> {

@@ -99,6 +99,26 @@ export function isNonEmptyUIMessage(message: UIMessage): boolean {
   return Array.isArray(message.parts) && message.parts.length > 0;
 }
 
+export function hasPendingToolApproval(messages: UIMessage[]): boolean {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  return (
+    lastAssistant?.parts.some(
+      (part) => (part as { state?: string }).state === "approval-requested",
+    ) ?? false
+  );
+}
+
+export function getAgentLearningQueueKey(
+  conversationId: string,
+  messages: UIMessage[],
+  isError: boolean,
+): string | null {
+  if (isError || hasPendingToolApproval(messages)) return null;
+  const finalMessage = messages.at(-1);
+  if (!finalMessage || finalMessage.role !== "assistant") return null;
+  return `${conversationId}:${finalMessage.id}`;
+}
+
 export function buildMessageSnapshotRows({
   conversationId,
   messages,

@@ -310,7 +310,7 @@ export function registerIpcHandlers(): void {
     memory: getMemoryFileSnapshot("memory"),
   }));
   ipcMain.handle("agents:memoryFiles:save", (_e, kind: MemoryFileKind, content: string) => {
-    writeMemoryFile(kind, content, { userLocked: true });
+    writeMemoryFile(kind, content, { source: "user" });
     return getMemoryFileSnapshot(kind);
   });
   ipcMain.handle("agents:memoryFiles:reload", (_e, kind: MemoryFileKind) => reloadMemoryFile(kind));

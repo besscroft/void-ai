@@ -1,22 +1,29 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
 import { generateText } from "ai";
 import { decrypt, encrypt, type EncryptedPayload } from "./crypto";
-import { getSetting, listMemories, queueMemoryJob } from "./db";
+import { getSetting, insertRuntimeEvent, listMemories, queueMemoryJob } from "./db";
 import { resolveModel } from "./providers";
-import { SettingKey, type AgentProfile, type MemoryRecord } from "../../shared/types";
+import {
+  SettingKey,
+  type AgentMemoryFileSnapshot,
+  type AgentProfile,
+  type MemoryRecord,
+} from "../../shared/types";
 
 export type MemoryFileKind = "soul" | "user" | "memory";
-
-export interface AgentMemoryFileSnapshot {
-  kind: MemoryFileKind;
-  content: string;
-  charLimit: number;
-  charCount: number;
-  updatedAt: number;
-  userLocked: boolean;
-}
+export type MemoryFileWriteSource = "system" | "user";
 
 export const MEMORY_FILE_LIMITS: Record<MemoryFileKind, number> = {
   soul: 4_000,
@@ -24,10 +31,27 @@ export const MEMORY_FILE_LIMITS: Record<MemoryFileKind, number> = {
   memory: 4_000,
 };
 
-interface MemoryFileEnvelope {
+interface MemoryFileEnvelopeV2 {
+  version: 2;
   payload: EncryptedPayload;
   updatedAt: number;
-  userLocked: boolean;
+  manualBaseline?: EncryptedPayload;
+  manualEditedAt?: number;
+}
+
+interface LegacyMemoryFileEnvelope {
+  payload: EncryptedPayload;
+  updatedAt?: number;
+  userLocked?: boolean;
+}
+
+interface MemoryFileState {
+  content: string;
+  updatedAt: number;
+  manualBaseline: string | null;
+  manualEditedAt: number | null;
+  signature: string;
+  source: "primary" | "backup" | "default";
 }
 
 const AGENT_MEMORIES_DIRNAME = "agent-memories";
@@ -36,11 +60,9 @@ const FILE_NAMES: Record<MemoryFileKind, string> = {
   user: "USER.md.enc",
   memory: "MEMORY.md.enc",
 };
+const MEMORY_FILE_KINDS: MemoryFileKind[] = ["soul", "user", "memory"];
 
-const cache = new Map<
-  MemoryFileKind,
-  { content: string; updatedAt: number; userLocked: boolean }
->();
+const cache = new Map<MemoryFileKind, MemoryFileState>();
 let consolidationTimer: NodeJS.Timeout | null = null;
 
 function resolveAgentMemoriesDir(): string {
@@ -52,6 +74,10 @@ function resolveAgentMemoriesDir(): string {
 
 function filePath(kind: MemoryFileKind): string {
   return join(resolveAgentMemoriesDir(), FILE_NAMES[kind]);
+}
+
+function backupPath(kind: MemoryFileKind): string {
+  return `${filePath(kind)}.bak`;
 }
 
 function defaultContent(kind: MemoryFileKind): string {
@@ -66,57 +92,154 @@ function defaultContent(kind: MemoryFileKind): string {
   return "# MEMORY\n\nNo long-term working memories yet.";
 }
 
-function readEnvelope(kind: MemoryFileKind): MemoryFileEnvelope | null {
-  const path = filePath(kind);
+function fileSignature(path: string): string | null {
   if (!existsSync(path)) return null;
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as MemoryFileEnvelope;
-    return parsed?.payload ? parsed : null;
-  } catch {
-    return null;
-  }
+  const stat = statSync(path);
+  return `${stat.mtimeMs}:${stat.size}`;
 }
 
-function readCached(kind: MemoryFileKind): {
-  content: string;
-  updatedAt: number;
-  userLocked: boolean;
-} {
-  const envelope = readEnvelope(kind);
-  if (!envelope) return { content: defaultContent(kind), updatedAt: 0, userLocked: false };
+function readStateFromPath(
+  kind: MemoryFileKind,
+  path: string,
+): Omit<MemoryFileState, "signature" | "source"> {
+  const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  if (!raw || typeof raw !== "object") throw new Error("Memory file envelope is invalid.");
+  const envelope = raw as MemoryFileEnvelopeV2 & LegacyMemoryFileEnvelope;
+  if (!isEncryptedPayload(envelope.payload)) throw new Error("Memory file payload is invalid.");
+
+  const updatedAt =
+    typeof envelope.updatedAt === "number" && Number.isFinite(envelope.updatedAt)
+      ? envelope.updatedAt
+      : Math.trunc(statSync(path).mtimeMs);
+  const content = decrypt(envelope.payload).slice(0, MEMORY_FILE_LIMITS[kind]);
+  let manualBaseline: string | null = null;
+  let manualEditedAt: number | null = null;
+
+  if (envelope.version === 2) {
+    if (envelope.manualBaseline != null) {
+      if (!isEncryptedPayload(envelope.manualBaseline)) {
+        throw new Error("Memory file manual baseline is invalid.");
+      }
+      manualBaseline = decrypt(envelope.manualBaseline).slice(0, MEMORY_FILE_LIMITS[kind]);
+    }
+    manualEditedAt =
+      typeof envelope.manualEditedAt === "number" && Number.isFinite(envelope.manualEditedAt)
+        ? envelope.manualEditedAt
+        : null;
+  } else if (envelope.userLocked === true) {
+    manualBaseline = content;
+    manualEditedAt = updatedAt;
+  }
+
+  return { content, updatedAt, manualBaseline, manualEditedAt };
+}
+
+function isEncryptedPayload(value: unknown): value is EncryptedPayload {
+  if (!value || typeof value !== "object") return false;
+  const payload = value as Partial<EncryptedPayload>;
+  return [payload.ct, payload.iv, payload.tag, payload.salt].every(
+    (part) => typeof part === "string" && part.length > 0,
+  );
+}
+
+function readCached(kind: MemoryFileKind): MemoryFileState {
+  const primary = filePath(kind);
+  const primarySignature = fileSignature(primary);
   const cached = cache.get(kind);
-  if (cached && cached.updatedAt === envelope.updatedAt) return cached;
-  const state = {
-    content: decrypt(envelope.payload),
-    updatedAt: envelope.updatedAt,
-    userLocked: envelope.userLocked,
+  if (cached && cached.source === "primary" && cached.signature === primarySignature) return cached;
+
+  let primaryError: unknown = null;
+  if (primarySignature) {
+    try {
+      const state = {
+        ...readStateFromPath(kind, primary),
+        signature: primarySignature,
+        source: "primary" as const,
+      };
+      cache.set(kind, state);
+      return state;
+    } catch (error) {
+      primaryError = error;
+    }
+  }
+
+  const backup = backupPath(kind);
+  const backupSignature = fileSignature(backup);
+  if (backupSignature) {
+    try {
+      const recovered = readStateFromPath(kind, backup);
+      copyFileSync(backup, primary);
+      const state = {
+        ...recovered,
+        signature: fileSignature(primary) ?? backupSignature,
+        source: "primary" as const,
+      };
+      cache.set(kind, state);
+      recordMemoryFileDiagnostic(kind, "recovered-backup", primaryError);
+      return state;
+    } catch (backupError) {
+      recordMemoryFileDiagnostic(kind, "backup-invalid", backupError);
+    }
+  }
+
+  if (primaryError) recordMemoryFileDiagnostic(kind, "primary-invalid", primaryError);
+  const fallback: MemoryFileState = {
+    content: defaultContent(kind),
+    updatedAt: 0,
+    manualBaseline: null,
+    manualEditedAt: null,
+    signature: `default:${primarySignature ?? "missing"}:${backupSignature ?? "missing"}`,
+    source: "default",
   };
-  cache.set(kind, state);
-  return state;
+  cache.set(kind, fallback);
+  return fallback;
 }
 
 function writeEnvelope(
   kind: MemoryFileKind,
   content: string,
-  options?: { userLocked?: boolean; updatedAt?: number },
+  options?: { source?: MemoryFileWriteSource; updatedAt?: number },
 ): void {
+  const source = options?.source ?? "system";
   const updatedAt = options?.updatedAt ?? Date.now();
-  const userLocked = options?.userLocked ?? readCached(kind).userLocked;
-  const path = filePath(kind);
-  if (existsSync(path)) {
-    try {
-      renameSync(path, `${path}.bak`);
-    } catch {
-      // Best effort backup; continue with the current write.
-    }
-  }
-  const envelope: MemoryFileEnvelope = {
+  const current = readCached(kind);
+  const manualBaseline = source === "user" ? content : current.manualBaseline;
+  const manualEditedAt = source === "user" ? updatedAt : current.manualEditedAt;
+  const envelope: MemoryFileEnvelopeV2 = {
+    version: 2,
     payload: encrypt(content),
     updatedAt,
-    userLocked,
+    ...(manualBaseline ? { manualBaseline: encrypt(manualBaseline) } : {}),
+    ...(manualEditedAt != null ? { manualEditedAt } : {}),
   };
-  writeFileSync(path, JSON.stringify(envelope), "utf8");
-  cache.set(kind, { content, updatedAt, userLocked });
+
+  const path = filePath(kind);
+  const backup = backupPath(kind);
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, JSON.stringify(envelope), { encoding: "utf8", mode: 0o600 });
+
+  let movedPrimary = false;
+  try {
+    if (existsSync(backup)) unlinkSync(backup);
+    if (existsSync(path)) {
+      renameSync(path, backup);
+      movedPrimary = true;
+    }
+    renameSync(temporary, path);
+  } catch (error) {
+    if (existsSync(temporary)) unlinkSync(temporary);
+    if (movedPrimary && !existsSync(path) && existsSync(backup)) renameSync(backup, path);
+    throw error;
+  }
+
+  cache.set(kind, {
+    content,
+    updatedAt,
+    manualBaseline,
+    manualEditedAt,
+    signature: fileSignature(path) ?? `${updatedAt}:${content.length}`,
+    source: "primary",
+  });
 }
 
 export function readMemoryFile(kind: MemoryFileKind): string {
@@ -126,11 +249,10 @@ export function readMemoryFile(kind: MemoryFileKind): string {
 export function writeMemoryFile(
   kind: MemoryFileKind,
   content: string,
-  options?: { userLocked?: boolean },
+  options?: { source?: MemoryFileWriteSource },
 ): void {
-  writeEnvelope(kind, content.slice(0, MEMORY_FILE_LIMITS[kind]), {
-    userLocked: options?.userLocked,
-  });
+  const clipped = content.slice(0, MEMORY_FILE_LIMITS[kind]);
+  writeEnvelope(kind, clipped, { source: options?.source });
 }
 
 export function reloadMemoryFile(kind: MemoryFileKind): AgentMemoryFileSnapshot {
@@ -146,16 +268,11 @@ export function getMemoryFileSnapshot(kind: MemoryFileKind): AgentMemoryFileSnap
     charLimit: MEMORY_FILE_LIMITS[kind],
     charCount: state.content.length,
     updatedAt: state.updatedAt,
-    userLocked: state.userLocked,
   };
 }
 
 export function buildMemoryFilePromptBlock(): string {
-  return [
-    readMemoryFile("soul").trim(),
-    readMemoryFile("user").trim(),
-    readMemoryFile("memory").trim(),
-  ]
+  return MEMORY_FILE_KINDS.map((kind) => readMemoryFile(kind).trim())
     .filter(Boolean)
     .join("\n\n");
 }
@@ -197,8 +314,8 @@ function appendToFile(kind: MemoryFileKind, lines: string[], now: number): void 
   const appendedBody = body ? `${body}\n${lines.join("\n")}` : lines.join("\n");
   const next = `${header}\n\n${appendedBody}`;
   writeEnvelope(kind, truncateWithEllipsis(next, MEMORY_FILE_LIMITS[kind]), {
+    source: "system",
     updatedAt: now,
-    userLocked: state.userLocked,
   });
 }
 
@@ -215,15 +332,7 @@ export async function consolidateMemoryFiles(): Promise<void> {
     memory: readCached("memory"),
   };
 
-  if (!model) {
-    for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
-      const state = readCached(kind);
-      if (state.content.length > MEMORY_FILE_LIMITS[kind]) {
-        writeMemoryFile(kind, truncateWithEllipsis(state.content, MEMORY_FILE_LIMITS[kind]));
-      }
-    }
-    return;
-  }
+  if (!model) return;
 
   const records = listMemories({ includeInactive: false, limit: 80 })
     .map(
@@ -231,51 +340,39 @@ export async function consolidateMemoryFiles(): Promise<void> {
         `- [${record.kind}; confidence=${record.confidence ?? 70}] ${record.title}: ${record.content}`,
     )
     .join("\n");
-  const lockedKinds = (["soul", "user", "memory"] as MemoryFileKind[]).filter(
-    (kind) => readCached(kind).userLocked,
-  );
   const prompt = buildConsolidationPrompt({
     soul: current.soul.content,
     user: current.user.content,
     memory: current.memory.content,
+    manualBaselines: {
+      soul: current.soul.manualBaseline,
+      user: current.user.manualBaseline,
+      memory: current.memory.manualBaseline,
+    },
     records,
-    lockedNote:
-      lockedKinds.length > 0
-        ? `Locked files: ${lockedKinds.join(", ")}. Preserve them conservatively.`
-        : "",
   });
 
   try {
     const result = await generateText({
       model: model.model,
       system:
-        "You curate bounded memory files for an AI agent. Output ONLY the three files separated by exact headers ===SOUL===, ===USER===, ===MEMORY===. Keep stable identity in SOUL, user preferences/profile in USER, and project facts/lessons in MEMORY. Remove duplicates and keep each file under its limit.",
+        "You curate bounded memory files for an AI agent. Output ONLY the three files separated by exact headers ===SOUL===, ===USER===, ===MEMORY===. Keep stable identity in SOUL, user preferences/profile in USER, and project facts/lessons in MEMORY. Preserve every user-authored baseline statement, remove only automatic duplicates, and keep each file under its limit.",
       prompt,
       temperature: 0.3,
       maxOutputTokens: Math.min(model.maxOutputTokens, 4_000),
       providerOptions: model.providerOptions,
     });
     const parsed = parseConsolidationOutput(result.text);
-    if (!parsed) return;
+    if (!parsed || !manualBaselinesArePreserved(parsed, current)) {
+      recordMemoryFileDiagnostic(null, "consolidation-rejected", "Invalid or lossy model output.");
+      return;
+    }
 
-    for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
-      if (lockedKinds.includes(kind)) {
-        const state = readCached(kind);
-        if (state.content.length > MEMORY_FILE_LIMITS[kind]) {
-          writeMemoryFile(kind, truncateWithEllipsis(state.content, MEMORY_FILE_LIMITS[kind]));
-        }
-        continue;
-      }
-      writeMemoryFile(kind, parsed[kind] || defaultContent(kind));
+    for (const kind of MEMORY_FILE_KINDS) {
+      writeMemoryFile(kind, parsed[kind], { source: "system" });
     }
   } catch (error) {
-    console.warn("[agent-memory-files] consolidate failed:", error);
-    for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
-      const state = readCached(kind);
-      if (state.content.length > MEMORY_FILE_LIMITS[kind]) {
-        writeMemoryFile(kind, truncateWithEllipsis(state.content, MEMORY_FILE_LIMITS[kind]));
-      }
-    }
+    recordMemoryFileDiagnostic(null, "consolidation-failed", error);
   }
 }
 
@@ -287,15 +384,15 @@ function buildConsolidationPrompt(input: {
   soul: string;
   user: string;
   memory: string;
+  manualBaselines: Record<MemoryFileKind, string | null>;
   records: string;
-  lockedNote: string;
 }): string {
   return [
     "Consolidate the bounded memory files.",
     "Character limits: SOUL 4000, USER 2000, MEMORY 4000.",
     "Update SOUL only for stable identity/tone/value changes with repeated evidence.",
-    "Keep current user instructions higher priority than memory.",
-    input.lockedNote,
+    "Current user instructions and the user-authored baselines have higher priority than automatic memory.",
+    "Preserve every non-heading line from a user-authored baseline verbatim in its matching output file.",
     "",
     "Format:",
     "===SOUL===",
@@ -317,35 +414,70 @@ function buildConsolidationPrompt(input: {
     "Current MEMORY:",
     input.memory,
     "",
+    "User-authored SOUL baseline:",
+    input.manualBaselines.soul ?? "(none)",
+    "",
+    "User-authored USER baseline:",
+    input.manualBaselines.user ?? "(none)",
+    "",
+    "User-authored MEMORY baseline:",
+    input.manualBaselines.memory ?? "(none)",
+    "",
     "Structured memory records:",
     input.records,
   ].join("\n");
 }
 
-function parseConsolidationOutput(text: string): Record<MemoryFileKind, string> | null {
-  const normalized = text.replace(/\r\n/g, "\n");
-  const soulMatch = normalized.match(/===SOUL===\n([\s\S]*?)(?:\n===USER===|\n===MEMORY===|$)/);
-  const userMatch = normalized.match(/===USER===\n([\s\S]*?)(?:\n===MEMORY===|$)/);
-  const memoryMatch = normalized.match(/===MEMORY===\n([\s\S]*?)$/);
-  if (!soulMatch && !userMatch && !memoryMatch) return null;
-  return {
-    soul: (soulMatch?.[1] ?? defaultContent("soul")).trim().slice(0, MEMORY_FILE_LIMITS.soul),
-    user: (userMatch?.[1] ?? defaultContent("user")).trim().slice(0, MEMORY_FILE_LIMITS.user),
-    memory: (memoryMatch?.[1] ?? defaultContent("memory"))
-      .trim()
-      .slice(0, MEMORY_FILE_LIMITS.memory),
+export function parseConsolidationOutput(text: string): Record<MemoryFileKind, string> | null {
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  const match = normalized.match(
+    /^===SOUL===\n([\s\S]+?)\n===USER===\n([\s\S]+?)\n===MEMORY===\n([\s\S]+)$/,
+  );
+  if (!match) return null;
+  const parsed: Record<MemoryFileKind, string> = {
+    soul: match[1].trim(),
+    user: match[2].trim(),
+    memory: match[3].trim(),
   };
+  for (const kind of MEMORY_FILE_KINDS) {
+    if (!parsed[kind] || parsed[kind].length > MEMORY_FILE_LIMITS[kind]) return null;
+  }
+  return parsed;
+}
+
+function manualBaselinesArePreserved(
+  parsed: Record<MemoryFileKind, string>,
+  current: Record<MemoryFileKind, MemoryFileState>,
+): boolean {
+  return MEMORY_FILE_KINDS.every((kind) => {
+    const statements = manualBaselineStatements(current[kind].manualBaseline);
+    const output = normalizeStatement(parsed[kind]);
+    return statements.every((statement) => output.includes(statement));
+  });
+}
+
+function manualBaselineStatements(baseline: string | null): string[] {
+  if (!baseline) return [];
+  return baseline
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"))
+    .map(normalizeStatement);
+}
+
+function normalizeStatement(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 export function ensureMemoryFiles(agent: AgentProfile): void {
-  if (!existsSync(filePath("soul"))) {
-    const soulContent = agent.instructions?.trim()
-      ? `# SOUL\n\n${agent.instructions.trim()}`
-      : defaultContent("soul");
-    writeMemoryFile("soul", soulContent);
-  }
-  for (const kind of ["user", "memory"] as MemoryFileKind[]) {
-    if (!existsSync(filePath(kind))) writeMemoryFile(kind, defaultContent(kind));
+  for (const kind of MEMORY_FILE_KINDS) {
+    const state = readCached(kind);
+    if (state.source !== "default") continue;
+    const initial =
+      kind === "soul" && agent.instructions?.trim()
+        ? `# SOUL\n\n${agent.instructions.trim()}`
+        : defaultContent(kind);
+    writeMemoryFile(kind, initial, { source: "system" });
   }
 }
 
@@ -353,7 +485,7 @@ export function scheduleMemoryFileConsolidation(): void {
   if (consolidationTimer) return;
   consolidationTimer = setInterval(
     () => {
-      for (const kind of ["soul", "user", "memory"] as MemoryFileKind[]) {
+      for (const kind of MEMORY_FILE_KINDS) {
         if (readCached(kind).content.length >= MEMORY_FILE_LIMITS[kind] * 0.8) {
           queueMemoryJob({
             kind: "dream",
@@ -373,6 +505,36 @@ export function clearMemoryFileConsolidation(): void {
   if (!consolidationTimer) return;
   clearInterval(consolidationTimer);
   consolidationTimer = null;
+}
+
+function recordMemoryFileDiagnostic(
+  kind: MemoryFileKind | null,
+  action: string,
+  error: unknown,
+): void {
+  const message = formatDiagnosticError(error);
+  console.warn(`[agent-memory-files] ${action}${kind ? ` (${kind})` : ""}:`, message ?? "");
+  try {
+    insertRuntimeEvent({
+      kind: "memory",
+      title: `Memory file ${action}`,
+      status: action.includes("recovered") ? "succeeded" : "failed",
+      detail: { action, fileKind: kind, error: message },
+    });
+  } catch {
+    // Diagnostics must never block memory recovery or chat startup.
+  }
+}
+
+function formatDiagnosticError(error: unknown): string | null {
+  if (error == null) return null;
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown memory file error.";
+  }
 }
 
 function tryResolveSelectedModel(): ReturnType<typeof resolveModel> | null {

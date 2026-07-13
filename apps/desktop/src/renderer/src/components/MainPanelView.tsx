@@ -144,7 +144,6 @@ function MemoryPanel(): React.JSX.Element {
     key: MemoryPanelTab;
     label: string;
     meta?: string;
-    status?: string;
   }[] = [
     { key: "entries", label: t("main.memory.tab.entries") },
     {
@@ -156,7 +155,6 @@ function MemoryPanel(): React.JSX.Element {
             limit: f.number(memoryFiles.soul.charLimit),
           })
         : undefined,
-      status: memoryFiles?.soul.userLocked ? t("main.memory.file.locked") : undefined,
     },
     {
       key: "user",
@@ -167,7 +165,6 @@ function MemoryPanel(): React.JSX.Element {
             limit: f.number(memoryFiles.user.charLimit),
           })
         : undefined,
-      status: memoryFiles?.user.userLocked ? t("main.memory.file.locked") : undefined,
     },
     {
       key: "memory",
@@ -178,7 +175,6 @@ function MemoryPanel(): React.JSX.Element {
             limit: f.number(memoryFiles.memory.charLimit),
           })
         : undefined,
-      status: memoryFiles?.memory.userLocked ? t("main.memory.file.locked") : undefined,
     },
   ];
 
@@ -204,7 +200,7 @@ function MemoryPanel(): React.JSX.Element {
                 )}
               >
                 <span className="font-medium">{item.label}</span>
-                {(item.meta || item.status) && (
+                {item.meta && (
                   <span
                     className={cn(
                       "text-xs",
@@ -212,8 +208,6 @@ function MemoryPanel(): React.JSX.Element {
                     )}
                   >
                     {item.meta}
-                    {item.meta && item.status && " · "}
-                    {item.status}
                   </span>
                 )}
               </button>
@@ -290,14 +284,7 @@ function MemoryFilePanel({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold uppercase">{kind}.md</h2>
-          {snapshot.userLocked && (
-            <Chip size="sm" variant="soft">
-              {t("main.memory.file.locked")}
-            </Chip>
-          )}
-        </div>
+        <h2 className="text-lg font-semibold uppercase">{kind}.md</h2>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onPress={handleReload} isDisabled={isSaving}>
             <IconRotateCcw className="size-4" />

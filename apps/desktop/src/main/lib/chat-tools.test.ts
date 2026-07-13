@@ -377,6 +377,27 @@ void describe("chat tool runtime", () => {
     assert.equal(typeof runtime.tools?.memory_delete, "object");
   });
 
+  void it("merges all silent memory tools into an off-mode root runtime", () => {
+    const model = modelContext("openai-compatible");
+    const base = chatTools.buildChatToolRuntime({
+      selection: { mode: "off", selectedToolIds: [] },
+      model,
+      conversationId: "c1",
+    });
+    const merged = chatTools.mergeSilentRootMemoryTools(
+      base,
+      chatTools.createMemoryHostTools({ model, conversationId: "c1", agentId: "agent-root" }),
+    );
+
+    assert.deepEqual(merged.activeTools, [
+      "memory_search",
+      "memory_save",
+      "memory_update",
+      "memory_delete",
+    ]);
+    for (const id of merged.activeTools) assert.equal(typeof merged.tools[id], "object");
+  });
+
   void it("executes memory_save and persists a new memory", async () => {
     const output = (await chatTools.executeChatHostTool({
       toolId: "memory_save",

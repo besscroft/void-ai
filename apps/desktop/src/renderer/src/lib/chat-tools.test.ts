@@ -153,6 +153,22 @@ void describe("chat tool UI helpers", () => {
       visible.some((descriptor) => descriptor.id === "conversation_search"),
       false,
     );
+    assert.deepEqual(
+      getActiveChatToolIds(
+        {
+          mode: "manual",
+          selectedToolIds: [
+            "memory_search",
+            "memory_save",
+            "memory_update",
+            "memory_delete",
+            "current_time",
+          ],
+        },
+        visible,
+      ),
+      ["current_time"],
+    );
   });
 });
 

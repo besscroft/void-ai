@@ -1,5 +1,6 @@
 import {
   CHAT_TOOL_IDS,
+  isSilentRootMemoryTool,
   normalizeChatToolSelection,
   type ChatToolReference,
   type ChatToolDescriptor,
@@ -218,7 +219,8 @@ export function filterUserVisibleChatToolDescriptors(
   descriptors: ChatToolDescriptor[],
 ): ChatToolDescriptor[] {
   return descriptors.filter(
-    (descriptor) => descriptor.category !== "memory" && descriptor.id !== "conversation_search",
+    (descriptor) =>
+      !isSilentRootMemoryTool(descriptor.id) && descriptor.id !== "conversation_search",
   );
 }
 
