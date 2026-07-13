@@ -15,6 +15,9 @@ import { DesktopPetTrayController } from "./lib/desktop-pet-tray";
 import { showDesktopPetContextMenu } from "./lib/desktop-pet-context-menu";
 import { startCronScheduler, stopCronScheduler } from "./lib/cron-scheduler";
 import { ensureBuiltinCatalogSources } from "./lib/catalog-service";
+
+const WINDOWS_APP_ID = "com.zzzvoid.ai";
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "void-media",
@@ -60,7 +63,7 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     frame: false,
     title: "Paimon",
-    ...(process.platform === "linux" ? { icon } : {}),
+    ...(process.platform === "darwin" ? {} : { icon }),
     webPreferences: {
       preload: getPreloadPath(),
       sandbox: false,
@@ -139,7 +142,7 @@ function quitApp(): void {
 
 // 应用就绪后初始化所有子系统
 void app.whenReady().then(async () => {
-  electronApp.setAppUserModelId("com.void-ai");
+  electronApp.setAppUserModelId(WINDOWS_APP_ID);
   app.setName("Paimon");
 
   // 默认在开发环境用 F12 打开 DevTools，生产环境忽略 Cmd/Ctrl+R
