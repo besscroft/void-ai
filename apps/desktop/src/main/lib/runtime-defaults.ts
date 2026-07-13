@@ -190,4 +190,12 @@ export const DEFAULT_BUILTIN_TOOL_SEEDS = [
     requiresApproval: 1,
     defaultAuto: 0,
   },
+  {
+    id: "cron",
+    title: "Automation",
+    description: "Create and manage scheduled isolated agent turns.",
+    category: "automation",
+    requiresApproval: 1,
+    defaultAuto: 1,
+  },
 ] as const;

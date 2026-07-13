@@ -789,8 +789,7 @@ function buildSafeChildToolRuntime(
   }
   const policy = readToolPolicy(child.tool_policy_json);
   const allowed = selectedBaseToolIds(context.toolSelection, policy).filter(
-    (id) =>
-      !policy.requireApprovalToolIds.includes(id) && !(context.disableCronTools && id === "cron"),
+    (id) => id !== "cron" && !policy.requireApprovalToolIds.includes(id),
   );
   const base = buildChatToolRuntime({
     selection: { mode: allowed.length ? "manual" : "off", selectedToolIds: allowed },
@@ -1154,6 +1153,7 @@ function evaluateToolGuardrail(
   if (
     rootToolRequiresApproval({
       toolName,
+      toolInput: input,
       reviewAll,
       dynamicallyRequiresApproval: toolApprovalToolNames.has(toolName),
       policyRequiresApproval: !!mappedTool && policy.requireApprovalToolIds.includes(mappedTool),

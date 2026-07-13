@@ -20,6 +20,7 @@ const DEFAULT_AUTO_TOOL_IDS = new Set<ChatToolId>([
   "sandbox_read_file",
   "sandbox_snapshot",
   "sandbox_list_artifacts",
+  "cron",
 ]);
 
 const TOOL_METADATA: Record<

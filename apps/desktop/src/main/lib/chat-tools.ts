@@ -38,6 +38,7 @@ import {
   updateCronJob,
 } from "./cron-store";
 import { getCronScheduler } from "./cron-scheduler";
+import { builtinChatToolRequiresApproval } from "./root-tool-approval";
 import type { CronJobInput } from "../../shared/types";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
@@ -158,7 +159,7 @@ interface MemoryUpdateInput {
 interface CronToolInput {
   action: "create" | "list" | "get" | "update" | "pause" | "resume" | "run" | "delete";
   id?: string;
-  job?: CronJobInput;
+  job?: Partial<CronJobInput>;
 }
 
 const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
@@ -318,10 +319,12 @@ const TOOL_DEFINITIONS: Record<ChatToolId, ToolDefinition> = {
   cron: {
     id: "cron",
     label: "Automation",
-    description: "List or manage scheduled isolated agent turns in Paimon.",
+    description:
+      "Create, inspect, update, pause, run, or delete scheduled isolated agent turns. " +
+      "Use this for reminders and recurring tasks.",
     kind: "host",
     category: "automation",
-    defaultAuto: false,
+    defaultAuto: true,
     requiresApproval: true,
   },
 };
@@ -586,13 +589,23 @@ function resolveToolChoice(
 }
 
 function createToolInstructions(activeTools: string[]): string | undefined {
+  const instructions: string[] = [];
   const hasWebSearch = activeTools.includes("web_search") || activeTools.includes("google_search");
-  if (!hasWebSearch) return undefined;
-  return [
-    "When the user's request depends on current, live, recent, or time-sensitive information, call the available web search tool before answering.",
-    "This includes weather, news, prices, schedules, versions, laws, availability, and questions using words like today, latest, now, current, or recent.",
-    "Use the search results in the final answer and include source links or source names when available.",
-  ].join(" ");
+  if (hasWebSearch) {
+    instructions.push(
+      "When the user's request depends on current, live, recent, or time-sensitive information, call the available web search tool before answering.",
+      "This includes weather, news, prices, schedules, versions, laws, availability, and questions using words like today, latest, now, current, or recent.",
+      "Use the search results in the final answer and include source links or source names when available.",
+    );
+  }
+  if (activeTools.includes("cron")) {
+    instructions.push(
+      "When the user asks to schedule a reminder or recurring task, use the cron tool instead of only describing a schedule.",
+      "For relative dates or times, call current_time first, then create an unambiguous ISO 8601 timestamp or a cron expression with an IANA timezone.",
+      "Do not claim that an automation was created until the cron tool returns the saved job.",
+    );
+  }
+  return instructions.length ? instructions.join(" ") : undefined;
 }
 
 function createHostTools({
@@ -811,14 +824,95 @@ function createHostTools({
           id: { type: "string", description: "Automation job id." },
           job: {
             type: "object",
-            description: "Job fields for create or update.",
-            additionalProperties: true,
+            description:
+              "Automation fields. Create requires name, schedule, and payload. Update accepts any subset.",
+            properties: {
+              name: { type: "string", description: "Short automation name." },
+              description: { type: "string", description: "Optional human-readable purpose." },
+              schedule: {
+                description: "One-time, fixed interval, or cron schedule.",
+                oneOf: [
+                  {
+                    type: "object",
+                    properties: {
+                      kind: { type: "string", const: "once" },
+                      at: {
+                        type: "string",
+                        description: "ISO 8601 timestamp with an explicit UTC offset.",
+                      },
+                    },
+                    required: ["kind", "at"],
+                    additionalProperties: false,
+                  },
+                  {
+                    type: "object",
+                    properties: {
+                      kind: { type: "string", const: "interval" },
+                      everyMs: {
+                        type: "integer",
+                        minimum: 1000,
+                        description: "Interval duration in milliseconds.",
+                      },
+                      anchorAt: {
+                        type: "string",
+                        description: "Optional ISO 8601 timestamp used as the interval anchor.",
+                      },
+                    },
+                    required: ["kind", "everyMs"],
+                    additionalProperties: false,
+                  },
+                  {
+                    type: "object",
+                    properties: {
+                      kind: { type: "string", const: "cron" },
+                      expression: {
+                        type: "string",
+                        description: "A 5- or 6-field cron expression.",
+                      },
+                      timezone: {
+                        type: "string",
+                        description: "IANA timezone such as Asia/Shanghai or America/New_York.",
+                      },
+                    },
+                    required: ["kind", "expression", "timezone"],
+                    additionalProperties: false,
+                  },
+                ],
+              },
+              payload: {
+                type: "object",
+                description: "The isolated agent turn to run on schedule.",
+                properties: {
+                  prompt: {
+                    type: "string",
+                    description: "Self-contained instruction for each scheduled run.",
+                  },
+                  agentId: { type: "string", description: "Optional agent profile id." },
+                  modelRef: {
+                    type: "string",
+                    description:
+                      "Optional provider/model reference. Defaults to the selected model.",
+                  },
+                  reasoning: {
+                    type: "string",
+                    enum: ["provider-default", "none", "minimal", "low", "medium", "high", "xhigh"],
+                  },
+                  skillIds: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Optional skill ids available to the scheduled turn.",
+                  },
+                },
+                required: ["prompt"],
+                additionalProperties: false,
+              },
+            },
+            additionalProperties: false,
           },
         },
         required: ["action"],
         additionalProperties: false,
       }),
-      needsApproval: (input) => input.action !== "list" && input.action !== "get",
       execute: (input) =>
         executeWithAudit("cron", `Automation: ${input.action}`, model, conversationId, async () =>
           executeCronTool(input),
@@ -872,8 +966,7 @@ async function executeCronTool(input: CronToolInput): Promise<unknown> {
     case "get":
       return getCronJob(requireCronId(input));
     case "create":
-      if (!input.job) throw new Error("job is required for cron.create");
-      return createCronJob(input.job);
+      return createCronJob(requireCronCreateJob(input));
     case "update":
       if (!input.job) throw new Error("job is required for cron.update");
       return updateCronJob(requireCronId(input), input.job);
@@ -886,6 +979,15 @@ async function executeCronTool(input: CronToolInput): Promise<unknown> {
     case "delete":
       return { deleted: deleteCronJob(requireCronId(input)) };
   }
+}
+
+function requireCronCreateJob(input: CronToolInput): CronJobInput {
+  const job = input.job;
+  if (!job?.name?.trim()) throw new Error("job.name is required for cron.create");
+  if (!job.schedule) throw new Error("job.schedule is required for cron.create");
+  if (!job.payload?.prompt?.trim())
+    throw new Error("job.payload.prompt is required for cron.create");
+  return job as CronJobInput;
 }
 
 function requireCronId(input: CronToolInput): string {
@@ -922,13 +1024,23 @@ function createToolApproval(
   model: ChatToolModelContext,
   dynamicToolNames: string[] = [],
 ): ToolApprovalConfiguration<ToolSet, unknown> {
-  const approvals: Record<string, () => "user-approval"> = {
+  const approvals: Record<string, (input: unknown) => "user-approval" | undefined> = {
     conversation_search: () => {
       recordRuntimeEvent({
         kind: "approval",
         title: "Approval requested: conversation_search",
         status: "queued",
         detail: baseAuditDetail(model, conversationId, { agentId }),
+      });
+      return "user-approval";
+    },
+    cron: (input) => {
+      if (!builtinChatToolRequiresApproval("cron", input)) return undefined;
+      recordRuntimeEvent({
+        kind: "approval",
+        title: "Approval requested: cron",
+        status: "queued",
+        detail: baseAuditDetail(model, conversationId, { agentId, input }),
       });
       return "user-approval";
     },

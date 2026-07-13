@@ -44,6 +44,7 @@ const DEFAULT_AUTO_TOOL_IDS = new Set<ChatToolId>([
   "sandbox_read_file",
   "sandbox_snapshot",
   "sandbox_list_artifacts",
+  "cron",
 ]);
 
 export function createBuiltinToolDescriptors(model: ChatToolModelContext): ChatToolDescriptor[] {

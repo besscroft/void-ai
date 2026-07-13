@@ -61,6 +61,7 @@ void describe("chat tool UI helpers", () => {
       "sandbox_read_file",
       "sandbox_snapshot",
       "sandbox_list_artifacts",
+      "cron",
     ]);
   });
 

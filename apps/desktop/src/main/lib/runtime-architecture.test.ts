@@ -91,6 +91,11 @@ void describe("runtime architecture", () => {
     assert.ok(DEFAULT_WORKFLOW_SEEDS.some((workflow) => workflow.id === "workflow-runtime-review"));
     assert.ok(DEFAULT_BUILTIN_TOOL_SEEDS.some((tool) => tool.id === "runtime_snapshot"));
     assert.ok(DEFAULT_BUILTIN_TOOL_SEEDS.some((tool) => tool.id === "sandbox_run_command"));
+    assert.ok(
+      DEFAULT_BUILTIN_TOOL_SEEDS.some(
+        (tool) => tool.id === "cron" && tool.defaultAuto === 1 && tool.requiresApproval === 1,
+      ),
+    );
   });
 
   void it("routes only active, unlocked, enabled child agents", () => {
@@ -159,6 +164,7 @@ void describe("runtime architecture", () => {
 
     assert.equal(runtime.toolChoice, "auto");
     assert.ok(runtime.activeTools?.includes("runtime_snapshot"));
+    assert.ok(runtime.activeTools?.includes("cron"));
   });
 
   void it("classifies approval and sandbox policy risks", () => {
@@ -187,6 +193,26 @@ void describe("runtime architecture", () => {
         policyRequiresApproval: false,
       }),
       true,
+    );
+    assert.equal(
+      rootToolRequiresApproval({
+        toolName: "cron",
+        toolInput: { action: "create" },
+        reviewAll: false,
+        dynamicallyRequiresApproval: false,
+        policyRequiresApproval: false,
+      }),
+      true,
+    );
+    assert.equal(
+      rootToolRequiresApproval({
+        toolName: "cron",
+        toolInput: { action: "list" },
+        reviewAll: false,
+        dynamicallyRequiresApproval: false,
+        policyRequiresApproval: false,
+      }),
+      false,
     );
   });
 

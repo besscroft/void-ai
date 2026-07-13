@@ -95,7 +95,7 @@ void describe("chat tool runtime", () => {
     assert.equal(runtime.toolChoice, "none");
   });
 
-  void it("maps auto mode to safe default tools including native web search without memory tools", () => {
+  void it("maps auto mode to safe default tools including web search and cron", () => {
     const runtime = chatTools.buildChatToolRuntime({
       selection: { mode: "auto", selectedToolIds: [] },
       model: modelContext("openai", "web_search"),
@@ -107,9 +107,11 @@ void describe("chat tool runtime", () => {
       "current_time",
       "runtime_snapshot",
       "model_capabilities",
+      "cron",
     ]);
     assert.equal(runtime.toolChoice, "auto");
     assert.equal(typeof runtime.stopWhen, "function");
+    assert.match(runtime.instructions ?? "", /use the cron tool/);
   });
 
   void it("maps manual single and multiple selections to forced tool choices", () => {
@@ -375,6 +377,29 @@ void describe("chat tool runtime", () => {
     assert.equal(typeof runtime.tools?.memory_save, "object");
     assert.equal(typeof runtime.tools?.memory_update, "object");
     assert.equal(typeof runtime.tools?.memory_delete, "object");
+  });
+
+  void it("exposes cron creation with a structured schema and mutation approval", async () => {
+    const runtime = chatTools.buildChatToolRuntime({
+      selection: { mode: "manual", selectedToolIds: ["cron"] },
+      model: modelContext("openai-compatible"),
+    });
+    const cronTool = runtime.tools?.cron as {
+      inputSchema?: unknown;
+      execute?: (input: unknown) => Promise<unknown>;
+    };
+
+    assert.equal(typeof cronTool.execute, "function");
+    assert.match(JSON.stringify(cronTool.inputSchema), /Asia\/Shanghai/);
+    assert.match(JSON.stringify(cronTool.inputSchema), /everyMs/);
+    assert.match(runtime.instructions ?? "", /current_time first/);
+
+    const approvals = runtime.toolApproval as Record<
+      string,
+      (input: unknown) => Promise<string | undefined> | string | undefined
+    >;
+    assert.equal(await approvals.cron({ action: "list" }), undefined);
+    assert.equal(await approvals.cron({ action: "create" }), "user-approval");
   });
 
   void it("merges all silent memory tools into an off-mode root runtime", () => {
