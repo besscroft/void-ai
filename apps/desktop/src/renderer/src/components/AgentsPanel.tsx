@@ -375,7 +375,7 @@ export function AgentsPanel({
           {visibleAgents.length === 0 ? (
             <EmptyState title={t("agents.empty")} />
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="max-h-[60vh] overflow-y-auto pr-1 grid gap-3 md:grid-cols-2">
               {visibleAgents.map((agent) => (
                 <AgentCard
                   key={agent.id}
