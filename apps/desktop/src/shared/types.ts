@@ -1455,6 +1455,7 @@ export type DesktopPetActivityKind =
 
 export interface DesktopPetActivitySummary {
   kind: DesktopPetActivityKind;
+  agentStatus: AgentRuntimeStatus | null;
   runId: string | null;
   conversationId: string | null;
   title: string;

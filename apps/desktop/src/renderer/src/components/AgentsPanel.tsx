@@ -41,6 +41,7 @@ import {
   type RuntimeStep,
 } from "@shared/types";
 import { api } from "../lib/api";
+import { AGENT_RUNTIME_STATUS_KEYS } from "../lib/agent-runtime-status";
 import { getVisibleAgents, type AgentListTab } from "../lib/agent-list";
 import { createClientChatToolDescriptors } from "../lib/chat-tools";
 import { useT, type TranslationKey } from "../lib/i18n";
@@ -104,15 +105,7 @@ const STATUS_KEYS: Record<string, TranslationKey> = {
 };
 
 const RUNTIME_STATUS_KEYS: Record<string, TranslationKey> = {
-  failed: "status.run.failed",
-  handoff: "status.agentRuntime.handoff",
-  idle: "status.sync.idle",
-  learning: "status.agentRuntime.learning",
-  queued: "status.run.queued",
-  reviewing: "status.agentRuntime.reviewing",
-  running: "status.run.running",
-  sandbox: "status.agentRuntime.sandbox",
-  tool_calling: "status.agentRuntime.toolCalling",
+  ...AGENT_RUNTIME_STATUS_KEYS,
 };
 
 const REVIEW_POLICY_KEYS: Record<

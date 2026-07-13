@@ -8,6 +8,7 @@ import {
   DESKTOP_PET_WINDOW_SIZE,
   mergeDesktopPetConfig,
   normalizeDesktopPetConfig,
+  type AgentRuntimeState,
   type RuntimeRun,
 } from "../../shared/types";
 import { clampDesktopPetBounds, moveDesktopPetBounds } from "./desktop-pet-bounds";
@@ -189,6 +190,30 @@ void describe("desktop pet activity", () => {
     assert.equal(resolved.activity.kind, "running");
   });
 
+  void it("mirrors the main agent runtime status while a run is active", () => {
+    const resolved = resolveDesktopPetActivity(
+      [runtimeRun("failed", "failed"), runtimeRun("active", "running")],
+      [],
+      agentRuntimeState("tool_calling", "active"),
+    );
+
+    assert.equal(resolved.activity.kind, "running");
+    assert.equal(resolved.activity.agentStatus, "tool_calling");
+    assert.equal(resolved.activity.runId, "active");
+    assert.equal(resolved.activity.conversationId, "conversation-active");
+  });
+
+  void it("maps main agent review state to the input-needed animation", () => {
+    const resolved = resolveDesktopPetActivity(
+      [runtimeRun("approval", "waiting_approval")],
+      [],
+      agentRuntimeState("reviewing", "approval"),
+    );
+
+    assert.equal(resolved.activity.kind, "needs_input");
+    assert.equal(resolved.activity.agentStatus, "reviewing");
+  });
+
   void it("enters sleep only after 60 seconds of continuous idle time", () => {
     const idle = resolveDesktopPetActivity([], []).activity;
     assert.equal(
@@ -226,6 +251,22 @@ function runtimeRun(
     output_summary: null,
     error: status === "failed" ? "failed" : null,
     usage_json: null,
+  };
+}
+
+function agentRuntimeState(
+  status: AgentRuntimeState["status"],
+  currentRunId: string | null,
+): AgentRuntimeState {
+  return {
+    agent_id: "agent-void",
+    status,
+    current_run_id: currentRunId,
+    last_handoff_at: null,
+    last_tool_at: null,
+    last_learning_at: null,
+    last_error: null,
+    updated_at: Date.now(),
   };
 }
 

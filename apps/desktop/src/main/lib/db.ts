@@ -2198,7 +2198,14 @@ export function isDesktopPetEnabled(): boolean {
 export function getDesktopPetSnapshot(): DesktopPetSnapshot {
   const profile = ensureDesktopPetProfile();
   const config = normalizeDesktopPetConfig(profile.config_json);
-  const resolution = resolveDesktopPetActivity(listRuntimeRuns(), config.acknowledgedRunIds);
+  const mainAgentState = listagentRuntimeStates().find(
+    (state) => state.agent_id === DEFAULT_AGENT_ID,
+  );
+  const resolution = resolveDesktopPetActivity(
+    listRuntimeRuns(),
+    config.acknowledgedRunIds,
+    mainAgentState,
+  );
   const now = Date.now();
   let activity = resolution.activity;
   if (activity.kind === "idle") {

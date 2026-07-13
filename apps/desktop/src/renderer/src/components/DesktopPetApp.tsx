@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useReducedMotion } from "motion/react";
 import type { DesktopPetSnapshot } from "@shared/types";
 import { api } from "../lib/api";
+import { AGENT_RUNTIME_STATUS_KEYS } from "../lib/agent-runtime-status";
 import { useT } from "../lib/i18n";
 import { animationForActivity, petFrameAt, type PetAnimationName } from "../lib/pet-animation";
 
@@ -231,15 +232,16 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
       />
       <span className="mt-[-2px] inline-flex max-w-40 items-center gap-1.5 rounded-md border border-foreground/10 bg-background/92 px-2 py-1 text-[10px] font-medium shadow-sm backdrop-blur">
         <span className={`pet-activity-dot pet-activity-${snapshot.activity.kind}`} />
-        <span className="truncate">{activityLabel(snapshot.activity.kind, t)}</span>
+        <span className="truncate">{activityLabel(snapshot.activity, t)}</span>
       </span>
     </button>
   );
 }
 
 function activityLabel(
-  kind: DesktopPetSnapshot["activity"]["kind"],
+  activity: DesktopPetSnapshot["activity"],
   t: (key: string) => string,
 ): string {
-  return t(`pets.activity.${kind}`);
+  if (activity.agentStatus) return t(AGENT_RUNTIME_STATUS_KEYS[activity.agentStatus]);
+  return t(`pets.activity.${activity.kind}`);
 }
