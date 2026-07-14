@@ -972,9 +972,6 @@ function ChatHeader({ status, runtimeSummary, runtimePanel }: ChatHeaderProps): 
         ) : null}
       </div>
       <div className="flex min-w-0 items-start gap-2 lg:justify-end">
-        <span className="hidden shrink-0 pt-2.5 text-[10.5px] uppercase tracking-wider text-foreground/40 xl:inline">
-          {t("chat.header.runtime")}
-        </span>
         <div className="min-w-0 flex-1">{runtimePanel}</div>
       </div>
     </header>
