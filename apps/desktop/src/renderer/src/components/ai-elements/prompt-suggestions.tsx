@@ -21,16 +21,42 @@ interface PromptSuggestionsProps extends Omit<HTMLAttributes<HTMLDivElement>, "o
   onSelect: (suggestion: string) => void;
   /** 标题（可选） */
   title?: string;
+  /** 加载占位：渲染骨架而非真实建议；加载失败时（无建议）整体不渲染 */
+  loading?: boolean;
 }
+
+const SUGGESTION_SKELETON_WIDTHS = ["w-32", "w-40", "w-28", "w-36"];
 
 export function PromptSuggestions({
   suggestions,
   onSelect,
   title,
+  loading = false,
   className,
   ...rest
 }: PromptSuggestionsProps): React.JSX.Element {
-  if (suggestions.length === 0) return <></>;
+  if (suggestions.length === 0 && !loading) return <></>;
+
+  if (loading) {
+    return (
+      <div
+        data-slot="prompt-suggestions"
+        className={cn("flex w-full flex-col items-start gap-2", className)}
+        {...rest}
+      >
+        {title && (
+          <p className="px-1 text-xs font-medium uppercase tracking-wider text-foreground/40">
+            {title}
+          </p>
+        )}
+        <div className="flex w-full flex-wrap gap-2">
+          {SUGGESTION_SKELETON_WIDTHS.map((w, i) => (
+            <div key={i} className={cn("h-7 animate-pulse rounded-full bg-foreground/10", w)} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

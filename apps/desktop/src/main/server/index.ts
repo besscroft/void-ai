@@ -454,6 +454,76 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     }
   });
 
+  /**
+   * POST /api/suggestions
+   *
+   * 用 LLM 随机生成「新建对话」的 4 个建议开场问题 / 任务。
+   *  - 入参：{ model, locale? }
+   *  - 出参：{ suggestions: string[] }
+   *
+   * 不依赖任何上下文，强调多样性与随机性，使用非流式 generateText。
+   */
+  app.post("/api/suggestions", async (c) => {
+    if (!isAuthorized(c, token)) {
+      return c.json({ error: "Unauthorized chat session" }, 401);
+    }
+
+    const body = (await c.req.json()) as {
+      model?: string;
+      locale?: string;
+    };
+
+    if (!body.model) {
+      return c.json({ error: "model is required in provider/model format" }, 400);
+    }
+
+    try {
+      const resolveModel = options.resolveModel ?? (await import("../lib/providers")).resolveModel;
+      const resolved = resolveModel(body.model);
+      const langName = body.locale?.toLowerCase().startsWith("zh") ? "中文" : "English";
+
+      const result = await generateText({
+        model: resolved.model,
+        system:
+          "你是一名富有创意的对话助手。请为用户随机生成 4 个适合在新对话中开场的有趣问题或任务建议。" +
+          "要求：" +
+          "1) 每个建议简洁有力（不超过 20 字），自然口语化；" +
+          "2) 主题尽量多样化，覆盖不同领域（如写作、编程、学习、生活、创意、分析等），彼此不要雷同；" +
+          "3) 要有实际可操作性，能直接作为一条用户消息发起对话；" +
+          `4) 使用${langName}输出；` +
+          '5) 仅输出 JSON 数组，格式：["建议1","建议2","建议3","建议4"]，不要输出其他内容。',
+        prompt: "请生成 4 个随机的开场建议。",
+        temperature: 1,
+        maxOutputTokens: 256,
+        providerOptions: resolved.providerOptions,
+      });
+
+      const raw = result.text.trim();
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        return c.json({ suggestions: [] });
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch {
+        return c.json({ suggestions: [] });
+      }
+      if (!Array.isArray(parsed)) {
+        return c.json({ suggestions: [] });
+      }
+      const suggestions = parsed
+        .filter((s): s is string => typeof s === "string" && s.trim().length > 0 && s.length <= 60)
+        .map((s) => s.trim())
+        .slice(0, 4);
+      return c.json({ suggestions });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[server] /api/suggestions failed:", message);
+      return c.json({ error: message }, 500);
+    }
+  });
+
   // ---------- 工作流编排端点 ----------
   // 工作流不再对外暴露 HTTP 端点：侧栏入口已下线，widget 直接走 IPC 与主进程内的 engine/cancellation 交互。
   // 底层 db schema、engine、cancellation、dispatcher（handoff/approval）保留作为核心模块。

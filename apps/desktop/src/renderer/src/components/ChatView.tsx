@@ -178,16 +178,43 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       ),
     [conversationId],
   );
-  const emptyStateSuggestions = useMemo(
-    () => [
-      t("chat.suggestions.quantum"),
-      t("chat.suggestions.typescript"),
-      t("chat.suggestions.agenda"),
-      t("chat.suggestions.books"),
-    ],
-    [t],
-  );
+  const [starterSuggestions, setStarterSuggestions] = useState<string[]>([]);
+  const [starterLoading, setStarterLoading] = useState<boolean>(true);
   const [followupSuggestions, setFollowupSuggestions] = useState<string[]>([]);
+
+  /** 异步生成「新建对话」的开场建议（随机） */
+  const fetchStarterSuggestions = useCallback(async (): Promise<void> => {
+    setStarterLoading(true);
+    try {
+      const settings = await api.settings.getAll([SettingKey.SelectedModel]);
+      const model = settings[SettingKey.SelectedModel];
+      if (!model) {
+        setStarterLoading(false);
+        return;
+      }
+      const info = await api.server.info();
+      const res = await fetch(`http://127.0.0.1:${info.port}/api/suggestions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [CHAT_SESSION_HEADER]: info.token,
+        },
+        body: JSON.stringify({ model, locale }),
+      });
+      if (!res.ok) {
+        setStarterLoading(false);
+        return;
+      }
+      const data = (await res.json()) as { suggestions?: string[] };
+      if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+        setStarterSuggestions(data.suggestions);
+      }
+      setStarterLoading(false);
+    } catch (err) {
+      console.error("[chat] fetch starter suggestions error:", err);
+      setStarterLoading(false);
+    }
+  }, [locale]);
 
   /**
    * 上报一次聊天错误：写入 chatError、记录 console、统一弹 toast，并按需持久化。
@@ -486,6 +513,16 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       window.clearInterval(id);
     };
   }, [conversationId, isLoading]);
+
+  /* ---------- 新建对话开场建议（随机生成） ---------- */
+  const starterFetchedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (chat.messages.length === 0 && !isLoading) {
+      if (starterFetchedForRef.current === conversationId) return;
+      starterFetchedForRef.current = conversationId;
+      void fetchStarterSuggestions();
+    }
+  }, [conversationId, chat.messages.length, isLoading, fetchStarterSuggestions]);
 
   /* ---------- 鐘舵€佹槧灏?---------- */
   const statusKind: ConversationStatusKind = chat.error
@@ -896,7 +933,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
         <EmptyState
           title={t("chat.empty.title")}
           subtitle={t("chat.empty.subtitle")}
-          suggestions={emptyStateSuggestions}
+          suggestions={starterSuggestions}
+          loading={starterLoading}
           onSuggestion={handleSuggestion}
         />
       ) : (
@@ -906,7 +944,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           status={statusKind}
           error={chat.error}
           errorDetail={chatError}
-          emptySuggestions={emptyStateSuggestions}
+          emptySuggestions={starterSuggestions}
           followupSuggestions={followupSuggestions}
           onRetry={handleRetry}
           onRetryMessage={handleRetryMediaMessage}
@@ -1118,11 +1156,13 @@ function EmptyState({
   title,
   subtitle,
   suggestions,
+  loading,
   onSuggestion,
 }: {
   title: string;
   subtitle: string;
   suggestions: string[];
+  loading?: boolean;
   onSuggestion: (s: string) => void;
 }): React.JSX.Element {
   const { t } = useT();
@@ -1142,6 +1182,7 @@ function EmptyState({
         <PromptSuggestions
           title={t("chat.suggestions.title")}
           suggestions={suggestions}
+          loading={loading}
           onSelect={onSuggestion}
           className="mt-2"
         />
