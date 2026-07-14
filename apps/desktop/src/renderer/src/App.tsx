@@ -173,7 +173,7 @@ function AppContent(): React.JSX.Element {
         initialTab={settingsInitialTab}
         onClose={() => setSettingsOpen(false)}
       />
-      <Toaster richColors closeButton position="top-right" />
+      <Toaster richColors closeButton position="top-right" duration={1000} />
     </>
   );
 }
