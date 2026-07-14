@@ -5,6 +5,7 @@ import {
   Chip,
   Input,
   Label,
+  Slider,
   Switch,
   Tabs,
   TabsList,
@@ -236,9 +237,6 @@ export function AgentsPanel({
     agents.find((agent) => agent.id === DEFAULT_AGENT_ID) ??
     agents[0] ??
     null;
-  const activeChildren = agents.filter(
-    (agent) => agent.kind === "child" && agent.status === "active" && agent.enabled !== 0,
-  );
   const visibleAgents = useMemo(() => getVisibleAgents(agents, tab, query), [agents, query, tab]);
 
   const runAction = async (action: () => Promise<unknown>, success: string): Promise<void> => {
@@ -290,12 +288,12 @@ export function AgentsPanel({
     void runAction(() => api.agents.duplicate(agent.id), t("agents.toast.duplicated"));
   };
 
-  const saveConcurrencyLimit = async (): Promise<void> => {
+  const saveConcurrencyLimit = async (value?: number): Promise<void> => {
+    const next = normalizeMaxConcurrentSubagents(value ?? maxConcurrentSubagents);
     setConcurrencyBusy(true);
     try {
-      const value = normalizeMaxConcurrentSubagents(maxConcurrentSubagents);
-      await api.settings.set(SettingKey.MaxConcurrentSubagents, String(value));
-      setMaxConcurrentSubagents(value);
+      await api.settings.set(SettingKey.MaxConcurrentSubagents, String(next));
+      setMaxConcurrentSubagents(next);
       notify.success(t("agents.toast.concurrencyUpdated"));
     } catch (error) {
       notify.error(t("agents.toast.failed"), error, locale);
@@ -308,42 +306,29 @@ export function AgentsPanel({
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="shrink-0 select-none grid gap-3 md:grid-cols-3">
         <MetricCard label={t("agents.metric.total")} value={agents.length} />
-        <MetricCard label={t("agents.metric.active")} value={activeChildren.length} />
         <MetricCard label={t("agents.metric.running")} value={runningCount(runtime)} />
+        <Card>
+          <Card.Content className="flex h-full flex-col justify-between gap-3 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-foreground/45">{t("agents.concurrency.title")}</p>
+              <span className="text-sm font-semibold tabular-nums">{maxConcurrentSubagents}</span>
+            </div>
+            <Slider
+              className="w-full"
+              value={[maxConcurrentSubagents]}
+              min={MIN_CONCURRENT_SUBAGENTS}
+              max={MAX_CONCURRENT_SUBAGENTS}
+              disabled={concurrencyBusy}
+              onValueChange={(values) =>
+                setMaxConcurrentSubagents(Array.isArray(values) ? values[0] : values)
+              }
+              onValueCommitted={(values) =>
+                void saveConcurrencyLimit(Array.isArray(values) ? values[0] : values)
+              }
+            />
+          </Card.Content>
+        </Card>
       </div>
-
-      <Card className="shrink-0">
-        <Card.Content className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="max-w-2xl">
-            <h3 className="text-sm font-semibold">{t("agents.concurrency.title")}</h3>
-            <p className="mt-1 text-sm text-foreground/55">{t("agents.concurrency.description")}</p>
-          </div>
-          <div className="flex items-end gap-2">
-            <Field label={t("agents.field.maxConcurrentSubagents")}>
-              <Input
-                className="w-28"
-                type="number"
-                min={MIN_CONCURRENT_SUBAGENTS}
-                max={MAX_CONCURRENT_SUBAGENTS}
-                value={String(maxConcurrentSubagents)}
-                onChange={(event) =>
-                  setMaxConcurrentSubagents(
-                    normalizeMaxConcurrentSubagents(event.target.value, maxConcurrentSubagents),
-                  )
-                }
-              />
-            </Field>
-            <Button
-              size="sm"
-              variant="primary"
-              onPress={() => void saveConcurrencyLimit()}
-              isDisabled={concurrencyBusy}
-            >
-              {t("common.save")}
-            </Button>
-          </div>
-        </Card.Content>
-      </Card>
 
       <Card className="flex min-h-0 flex-1 flex-col">
         <Card.Content className="flex min-h-0 flex-1 flex-col gap-4 p-4">
@@ -974,7 +959,12 @@ function AgentEditorModal({
                       value={String(form.runtimeConfig.maxConcurrentSubagents ?? 3)}
                       onChange={(event) =>
                         patchRuntime({
-                          maxConcurrentSubagents: clampInteger(event.target.value, 1, 16, 3),
+                          maxConcurrentSubagents: clampInteger(
+                            event.target.value,
+                            MIN_CONCURRENT_SUBAGENTS,
+                            MAX_CONCURRENT_SUBAGENTS,
+                            3,
+                          ),
                         })
                       }
                     />

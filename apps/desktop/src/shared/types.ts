@@ -1077,8 +1077,8 @@ export const DEFAULT_AGENT_RUNTIME_CONFIG: AgentRuntimeConfig = {
   sandboxPolicy: "local",
 };
 
-export const MIN_CONCURRENT_SUBAGENTS = 1;
-export const MAX_CONCURRENT_SUBAGENTS = 16;
+export const MIN_CONCURRENT_SUBAGENTS = 3;
+export const MAX_CONCURRENT_SUBAGENTS = 20;
 
 export function normalizeMaxConcurrentSubagents(value: unknown, fallback = 3): number {
   const parsed =
