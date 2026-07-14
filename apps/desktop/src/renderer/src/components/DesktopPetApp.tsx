@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useReducedMotion } from "motion/react";
 import type { DesktopPetSnapshot } from "@shared/types";
 import { api } from "../lib/api";
-import { AGENT_RUNTIME_STATUS_KEYS } from "../lib/agent-runtime-status";
 import { useT } from "../lib/i18n";
 import { animationForActivity, petFrameAt, type PetAnimationName } from "../lib/pet-animation";
 
@@ -218,7 +217,14 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
       }}
       onClick={() => {
         if (suppressClickRef.current) return;
-        void api.desktopPet.openMain(snapshot.activity.conversationId ?? undefined);
+        const runningId = snapshot.activity.conversationId ?? undefined;
+        if (runningId) {
+          void api.desktopPet.openMain(runningId);
+          return;
+        }
+        void api.conversations.list().then((list) => {
+          void api.desktopPet.openMain(list[0]?.id);
+        });
       }}
       aria-label={t("pets.openMain")}
     >
@@ -230,18 +236,6 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
           backgroundPosition: `${-column * 96}px ${-row * 104}px`,
         }}
       />
-      <span className="mt-[-2px] inline-flex max-w-40 items-center gap-1.5 rounded-md border border-foreground/10 bg-background/92 px-2 py-1 text-[10px] font-medium shadow-sm backdrop-blur">
-        <span className={`pet-activity-dot pet-activity-${snapshot.activity.kind}`} />
-        <span className="truncate">{activityLabel(snapshot.activity, t)}</span>
-      </span>
     </button>
   );
-}
-
-function activityLabel(
-  activity: DesktopPetSnapshot["activity"],
-  t: (key: string) => string,
-): string {
-  if (activity.agentStatus) return t(AGENT_RUNTIME_STATUS_KEYS[activity.agentStatus]);
-  return t(`pets.activity.${activity.kind}`);
 }
