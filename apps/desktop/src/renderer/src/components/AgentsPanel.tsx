@@ -305,14 +305,14 @@ export function AgentsPanel({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="select-none grid gap-3 md:grid-cols-3">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="shrink-0 select-none grid gap-3 md:grid-cols-3">
         <MetricCard label={t("agents.metric.total")} value={agents.length} />
         <MetricCard label={t("agents.metric.active")} value={activeChildren.length} />
         <MetricCard label={t("agents.metric.running")} value={runningCount(runtime)} />
       </div>
 
-      <Card>
+      <Card className="shrink-0">
         <Card.Content className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="max-w-2xl">
             <h3 className="text-sm font-semibold">{t("agents.concurrency.title")}</h3>
@@ -345,8 +345,8 @@ export function AgentsPanel({
         </Card.Content>
       </Card>
 
-      <Card>
-        <Card.Content className="space-y-4 p-4">
+      <Card className="flex min-h-0 flex-1 flex-col">
+        <Card.Content className="flex min-h-0 flex-1 flex-col gap-4 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Tabs value={tab} onValueChange={(key) => setTab(agentTabKey(key))}>
               <TabsList aria-label={t("agents.tabs.label")}>
@@ -375,7 +375,7 @@ export function AgentsPanel({
           {visibleAgents.length === 0 ? (
             <EmptyState title={t("agents.empty")} />
           ) : (
-            <div className="max-h-[60vh] overflow-y-auto pr-1 grid gap-3 md:grid-cols-2">
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1 grid gap-3 md:grid-cols-2">
               {visibleAgents.map((agent) => (
                 <AgentCard
                   key={agent.id}

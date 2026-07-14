@@ -105,7 +105,7 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
 
   return (
     <main className="flex min-h-0 flex-1 overflow-hidden p-6">
-      <div className="flex h-full w-full flex-col gap-5">
+      <div className="flex h-full w-full min-h-0 flex-col gap-5">
         {section === "agents" && (
           <AgentsPanel
             agents={data.agents}
