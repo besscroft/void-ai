@@ -1169,12 +1169,6 @@ function EmptyState({
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-6 py-10 text-center">
-        <div
-          className="flex size-14 select-none items-center justify-center rounded-2xl bg-accent/10 text-2xl"
-          aria-hidden
-        >
-          {t("chat.empty.icon")}
-        </div>
         <div className="space-y-2">
           <h2 className="text-xl font-semibold text-foreground/85">{title}</h2>
           <p className="mx-auto max-w-md text-sm leading-relaxed text-foreground/55">{subtitle}</p>
