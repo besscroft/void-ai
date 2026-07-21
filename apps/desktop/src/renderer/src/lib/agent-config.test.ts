@@ -5,10 +5,14 @@ import {
   DEFAULT_AGENT_HANDOFF_CONFIG,
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
+  MAX_CONCURRENT_SUBAGENTS,
+  MIN_CONCURRENT_SUBAGENTS,
+  isAgentRuntimeBusy,
   normalizeAgentHandoffConfig,
   normalizeAgentRuntimeConfig,
   normalizeAgentToolPolicy,
   normalizeMaxConcurrentSubagents,
+  type AgentRuntimeStatus,
 } from "@shared/types";
 import { getVisibleAgents } from "./agent-list";
 
@@ -29,8 +33,8 @@ void describe("agent config normalization", () => {
     assert.equal(normalizeMaxConcurrentSubagents(null), 3);
     assert.equal(normalizeMaxConcurrentSubagents(""), 3);
     assert.equal(normalizeMaxConcurrentSubagents("8"), 8);
-    assert.equal(normalizeMaxConcurrentSubagents(0), 1);
-    assert.equal(normalizeMaxConcurrentSubagents(99), 16);
+    assert.equal(normalizeMaxConcurrentSubagents(0), MIN_CONCURRENT_SUBAGENTS);
+    assert.equal(normalizeMaxConcurrentSubagents(99), MAX_CONCURRENT_SUBAGENTS);
   });
 
   void it("repairs missing arrays and filters unknown tool ids", () => {
@@ -82,7 +86,7 @@ void describe("agent config normalization", () => {
     assert.equal(runtime.temperature, 0);
     assert.equal(runtime.topP, 1);
     assert.equal(runtime.maxOutputTokens, 32768);
-    assert.equal(runtime.maxConcurrentSubagents, 16);
+    assert.equal(runtime.maxConcurrentSubagents, MAX_CONCURRENT_SUBAGENTS);
     assert.equal(runtime.totalTimeoutMs, 10_000);
     assert.equal(runtime.contextPolicy?.mode, "semantic");
     assert.equal(runtime.contextPolicy?.pruneThreshold, 0.3);
@@ -123,6 +127,66 @@ void describe("agent config normalization", () => {
       getVisibleAgents([child, main], "active", "").map((agent) => agent.id),
       [DEFAULT_AGENT_ID, "agent-researcher"],
     );
+  });
+
+  void it("separates draft and active agents while excluding archived agents", () => {
+    const active = agentProfile({
+      id: "agent-active",
+      name: "Available agent",
+      kind: "child",
+      status: "active",
+      updated_at: 1,
+    });
+    const draft = agentProfile({
+      id: "agent-draft",
+      name: "Draft agent",
+      kind: "child",
+      status: "draft",
+      updated_at: 2,
+    });
+    const archived = agentProfile({
+      id: "agent-archived",
+      name: "Archived agent",
+      kind: "child",
+      status: "archived",
+      updated_at: 3,
+    });
+    const agents = [archived, draft, active];
+
+    assert.deepEqual(
+      getVisibleAgents(agents, "active", "").map((agent) => agent.id),
+      ["agent-active"],
+    );
+    assert.deepEqual(
+      getVisibleAgents(agents, "draft", "").map((agent) => agent.id),
+      ["agent-draft"],
+    );
+    assert.deepEqual(getVisibleAgents(agents, "active", "archived"), []);
+    assert.deepEqual(
+      getVisibleAgents(agents, "draft", "draft").map((agent) => agent.id),
+      ["agent-draft"],
+    );
+  });
+
+  void it("identifies every in-flight runtime status as busy", () => {
+    const busyStatuses: AgentRuntimeStatus[] = [
+      "queued",
+      "running",
+      "reviewing",
+      "handoff",
+      "tool_calling",
+      "sandbox",
+      "learning",
+    ];
+    const idleStatuses: Array<AgentRuntimeStatus | null | undefined> = [
+      "idle",
+      "failed",
+      null,
+      undefined,
+    ];
+
+    for (const status of busyStatuses) assert.equal(isAgentRuntimeBusy(status), true);
+    for (const status of idleStatuses) assert.equal(isAgentRuntimeBusy(status), false);
   });
 });
 

@@ -72,6 +72,7 @@ import {
   DEFAULT_AGENT_TOOL_POLICY,
   DEFAULT_DESKTOP_PET_CONFIG,
   DESKTOP_PET_PROFILE_ID,
+  isAgentRuntimeBusy,
   mergeDesktopPetConfig,
   normalizeAgentHandoffConfig,
   normalizeAgentRuntimeConfig,
@@ -695,6 +696,7 @@ export function saveAgent(agent: AgentProfile): void {
 export function archiveAgent(id: string): AgentProfile {
   const existing = getRequiredAgentRow(id);
   assertAgentEditable(existing);
+  assertAgentNotBusy(id);
   getDb()
     .update(agents)
     .set({ status: "archived", enabled: 0, updated_at: Date.now() })
@@ -711,12 +713,17 @@ export function archiveAgent(id: string): AgentProfile {
 }
 
 export function restoreAgent(id: string): AgentProfile {
+  const existing = getRequiredAgentRow(id);
+  assertAgentEditable(existing);
+  if (existing.status !== "archived") {
+    throw new Error("Only archived agents can be restored.");
+  }
   getDb()
     .update(agents)
-    .set({ status: "active", enabled: 1, updated_at: Date.now() })
+    .set({ status: "draft", enabled: 0, updated_at: Date.now() })
     .where(eq(agents.id, id))
     .run();
-  upsertAgentRuntimeState({ agent_id: id, status: "idle" });
+  upsertAgentRuntimeState({ agent_id: id, status: "idle", current_run_id: null });
   insertRuntimeEvent({
     kind: "diagnostic",
     title: "Agent restored",
@@ -731,18 +738,35 @@ export function deleteAgent(id: string): void {
   const existing = getRequiredAgentRow(id);
   assertAgentEditable(existing);
   if (existing.kind === "main") throw new Error("Root agent cannot be deleted.");
-  // 清理子表外键后再删除主表行
-  getDb().delete(agentPolicies).where(eq(agentPolicies.agent_id, id)).run();
-  getDb().delete(agents).where(eq(agents.id, id)).run();
-  // 同步内存中的运行时状态
-  upsertAgentRuntimeState({ agent_id: id, status: "idle", current_run_id: null });
-  insertRuntimeEvent({
+  assertAgentNotBusy(id);
+  const deletionEvent: NewRuntimeEvent = {
+    id: randomUUID(),
+    run_id: null,
+    step_id: null,
+    conversation_id: null,
+    agent_id: id,
+    tool_id: null,
+    owner_type: null,
+    owner_id: null,
     kind: "diagnostic",
     title: "Agent permanently deleted",
     status: "succeeded",
-    agent_id: id,
-    detail: { agentId: id, name: existing.name },
+    severity: "info",
+    detail_json: JSON.stringify(redactDetail({ agentId: id, name: existing.name })),
+    duration_ms: null,
+    event_type: null,
+    agent_path: null,
+    parent_agent_path: null,
+    sequence: null,
+    created_at: Date.now(),
+  };
+
+  getDb().transaction((tx) => {
+    tx.insert(runtimeEvents).values(deletionEvent).run();
+    tx.delete(agentPolicies).where(eq(agentPolicies.agent_id, id)).run();
+    tx.delete(agents).where(eq(agents.id, id)).run();
   });
+  agentRuntimeStates.delete(id);
 }
 
 export function duplicateAgent(id: string): AgentProfile {
@@ -2679,6 +2703,13 @@ function getRequiredAgentRow(id: string): DbAgentProfile {
 
 function assertAgentEditable(agent: DbAgentProfile): void {
   if (agent.locked !== 0) throw new Error("This agent is locked.");
+}
+
+function assertAgentNotBusy(agentId: string): void {
+  const status = agentRuntimeStates.get(agentId)?.status;
+  if (isAgentRuntimeBusy(status)) {
+    throw new Error(`Agent is busy (${status}) and cannot be archived or deleted.`);
+  }
 }
 
 function toRuntimeRun(row: DbRuntimeRun): RuntimeRun {

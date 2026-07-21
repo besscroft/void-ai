@@ -167,6 +167,21 @@ export type AgentRuntimeStatus =
   | "learning"
   | "failed";
 
+export function isAgentRuntimeBusy(status: AgentRuntimeStatus | null | undefined): boolean {
+  switch (status) {
+    case "queued":
+    case "running":
+    case "reviewing":
+    case "handoff":
+    case "tool_calling":
+    case "sandbox":
+    case "learning":
+      return true;
+    default:
+      return false;
+  }
+}
+
 export type AgentReviewPolicy = "inherit" | "auto" | "review_sensitive" | "review_all";
 export type AgentSandboxPolicy = "inherit" | "disabled" | "local" | "docker";
 export type ChatToolReference = string;
