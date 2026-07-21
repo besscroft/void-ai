@@ -174,5 +174,6 @@ function provider(): ProviderInfo {
     ],
     helpUrl: "https://example.com",
     hasApiKey: true,
+    hasProviderApiKey: true,
   };
 }

@@ -200,6 +200,7 @@ function provider(
     ],
     helpUrl: "https://example.com",
     hasApiKey: true,
+    hasProviderApiKey: true,
   };
 }
 
