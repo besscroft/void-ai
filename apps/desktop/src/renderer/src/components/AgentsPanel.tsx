@@ -21,6 +21,7 @@ import {
   MAX_CONCURRENT_SUBAGENTS,
   MIN_CONCURRENT_SUBAGENTS,
   SettingKey,
+  isAgentRuntimeBusy,
   normalizeAgentHandoffConfig,
   normalizeMaxConcurrentSubagents,
   normalizeAgentRuntimeConfig,
@@ -48,6 +49,7 @@ import { createClientChatToolDescriptors } from "../lib/chat-tools";
 import { useT, type TranslationKey } from "../lib/i18n";
 import { notify } from "../lib/toast";
 import { cn } from "../lib/utils";
+import { ConfirmDialog } from "./ConfirmDialog";
 import {
   IconCheck,
   IconClose,
@@ -56,11 +58,13 @@ import {
   IconEdit,
   IconPlus,
   IconRotateCcw,
+  IconTrash,
 } from "./icons";
 
 type AgentPanelTab = AgentListTab;
 type AgentDetailTab = "overview" | "instructions" | "runtime" | "tools";
 type AgentEditorTab = "basics" | "runtime" | "routing" | "tools";
+type AgentCardAction = "archive" | "publish";
 
 interface AgentsPanelProps {
   agents: AgentProfile[];
@@ -164,6 +168,10 @@ export function AgentsPanel({
   const [form, setForm] = useState<AgentFormState>(() => createAgentForm());
   const [validation, setValidation] = useState<AgentValidation>({});
   const [busy, setBusy] = useState(false);
+  const [pendingAgentActions, setPendingAgentActions] = useState<
+    ReadonlyMap<string, AgentCardAction>
+  >(() => new Map());
+  const [agentToArchive, setAgentToArchive] = useState<AgentProfile | null>(null);
   const [concurrencyBusy, setConcurrencyBusy] = useState(false);
   const [maxConcurrentSubagents, setMaxConcurrentSubagents] = useState(
     DEFAULT_AGENT_RUNTIME_CONFIG.maxConcurrentSubagents ?? 3,
@@ -225,7 +233,9 @@ export function AgentsPanel({
   }, []);
 
   useEffect(() => {
-    if (selectedId && !agents.some((agent) => agent.id === selectedId)) setSelectedId(null);
+    if (!selectedId || agents.some((agent) => agent.id === selectedId)) return;
+    setSelectedId(null);
+    setDetailOpen(false);
   }, [agents, selectedId]);
 
   const runtimeByAgent = useMemo(
@@ -251,6 +261,67 @@ export function AgentsPanel({
     } finally {
       setBusy(false);
     }
+  };
+
+  const runAgentCardAction = async (
+    agentId: string,
+    actionType: AgentCardAction,
+    action: () => Promise<unknown>,
+    success: string,
+  ): Promise<boolean> => {
+    setPendingAgentActions((current) => new Map(current).set(agentId, actionType));
+    try {
+      await action();
+      notify.success(success);
+      onRefresh();
+      refreshRuntime();
+      return true;
+    } catch (error) {
+      notify.error(t("agents.toast.failed"), error, locale);
+      return false;
+    } finally {
+      setPendingAgentActions((current) => {
+        const next = new Map(current);
+        next.delete(agentId);
+        return next;
+      });
+    }
+  };
+
+  const publishAgent = (agent: AgentProfile): void => {
+    if (agent.locked !== 0 || agent.status !== "draft" || pendingAgentActions.has(agent.id)) return;
+    void runAgentCardAction(
+      agent.id,
+      "publish",
+      () => api.agents.update(agent.id, { status: "active", enabled: true }),
+      t("agents.toast.published"),
+    );
+  };
+
+  const requestArchiveAgent = (agent: AgentProfile): void => {
+    if (agent.locked !== 0 || pendingAgentActions.has(agent.id)) return;
+    if (isAgentRuntimeBusy(runtimeByAgent.get(agent.id)?.status)) {
+      notify.error(t("agents.delete.busy"));
+      return;
+    }
+    setAgentToArchive(agent);
+  };
+
+  const archiveAgent = (): void => {
+    const agent = agentToArchive;
+    if (!agent) return;
+    setAgentToArchive(null);
+    if (agent.locked !== 0 || pendingAgentActions.has(agent.id)) return;
+    if (isAgentRuntimeBusy(runtimeByAgent.get(agent.id)?.status)) {
+      notify.error(t("agents.delete.busy"));
+      return;
+    }
+    void runAgentCardAction(
+      agent.id,
+      "archive",
+      () => api.agents.archive(agent.id),
+      t("agents.toast.archived"),
+    );
   };
 
   const openCreate = (): void => {
@@ -374,6 +445,9 @@ export function AgentsPanel({
                   }}
                   onEdit={() => openEdit(agent)}
                   onDuplicate={() => duplicateAgent(agent)}
+                  onPublish={() => publishAgent(agent)}
+                  onArchive={() => requestArchiveAgent(agent)}
+                  pendingAction={pendingAgentActions.get(agent.id)}
                   busy={busy}
                 />
               ))}
@@ -418,6 +492,16 @@ export function AgentsPanel({
         onSave={() => void saveAgent()}
         onClose={() => setEditing(null)}
       />
+
+      <ConfirmDialog
+        open={agentToArchive !== null}
+        title={t("agents.delete.title")}
+        message={t("agents.delete.message", { name: agentToArchive?.name ?? "" })}
+        confirmLabel={t("agents.delete.confirm")}
+        danger
+        onConfirm={archiveAgent}
+        onClose={() => setAgentToArchive(null)}
+      />
     </div>
   );
 }
@@ -429,6 +513,9 @@ function AgentCard({
   onSelect,
   onEdit,
   onDuplicate,
+  onPublish,
+  onArchive,
+  pendingAction,
   busy,
 }: {
   agent: AgentProfile;
@@ -437,10 +524,15 @@ function AgentCard({
   onSelect: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
+  onPublish: () => void;
+  onArchive: () => void;
+  pendingAction?: AgentCardAction;
   busy: boolean;
 }): React.JSX.Element {
   const { t, f } = useT();
   const locked = agent.locked !== 0;
+  const runtimeBusy = isAgentRuntimeBusy(runtime?.status);
+  const cardBusy = pendingAction !== undefined;
   return (
     <Card className={selected ? "border-accent/45 bg-accent/[0.035]" : ""}>
       <Card.Header>
@@ -487,7 +579,23 @@ function AgentCard({
             {t("agents.action.details")}
           </Button>
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="secondary" onPress={onEdit} isDisabled={locked || busy}>
+            {agent.status === "draft" && !locked ? (
+              <Switch
+                size="sm"
+                isSelected={pendingAction === "publish"}
+                isDisabled={cardBusy || busy}
+                onChange={(selected) => selected && onPublish()}
+                aria-label={t("agents.action.makeAvailable")}
+              >
+                {t("agents.action.makeAvailable")}
+              </Switch>
+            ) : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              onPress={onEdit}
+              isDisabled={locked || cardBusy || busy}
+            >
               <IconEdit className="size-4" />
               {t("common.edit")}
             </Button>
@@ -495,11 +603,25 @@ function AgentCard({
               size="sm"
               variant="tertiary"
               onPress={onDuplicate}
-              isDisabled={agent.status === "archived" || busy}
+              isDisabled={agent.status === "archived" || cardBusy || busy}
             >
               <IconCopy className="size-4" />
               {t("agents.action.duplicate")}
             </Button>
+            {!locked ? (
+              <span title={runtimeBusy ? t("agents.delete.busy") : undefined}>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onPress={onArchive}
+                  isDisabled={runtimeBusy || cardBusy || busy}
+                  isPending={pendingAction === "archive"}
+                >
+                  <IconTrash className="size-4" />
+                  {t("agents.action.delete")}
+                </Button>
+              </span>
+            ) : null}
           </div>
         </div>
       </Card.Footer>
@@ -1306,7 +1428,7 @@ function createAgentForm(agent?: AgentProfile): AgentFormState {
     description: agent?.description ?? "",
     avatar: agent?.avatar ?? "",
     status: agent?.status ?? "draft",
-    enabled: agent?.enabled !== 0,
+    enabled: agent ? agent.enabled !== 0 : false,
     model_ref: agent?.model_ref ?? "",
     voice: agent?.voice ?? "",
     persona: agent?.personality ?? "",
@@ -1324,7 +1446,7 @@ function formToAgentInput(form: AgentFormState): AgentInput {
   return {
     avatar: form.avatar.trim() || form.name.trim().slice(0, 1).toUpperCase(),
     description: form.description.trim(),
-    enabled: form.enabled,
+    enabled: form.status === "draft" ? false : form.enabled,
     handoff_config_json: JSON.stringify(form.handoffConfig),
     model_ref: form.model_ref || null,
     name: form.name.trim(),
