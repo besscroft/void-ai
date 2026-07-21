@@ -348,13 +348,7 @@ export class DesktopPetWindowController {
     const bounds = getClampedDesktopPetBounds(config);
     this.petWindow.setAlwaysOnTop(config.window.alwaysOnTop);
     // Window size is fixed; settings only synchronize position and always-on-top.
-    const current = this.petWindow.getBounds();
-    this.petWindow.setBounds({
-      x: bounds.x,
-      y: bounds.y,
-      width: current.width,
-      height: current.height,
-    });
+    this.petWindow.setBounds(bounds);
     this.petWindow.webContents.send("desktopPet:snapshotApplied", getDesktopPetSnapshot());
   }
 

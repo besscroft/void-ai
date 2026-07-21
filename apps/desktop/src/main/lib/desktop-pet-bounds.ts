@@ -54,6 +54,7 @@ export function moveDesktopPetBounds(
   displays: DesktopPetDisplayBounds[],
   fallbackDisplay: DesktopPetDisplayBounds,
 ): DesktopPetBounds {
+  const { width, height } = DESKTOP_PET_WINDOW_SIZE;
   // _config 保留作为 API 形参（与其他 clamp 函数签名一致），内部不再使用
   // 因为拖动时只需要 current bounds 和 display 范围，不需要 config.window
   void _config;
@@ -69,9 +70,9 @@ export function moveDesktopPetBounds(
   //   - 鼠标在屏幕中央拖动时，pet 完全跟手
   //   - 鼠标到达屏幕边缘时，pet 也到达屏幕边缘（不会被"硬挡"）
   //   - 但 pet 永远不会被完全推出屏幕外（用户始终能拖回来）
-  const minX = display.x - current.width + KEEP_VISIBLE_PX;
+  const minX = display.x - width + KEEP_VISIBLE_PX;
   const maxX = display.x + display.width - KEEP_VISIBLE_PX;
-  const minY = display.y - current.height + KEEP_VISIBLE_PX;
+  const minY = display.y - height + KEEP_VISIBLE_PX;
   const maxY = display.y + display.height - KEEP_VISIBLE_PX;
 
   const targetX = current.x + delta.dx;
@@ -82,8 +83,8 @@ export function moveDesktopPetBounds(
   return {
     x: newX,
     y: newY,
-    width: current.width,
-    height: current.height,
+    width,
+    height,
   };
 }
 

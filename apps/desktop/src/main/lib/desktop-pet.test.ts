@@ -318,16 +318,12 @@ void describe("desktop pet bounds", () => {
     });
   });
 
-  void it("moves the current window bounds by a delta", () => {
+  void it("moves the current window by a delta and restores its fixed size", () => {
     const config = normalizeDesktopPetConfig({
       window: { x: 100, y: 120, width: 320, height: 420, alwaysOnTop: true },
     });
     const display = { x: 0, y: 0, width: 1280, height: 720 };
-    // 起点 (960, 220)，拖动 (dx=80, dy=-260)：
-    //   targetX = 960 + 80 = 1040
-    //   targetY = 220 - 260 = -40
-    //   minY = 0 - 420 + 50 = -370，targetY >= minY，所以不 clamp
-    //   newY = -40（pet 顶部在屏幕外 40px，仍有 380px 可见）
+    // Simulate a native window whose size has already drifted from the fixed size.
     const bounds = moveDesktopPetBounds(
       config,
       { x: 960, y: 220, width: 320, height: 420 },
@@ -336,13 +332,73 @@ void describe("desktop pet bounds", () => {
       display,
     );
 
-    assert.deepEqual(bounds, { x: 1040, y: -40, width: 320, height: 420 });
+    assert.deepEqual(bounds, {
+      x: 1040,
+      y: -40,
+      width: DESKTOP_PET_WINDOW_SIZE.width,
+      height: DESKTOP_PET_WINDOW_SIZE.height,
+    });
+  });
+
+  void it("uses the fixed size when clamping the top and left edges", () => {
+    const config = normalizeDesktopPetConfig({});
+    const display = { x: 0, y: 0, width: 1280, height: 720 };
+    const bounds = moveDesktopPetBounds(
+      config,
+      { x: 100, y: 100, width: 574, height: 633 },
+      { dx: -5000, dy: -5000 },
+      [display],
+      display,
+    );
+
+    assert.deepEqual(bounds, {
+      x: display.x - DESKTOP_PET_WINDOW_SIZE.width + 50,
+      y: display.y - DESKTOP_PET_WINDOW_SIZE.height + 50,
+      width: DESKTOP_PET_WINDOW_SIZE.width,
+      height: DESKTOP_PET_WINDOW_SIZE.height,
+    });
+  });
+
+  void it("keeps the canonical size across repeated moves after native size drift", () => {
+    const config = normalizeDesktopPetConfig({});
+    const display = { x: 0, y: 0, width: 1280, height: 720 };
+    let current = { x: 300, y: 250, width: 574, height: 633 };
+
+    for (let index = 0; index < 100; index += 1) {
+      current = moveDesktopPetBounds(config, current, { dx: 3, dy: -2 }, [display], display);
+      assert.equal(current.width, DESKTOP_PET_WINDOW_SIZE.width);
+      assert.equal(current.height, DESKTOP_PET_WINDOW_SIZE.height);
+    }
+
+    assert.deepEqual(current, {
+      x: 600,
+      y: 50,
+      width: DESKTOP_PET_WINDOW_SIZE.width,
+      height: DESKTOP_PET_WINDOW_SIZE.height,
+    });
+  });
+
+  void it("keeps the fixed size on a negative-coordinate display", () => {
+    const config = normalizeDesktopPetConfig({});
+    const secondary = { x: -1920, y: 0, width: 1920, height: 1080 };
+    const primary = { x: 0, y: 0, width: 1280, height: 720 };
+    const bounds = moveDesktopPetBounds(
+      config,
+      { x: -800, y: 200, width: 350, height: 333 },
+      { dx: -40, dy: 20 },
+      [secondary, primary],
+      primary,
+    );
+
+    assert.deepEqual(bounds, {
+      x: -840,
+      y: 220,
+      width: DESKTOP_PET_WINDOW_SIZE.width,
+      height: DESKTOP_PET_WINDOW_SIZE.height,
+    });
   });
 
   void it("allows the pet to be dragged past a screen edge while keeping KEEP_VISIBLE_PX on-screen", () => {
-    // 屏幕 1280x720，pet 宽 320。pet 起点 (100, 100)，
-    // 用户疯狂向右拖 dx=5000，pet 允许越过右边缘（1280-50=1230），
-    // 但要保证 pet 左边至少保留 50px 在屏幕内。
     const config = normalizeDesktopPetConfig({
       window: { x: 100, y: 100, width: 320, height: 420, alwaysOnTop: true },
     });
@@ -355,10 +411,8 @@ void describe("desktop pet bounds", () => {
       display,
     );
 
-    // maxX = 1280 - 50 = 1230（pet 左边到 1230，右边到 1550 越界 270px）
     assert.equal(bounds.x, 1230);
-    // 至少有 KEEP_VISIBLE_PX(50) px 在屏幕内：
-    // pet 左边 = 1230, 屏幕右 = 1280, 可见宽度 = 50 ✓
+    assert.equal(bounds.width, DESKTOP_PET_WINDOW_SIZE.width);
   });
 
   void it("does not let the pet be pushed completely off-screen", () => {
