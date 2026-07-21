@@ -1,26 +1,54 @@
-import { before, describe, it } from "node:test";
+import { before, beforeEach, describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import Module, { createRequire } from "node:module";
-import type { ModelCatalogSettings } from "../../shared/types";
-
-const require = createRequire(import.meta.url);
-const electronPath = require.resolve("electron");
-const electronModule = new Module(electronPath);
-electronModule.filename = electronPath;
-electronModule.paths = [];
-electronModule.loaded = true;
-electronModule.exports = {
-  app: {
-    isPackaged: false,
-    getPath: () => process.cwd(),
-  },
-};
-require.cache[electronPath] = electronModule;
+import { SettingKey, type ModelCatalogSettings } from "../../shared/types";
 
 let providerHelpers: typeof import("./providers");
 
+const providerKeys = new Map<string, string>();
+const modelKeys = new Map<string, string>();
+const settings = new Map<string, string>();
+
+mock.module("./db", {
+  namedExports: {
+    deleteApiKey: (providerId: string) => {
+      providerKeys.delete(providerId);
+    },
+    deleteModelApiKey: (providerId: string, modelId: string) => {
+      modelKeys.delete(`${providerId}/${modelId}`);
+    },
+    deleteModelApiKeysForProvider: (providerId: string) => {
+      for (const key of modelKeys.keys()) {
+        if (key.startsWith(providerId + "/")) modelKeys.delete(key);
+      }
+    },
+    getApiKey: (providerId: string) => providerKeys.get(providerId) ?? null,
+    getModelApiKey: (providerId: string, modelId: string) =>
+      modelKeys.get(`${providerId}/${modelId}`) ?? null,
+    getSetting: (key: string) => settings.get(key) ?? null,
+    listApiKeyProviders: () => [...providerKeys.keys()],
+    listModelApiKeyRefs: () => [...modelKeys.keys()],
+    setApiKey: (providerId: string, apiKey: string) => {
+      providerKeys.set(providerId, apiKey);
+    },
+    setModelApiKey: (providerId: string, modelId: string, apiKey: string) => {
+      modelKeys.set(`${providerId}/${modelId}`, apiKey);
+    },
+    setSetting: (key: string, value: string) => {
+      settings.set(key, value);
+    },
+  },
+});
+
 before(async () => {
   providerHelpers = await import("./providers");
+});
+
+beforeEach(() => {
+  providerKeys.clear();
+  modelKeys.clear();
+  settings.clear();
+  settings.set(SettingKey.ModelCatalog, JSON.stringify(emptyCatalog()));
+  settings.set(SettingKey.SelectedModel, "");
 });
 
 const capabilities = {
@@ -36,6 +64,217 @@ const capabilities = {
 };
 
 void describe("provider helpers", () => {
+  void it("registers the new built-in providers in the approved order", () => {
+    const providers = providerHelpers.listProviders();
+    assert.deepEqual(
+      providers.slice(-5).map((provider) => ({
+        id: provider.id,
+        label: provider.label,
+        kind: provider.kind,
+        source: provider.source,
+        baseUrl: provider.baseUrl,
+        helpUrl: provider.helpUrl,
+        models: provider.models,
+        hasApiKey: provider.hasApiKey,
+        hasProviderApiKey: provider.hasProviderApiKey,
+      })),
+      [
+        {
+          id: "minimax-cn",
+          label: "MiniMax CN",
+          kind: "openai-compatible",
+          source: "builtin",
+          baseUrl: "https://api.minimaxi.com/v1",
+          helpUrl: "https://platform.minimaxi.com/console/access?tab=api-keys",
+          models: [],
+          hasApiKey: false,
+          hasProviderApiKey: false,
+        },
+        {
+          id: "xiaomi",
+          label: "Xiaomi MiMo",
+          kind: "openai-compatible",
+          source: "builtin",
+          baseUrl: "https://api.xiaomimimo.com/v1",
+          helpUrl: "https://platform.xiaomimimo.com/console/api-keys",
+          models: [],
+          hasApiKey: false,
+          hasProviderApiKey: false,
+        },
+        {
+          id: "siliconflow-cn",
+          label: "硅基流动",
+          kind: "openai-compatible",
+          source: "builtin",
+          baseUrl: "https://api.siliconflow.cn/v1",
+          helpUrl: "https://cloud.siliconflow.cn/account/ak",
+          models: [],
+          hasApiKey: false,
+          hasProviderApiKey: false,
+        },
+        {
+          id: "zai",
+          label: "Z.ai",
+          kind: "openai-compatible",
+          source: "builtin",
+          baseUrl: "https://api.z.ai/api/paas/v4",
+          helpUrl: "https://z.ai/manage-apikey/apikey-list",
+          models: [],
+          hasApiKey: false,
+          hasProviderApiKey: false,
+        },
+        {
+          id: "moonshotai-cn",
+          label: "Kimi CN",
+          kind: "openai-compatible",
+          source: "builtin",
+          baseUrl: "https://api.moonshot.cn/v1",
+          helpUrl: "https://platform.kimi.com/console/api-keys",
+          models: [],
+          hasApiKey: false,
+          hasProviderApiKey: false,
+        },
+      ],
+    );
+    assert.equal(new Set(providers.map((provider) => provider.id)).size, providers.length);
+  });
+
+  void it("lets a legacy custom collision override and update its built-in slot", () => {
+    const modelId = "Qwen/Qwen3-8B";
+    const catalog: ModelCatalogSettings = {
+      providers: [
+        {
+          id: "siliconflow-cn",
+          label: "Legacy SiliconFlow",
+          kind: "openai-compatible",
+          baseUrl: "https://legacy.example/v1",
+          helpUrl: "https://legacy.example/keys",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      models: [
+        {
+          providerId: "siliconflow-cn",
+          id: modelId,
+          label: "Legacy Qwen",
+          enabled: true,
+          temperature: 0.5,
+          topP: 0.9,
+          maxOutputTokens: 4096,
+          contextWindow: 32_000,
+          capabilities,
+          providerOptions: {},
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      modelStates: [{ providerId: "siliconflow-cn", id: modelId, enabled: true, updatedAt: 1 }],
+    };
+    settings.set(SettingKey.ModelCatalog, JSON.stringify(catalog));
+
+    providerHelpers.saveModelApiKey("siliconflow-cn", modelId, "legacy-model-key");
+    let provider = providerHelpers.getProviderConfig("siliconflow-cn");
+    assert.equal(provider?.source, "custom");
+    assert.equal(provider?.label, "Legacy SiliconFlow");
+    assert.equal(provider?.baseUrl, "https://legacy.example/v1");
+    assert.deepEqual(
+      provider?.models.map((model) => model.id),
+      [modelId],
+    );
+    assert.equal(provider?.hasProviderApiKey, false);
+    assert.equal(provider?.hasApiKey, true);
+
+    providerHelpers.saveProviderApiKey("siliconflow-cn", "provider-key");
+    provider = providerHelpers.upsertCustomProvider({
+      id: "siliconflow-cn",
+      label: "Updated SiliconFlow",
+      baseUrl: "https://updated.example/v1/",
+      helpUrl: "https://updated.example/keys",
+    });
+    assert.equal(provider.source, "custom");
+    assert.equal(provider.label, "Updated SiliconFlow");
+    assert.equal(provider.baseUrl, "https://updated.example/v1");
+    assert.deepEqual(
+      provider.models.map((model) => model.id),
+      [modelId],
+    );
+    assert.equal(provider.hasProviderApiKey, true);
+    assert.equal(provider.hasApiKey, true);
+
+    const providers = providerHelpers.listProviders();
+    assert.equal(providers.filter((item) => item.id === "siliconflow-cn").length, 1);
+    assert.equal(
+      providers.findIndex((item) => item.id === "siliconflow-cn"),
+      7,
+    );
+    assert.equal(new Set(providers.map((item) => item.id)).size, providers.length);
+    assert.throws(
+      () =>
+        providerHelpers.upsertCustomProvider({
+          id: "xiaomi",
+          label: "Custom Xiaomi",
+          baseUrl: "https://custom-xiaomi.example/v1",
+        }),
+      /Built-in providers cannot be overwritten/,
+    );
+
+    providerHelpers.clearProviderApiKey("siliconflow-cn");
+    provider = providerHelpers.getProviderConfig("siliconflow-cn");
+    assert.equal(provider?.hasProviderApiKey, false);
+    assert.equal(provider?.hasApiKey, true);
+
+    providerHelpers.deleteCustomProvider("siliconflow-cn");
+    provider = providerHelpers.getProviderConfig("siliconflow-cn");
+    assert.equal(provider?.source, "builtin");
+    assert.equal(provider?.label, "硅基流动");
+    assert.equal(provider?.baseUrl, "https://api.siliconflow.cn/v1");
+    assert.deepEqual(provider?.models, []);
+    assert.equal(provider?.hasProviderApiKey, false);
+    assert.equal(provider?.hasApiKey, false);
+  });
+
+  void it("syncs compatible models with Bearer auth and preserves namespaced IDs", async () => {
+    providerHelpers.saveProviderApiKey("siliconflow-cn", "silicon-key");
+    const previousFetch = globalThis.fetch;
+    let requestedUrl = "";
+    let authorization: string | null = null;
+    globalThis.fetch = (async (input, init) => {
+      requestedUrl = String(input);
+      authorization = new Headers(init?.headers).get("Authorization");
+      return new Response(
+        JSON.stringify({
+          data: [{ id: "Qwen/Qwen3-8B", display_name: "Qwen 3 8B" }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await providerHelpers.syncAvailableModels("siliconflow-cn");
+      assert.equal(requestedUrl, "https://api.siliconflow.cn/v1/models");
+      assert.equal(authorization, "Bearer silicon-key");
+      assert.equal(result.discovered, 1);
+      assert.equal(result.added, 1);
+      assert.deepEqual(
+        result.provider.models.map((model) => model.id),
+        ["Qwen/Qwen3-8B"],
+      );
+      assert.equal(result.provider.models[0]?.enabled, false);
+
+      const modelRef = "siliconflow-cn/Qwen/Qwen3-8B";
+      providerHelpers.updateModelEnabled("siliconflow-cn", "Qwen/Qwen3-8B", true);
+      settings.set(SettingKey.SelectedModel, modelRef);
+      providerHelpers.updateModelEnabled("siliconflow-cn", "Qwen/Qwen3-8B", true);
+      assert.equal(settings.get(SettingKey.SelectedModel), modelRef);
+      const resolved = providerHelpers.resolveModel(modelRef);
+      assert.equal(resolved.providerId, "siliconflow-cn");
+      assert.equal(resolved.modelId, "Qwen/Qwen3-8B");
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   void it("parses remote model list responses from supported providers", () => {
     const openaiModels = providerHelpers.parseOpenAIModelListResponse({
       data: [{ id: "gpt-4o", display_name: "GPT-4o" }, { name: "fallback-model" }, { id: "" }],
@@ -226,6 +465,11 @@ void describe("provider helpers", () => {
     );
   });
 });
+
+function emptyCatalog(): ModelCatalogSettings {
+  return { providers: [], models: [], modelStates: [] };
+}
+
 function pickMediaCapabilities(capabilities: import("../../shared/types").ModelCapabilities): {
   textGeneration: boolean;
   imageOutput: boolean;

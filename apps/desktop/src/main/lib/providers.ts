@@ -39,7 +39,7 @@ import {
   type ProviderTestResult,
 } from "../../shared/types";
 
-type ProviderConfig = Omit<ProviderInfo, "hasApiKey"> & { hasApiKey?: boolean };
+type ProviderConfig = Omit<ProviderInfo, "hasApiKey" | "hasProviderApiKey">;
 type ProviderOptions = NonNullable<Parameters<typeof streamText>[0]["providerOptions"]>;
 type VideoModel = Parameters<typeof experimental_generateVideo>[0]["model"];
 
@@ -166,6 +166,51 @@ const BUILTIN_PROVIDERS: ProviderConfig[] = [
     baseUrl: "https://openrouter.ai/api/v1",
     models: [],
     helpUrl: "https://openrouter.ai/settings/keys",
+  },
+  {
+    id: "minimax-cn",
+    label: "MiniMax CN",
+    kind: "openai-compatible",
+    source: "builtin",
+    baseUrl: "https://api.minimaxi.com/v1",
+    models: [],
+    helpUrl: "https://platform.minimaxi.com/console/access?tab=api-keys",
+  },
+  {
+    id: "xiaomi",
+    label: "Xiaomi MiMo",
+    kind: "openai-compatible",
+    source: "builtin",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    models: [],
+    helpUrl: "https://platform.xiaomimimo.com/console/api-keys",
+  },
+  {
+    id: "siliconflow-cn",
+    label: "硅基流动",
+    kind: "openai-compatible",
+    source: "builtin",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    models: [],
+    helpUrl: "https://cloud.siliconflow.cn/account/ak",
+  },
+  {
+    id: "zai",
+    label: "Z.ai",
+    kind: "openai-compatible",
+    source: "builtin",
+    baseUrl: "https://api.z.ai/api/paas/v4",
+    models: [],
+    helpUrl: "https://z.ai/manage-apikey/apikey-list",
+  },
+  {
+    id: "moonshotai-cn",
+    label: "Kimi CN",
+    kind: "openai-compatible",
+    source: "builtin",
+    baseUrl: "https://api.moonshot.cn/v1",
+    models: [],
+    helpUrl: "https://platform.kimi.com/console/api-keys",
   },
 ];
 
@@ -491,6 +536,35 @@ function mergeModels(provider: ProviderConfig, catalog: ModelCatalogSettings): M
     .map((model) => customModel(model, isModelEnabled(catalog, provider.id, model.id)));
 }
 
+/**
+ * Merge persisted custom providers over built-ins without mutating either input.
+ * A legacy custom provider that now shares a built-in ID keeps the built-in slot,
+ * while custom-only providers retain their persisted order after the built-ins.
+ */
+function mergeProviderConfigs(
+  builtins: readonly ProviderConfig[],
+  customProviders: readonly ProviderConfig[],
+): ProviderConfig[] {
+  const customById = new Map<string, ProviderConfig>();
+  for (const provider of customProviders) customById.set(provider.id, provider);
+
+  const merged: ProviderConfig[] = [];
+  const seenIds = new Set<string>();
+  for (const builtin of builtins) {
+    if (seenIds.has(builtin.id)) continue;
+    merged.push(customById.get(builtin.id) ?? builtin);
+    seenIds.add(builtin.id);
+  }
+
+  for (const custom of customProviders) {
+    if (seenIds.has(custom.id)) continue;
+    merged.push(customById.get(custom.id) ?? custom);
+    seenIds.add(custom.id);
+  }
+
+  return merged;
+}
+
 export function listProviders(): ProviderInfo[] {
   const catalog = readCatalog();
   const providerKeys = new Set(listApiKeyProviders());
@@ -505,8 +579,9 @@ export function listProviders(): ProviderInfo[] {
     models: [],
   }));
 
-  return [...BUILTIN_PROVIDERS, ...customProviders].map((provider) => ({
+  return mergeProviderConfigs(BUILTIN_PROVIDERS, customProviders).map((provider) => ({
     ...provider,
+    hasProviderApiKey: providerKeys.has(provider.id),
     hasApiKey:
       providerKeys.has(provider.id) ||
       modelKeyRefs.some((ref) => ref.startsWith(provider.id + "/")),
@@ -551,7 +626,11 @@ export function upsertCustomProvider(input: CustomProviderInput): ProviderInfo {
   const catalog = readCatalog();
   const id = normalizeProviderId(input.id ?? input.label);
   if (!id) throw new Error("Provider id is required");
-  if (BUILTIN_PROVIDERS.some((provider) => provider.id === id)) {
+
+  // Existing custom records may collide with a newly introduced built-in. Keep
+  // them editable; only reject attempts to create a fresh built-in collision.
+  const existing = catalog.providers.find((provider) => provider.id === id);
+  if (BUILTIN_PROVIDERS.some((provider) => provider.id === id) && !existing) {
     throw new Error("Built-in providers cannot be overwritten");
   }
 
@@ -561,7 +640,6 @@ export function upsertCustomProvider(input: CustomProviderInput): ProviderInfo {
   const baseUrl = normalizeBaseUrl(input.baseUrl);
   if (!baseUrl) throw new Error("Base URL is required");
 
-  const existing = catalog.providers.find((provider) => provider.id === id);
   const now = Date.now();
   const nextProvider = {
     id,

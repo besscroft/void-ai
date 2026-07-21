@@ -1773,29 +1773,54 @@ function ProviderModelWorkbench({
   };
 
   const handleSaveProvider = (): void => {
-    if (!selectedProvider) return;
-    if (!providerApiKey.trim() && !canSaveProvider) return;
-    const tasks: Promise<unknown>[] = [];
-    if (canSaveProvider) {
-      tasks.push(
+    if (!selectedProvider || !canSaveProvider) return;
+    void notify
+      .promise(
         api.providers.upsertCustomProvider({
           id: selectedProvider.id,
           label: providerForm.label,
           baseUrl: providerForm.baseUrl,
           helpUrl: providerForm.helpUrl,
         }),
-      );
-    }
-    if (providerApiKey.trim()) {
-      tasks.push(api.providers.setProviderApiKey(selectedProvider.id, providerApiKey.trim()));
-    }
-    void notify
-      .promise(
-        Promise.all(tasks),
         {
           loading: t("toast.model.providerSaving"),
           success: t("toast.model.providerSaved"),
           error: t("toast.model.providerSaveFailed"),
+        },
+        locale,
+      )
+      .then(refreshCatalog)
+      .catch(() => undefined);
+  };
+
+  const handleSaveProviderApiKey = (): void => {
+    if (!selectedProvider || !providerApiKey.trim()) return;
+    void notify
+      .promise(
+        api.providers.setProviderApiKey(selectedProvider.id, providerApiKey.trim()),
+        {
+          loading: t("toast.apikey.saving"),
+          success: t("toast.apikey.saved"),
+          error: t("toast.apikey.saveFailed"),
+        },
+        locale,
+      )
+      .then(() => {
+        setProviderApiKey("");
+        refreshCatalog();
+      })
+      .catch(() => undefined);
+  };
+
+  const handleClearProviderApiKey = (): void => {
+    if (!selectedProvider || !selectedProvider.hasProviderApiKey) return;
+    void notify
+      .promise(
+        api.providers.deleteProviderApiKey(selectedProvider.id),
+        {
+          loading: t("toast.apikey.clearing"),
+          success: t("toast.apikey.cleared"),
+          error: t("toast.apikey.clearFailed"),
         },
         locale,
       )
@@ -2060,7 +2085,7 @@ function ProviderModelWorkbench({
                         variant="secondary"
                         size="sm"
                         onPress={handleSaveProvider}
-                        isDisabled={!canSaveProvider && !providerApiKey.trim()}
+                        isDisabled={!canSaveProvider}
                       >
                         {t("common.save")}
                       </Button>
@@ -2131,7 +2156,7 @@ function ProviderModelWorkbench({
                     className="select-text"
                     value={providerApiKey}
                     placeholder={
-                      selectedProvider.hasApiKey
+                      selectedProvider.hasProviderApiKey
                         ? t("apikey.placeholder.replace")
                         : t("apikey.placeholder.set", { label: selectedProvider.label })
                     }
@@ -2152,6 +2177,22 @@ function ProviderModelWorkbench({
                       </a>
                     )}
                   </Description>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onPress={handleSaveProviderApiKey}
+                      isDisabled={!providerApiKey.trim()}
+                    >
+                      <IconKey className="mr-1 size-3.5" />
+                      {t("apikey.save")}
+                    </Button>
+                    {selectedProvider.hasProviderApiKey && (
+                      <Button variant="tertiary" size="sm" onPress={handleClearProviderApiKey}>
+                        {t("apikey.clear")}
+                      </Button>
+                    )}
+                  </div>
                 </TextField>
               </div>
 

@@ -1637,7 +1637,10 @@ export interface ProviderInfo {
   models: ModelOption[];
   helpUrl: string;
   baseUrl?: string;
+  /** Provider-level or legacy model-level API key is available. */
   hasApiKey: boolean;
+  /** A provider-level API key is configured. */
+  hasProviderApiKey: boolean;
 }
 
 export interface CustomProviderInput {
