@@ -14,6 +14,9 @@ void describe("messages", () => {
     assert.equal(translate("zh-CN", "main.title.tools"), "工具");
     assert.equal(translate("zh-CN", "main.title.memory"), "记忆");
     assert.equal(translate("zh-CN", "settings.title"), "设置");
+    assert.equal(translate("zh-CN", "settings.tab.about"), "关于");
+    assert.equal(translate("zh-CN", "about.version"), "版本");
+    assert.equal(translate("en", "about.action.repository"), "Project repository");
     assert.equal(translate("zh-CN", "agents.action.new"), "新建智能体");
     assert.equal(translate("zh-CN", "tools.tab.registry"), "工具注册表");
     assert.equal(translate("zh-CN", "tools.tab.skills"), "技能");

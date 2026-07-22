@@ -489,6 +489,7 @@ export function registerIpcHandlers(): void {
 
   // ---------- System information ----------
   ipcMain.handle("system:locale", () => app.getLocale());
+  ipcMain.handle("system:version", () => app.getVersion());
 }
 
 /** 瀵煎嚭绫诲瀷渚?preload 浣跨敤 */

@@ -282,6 +282,7 @@ export interface VoidAIApi {
   };
   system: {
     locale: () => Promise<string>;
+    version: () => Promise<string>;
     onPetOpenSettings: (handler: () => void) => () => void;
     onPetOpenAbout: (handler: () => void) => () => void;
   };

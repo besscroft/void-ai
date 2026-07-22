@@ -230,6 +230,7 @@ const api = {
   },
   system: {
     locale: () => ipcRenderer.invoke("system:locale"),
+    version: () => ipcRenderer.invoke("system:version"),
     onPetOpenSettings: (handler: () => void) => {
       const listener = (): void => handler();
       ipcRenderer.on("desktopPet:openSettings", listener);

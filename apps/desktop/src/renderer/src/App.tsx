@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { AppShell, type AppView } from "./components/AppShell";
 import { ChatView } from "./components/ChatView";
-import { SettingsDialog } from "./components/SettingsDialog";
+import { SettingsDialog, type SettingsTabId } from "./components/SettingsDialog";
 import { MainPanelView } from "./components/MainPanelView";
 import { api } from "./lib/api";
 import { SettingsProvider, useSettings } from "./lib/settings";
@@ -42,7 +42,7 @@ function AppContent(): React.JSX.Element {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<AppView>("chat");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<"appearance" | "pets">("appearance");
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTabId>("appearance");
   // 鏈嶅姟绔彛锛歶seChat 蹇呴』鍦ㄩ娆℃覆鏌撳氨鎷垮埌姝ｇ‘ transport锛?
   // 鍥犳绔彛灏辩华鍓嶄笉鎸傝浇 ChatView銆?
   const [serverInfo, setServerInfo] = useState<LocalServerInfo | null>(null);
@@ -134,8 +134,13 @@ function AppContent(): React.JSX.Element {
       setSettingsInitialTab("pets");
       setSettingsOpen(true);
     });
+    const offAbout = api.system.onPetOpenAbout(() => {
+      setSettingsInitialTab("about");
+      setSettingsOpen(true);
+    });
     return () => {
       offSettings?.();
+      offAbout?.();
     };
   }, []);
 

@@ -27,6 +27,7 @@ import { useT, LANGUAGE_OPTIONS } from "../lib/i18n";
 import { cn } from "../lib/utils";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DesktopPetsSettings } from "./DesktopPetsSettings";
+import { AboutSettings } from "./AboutSettings";
 import {
   IconClose,
   IconKey,
@@ -40,6 +41,7 @@ import {
   IconZap,
   IconTrash,
   IconPlus,
+  IconInfo,
 } from "./icons";
 import {
   type AgentProfile,
@@ -71,11 +73,11 @@ interface SettingsDialogProps {
   open: boolean;
   /** 鍏抽棴鍥炶皟 */
   onClose: () => void;
-  initialTab?: "appearance" | "pets";
+  initialTab?: SettingsTabId;
 }
 
 /** Tab 瀹氫箟 */
-type TabId = "appearance" | "pets" | "model" | "diagnostics" | "trash";
+export type SettingsTabId = "appearance" | "pets" | "model" | "diagnostics" | "trash" | "about";
 
 /**
  * 璁剧疆寮圭獥锛堝垎 Tab 缁撴瀯锛?
@@ -99,7 +101,7 @@ export function SettingsDialog({
 }: SettingsDialogProps): React.JSX.Element | null {
   const { t, locale } = useT();
   const { settings, update, reset } = useSettings();
-  const [tab, setTab] = useState<TabId>("appearance");
+  const [tab, setTab] = useState<SettingsTabId>("appearance");
   const [confirmResetScope, setConfirmResetScope] = useState<SettingsResetScope | null>(null);
   const [resetDoneScope, setResetDoneScope] = useState<SettingsResetScope | null>(null);
 
@@ -143,12 +145,18 @@ export function SettingsDialog({
       .catch(() => undefined);
   };
 
-  const tabs: { id: TabId; label: string; Icon: typeof IconPalette }[] = [
+  const tabs: {
+    id: SettingsTabId;
+    label: string;
+    Icon: typeof IconPalette;
+    pinned?: boolean;
+  }[] = [
     { id: "appearance", label: t("settings.tab.appearance"), Icon: IconPalette },
     { id: "pets", label: t("settings.tab.pets"), Icon: IconSparkles },
     { id: "model", label: t("settings.tab.model"), Icon: IconCpu },
     { id: "diagnostics", label: t("settings.tab.diagnostics"), Icon: IconSliders },
     { id: "trash", label: t("settings.tab.trash"), Icon: IconTrash },
+    { id: "about", label: t("settings.tab.about"), Icon: IconInfo, pinned: true },
   ];
   return (
     <div
@@ -184,9 +192,9 @@ export function SettingsDialog({
           {/* 瀵艰埅 */}
           <nav
             aria-label={t("settings.nav")}
-            className="w-full shrink-0 space-y-1 border-r border-foreground/10 bg-foreground/[0.02] p-2 md:w-48 select-none"
+            className="flex w-full shrink-0 flex-col gap-1 border-r border-foreground/10 bg-foreground/[0.02] p-2 md:w-48 select-none"
           >
-            {tabs.map(({ id, label, Icon }) => {
+            {tabs.map(({ id, label, Icon, pinned }) => {
               const active = tab === id;
               return (
                 <button
@@ -194,12 +202,13 @@ export function SettingsDialog({
                   type="button"
                   onClick={() => setTab(id)}
                   aria-current={active ? "page" : undefined}
-                  className={[
+                  className={cn(
                     "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition",
+                    pinned && "mt-auto",
                     active
                       ? "bg-accent/10 text-accent"
                       : "text-foreground/70 hover:bg-foreground/5 hover:text-foreground",
-                  ].join(" ")}
+                  )}
                 >
                   <Icon className="size-4 shrink-0" />
                   <span className="truncate">{label}</span>
@@ -222,6 +231,7 @@ export function SettingsDialog({
             {tab === "model" && <ModelTab settings={settings} update={update} />}
             {tab === "diagnostics" && <DiagnosticsTab />}
             {tab === "trash" && <TrashTab />}
+            {tab === "about" && <AboutSettings />}
           </div>
         </div>
 

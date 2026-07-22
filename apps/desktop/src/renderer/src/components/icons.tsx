@@ -3,7 +3,9 @@ import {
   ArrowDown,
   ArrowUp,
   BarChart3,
+  BookOpen,
   Brain,
+  Bug,
   Check,
   CheckSquare,
   ChevronDown,
@@ -17,8 +19,10 @@ import {
   Copy,
   Database,
   DollarSign,
+  GitFork,
   Globe,
   Image,
+  Info,
   Key,
   LayoutDashboard,
   Link,
@@ -88,6 +92,7 @@ export const IconClose = fromLucide(X);
 export const IconX = fromLucide(X);
 export const IconChevronDown = fromLucide(ChevronDown);
 export const IconPalette = fromLucide(Palette);
+export const IconInfo = fromLucide(Info);
 export const IconSliders = fromLucide(SlidersHorizontal);
 export const IconCpu = fromLucide(Cpu);
 export const IconRotateCcw = fromLucide(RotateCcw);
@@ -110,6 +115,9 @@ export const IconCurrency = fromLucide(DollarSign);
 export const IconCheckSquare = fromLucide(CheckSquare);
 export const IconCircle = fromLucide(Circle);
 export const IconLink = fromLucide(Link);
+export const IconGitFork = fromLucide(GitFork);
+export const IconBookOpen = fromLucide(BookOpen);
+export const IconBug = fromLucide(Bug);
 export const IconStatusDot = (props: IconProps): React.JSX.Element => (
   <svg
     viewBox="0 0 24 24"
