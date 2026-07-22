@@ -14,6 +14,7 @@ interface ReasoningSelectorProps {
   onChange: (level: ChatReasoningLevel) => void;
   placement?: "top" | "bottom";
   model?: ModelOption;
+  disabled?: boolean;
 }
 
 const REASONING_LABEL_KEYS: Record<ChatReasoningLevel, TranslationKey> = {
@@ -41,6 +42,7 @@ export function ReasoningSelector({
   onChange,
   placement = "bottom",
   model,
+  disabled = false,
 }: ReasoningSelectorProps): React.JSX.Element {
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -87,6 +89,7 @@ export function ReasoningSelector({
     <div ref={ref} className="relative min-w-0">
       <button
         type="button"
+        disabled={disabled}
         className="flex size-8 shrink-0 items-center justify-center rounded-xl text-foreground/60 transition motion-reduce:transition-none hover:bg-foreground/10 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
         onClick={() => setOpen((next) => !next)}
         aria-haspopup="listbox"

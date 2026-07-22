@@ -94,7 +94,10 @@ import type {
   MessagePatch,
   MessageRow,
   ToolServerInput,
+  AgentRunInputKind,
+  AgentRunInputSource,
 } from "../../shared/types";
+import type { UIMessage } from "ai";
 import { queueAgentLearning } from "../lib/agent-learning";
 import { memoryOrchestrator } from "../lib/memory-orchestrator";
 import {
@@ -106,8 +109,6 @@ import {
 import { closeMcpClient, discoverMcpServer, testMcpServer } from "../lib/mcp-manager";
 import { runToolSkill } from "../lib/skill-runtime";
 import { generateSkillDraft } from "../lib/skill-drafts";
-import { cancelWorkflowRun } from "../lib/workflow-cancellation";
-import { getActiveWorkflowRunForConversation } from "../lib/workflow-runs";
 import {
   createCronJob,
   deleteCronJob,
@@ -126,6 +127,7 @@ import {
   setArtifactInstallationEnabled,
   uninstallArtifact,
 } from "../lib/catalog-service";
+import { agentLoopSessions } from "../lib/agent-loop-session";
 
 /**
  * IPC handlers 娉ㄥ唽
@@ -263,6 +265,55 @@ export function registerIpcHandlers(): void {
 
   // ---------- AI 宸ヤ綔鍙?----------
   ipcMain.handle("runtime:snapshot", () => getRuntimeSnapshot());
+  ipcMain.handle(
+    "runtime:enqueueInput",
+    (
+      _event,
+      input: {
+        runId: string;
+        kind: AgentRunInputKind;
+        source?: AgentRunInputSource;
+        message: UIMessage;
+      },
+    ) => {
+      if (!input || typeof input.runId !== "string") throw new Error("runId is required.");
+      if (input.kind !== "steering" && input.kind !== "follow_up") {
+        throw new Error("kind must be steering or follow_up.");
+      }
+      if (
+        !input.message ||
+        typeof input.message.id !== "string" ||
+        !Array.isArray(input.message.parts)
+      ) {
+        throw new Error("message must be a valid UI message.");
+      }
+      try {
+        return {
+          ok: true as const,
+          value: agentLoopSessions.enqueue(
+            input.runId,
+            input.kind,
+            input.source ?? "user",
+            input.message,
+          ),
+        };
+      } catch (error) {
+        const code =
+          error && typeof error === "object" && "code" in error
+            ? String(error.code)
+            : "enqueue_failed";
+        return {
+          ok: false as const,
+          code,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+  ipcMain.handle("runtime:cancelRun", (_event, runId: string) => {
+    if (typeof runId !== "string" || !runId) throw new Error("runId is required.");
+    return agentLoopSessions.cancel(runId);
+  });
   ipcMain.handle("agents:list", () => listAgents());
   ipcMain.handle("agents:get", (_e, id: string) => getAgent(id));
   ipcMain.handle("agents:create", (_e, input: AgentInput) => createAgent(input));
@@ -346,17 +397,11 @@ export function registerIpcHandlers(): void {
     reloadMemoryFile(kind, agentId),
   );
 
-  // 工作流编排：仅暴露 chat 页面悬浮状态框需要的能力 —— 取消运行 + 按会话查最近一次 run
-  ipcMain.handle("workflowRuns:cancel", (_e, runId: string) => cancelWorkflowRun(runId));
-  // chat 页面右上方悬浮状态框：按会话取最近一次 run（活动优先 / 终态次之）
-  ipcMain.handle("workflowRuns:activeForConversation", (_e, conversationId: string) =>
-    getActiveWorkflowRunForConversation(conversationId),
-  );
   ipcMain.handle("runtime:events:list", () => listRuntimeEvents());
   ipcMain.handle("interactions:list", () => listInteractionProfiles());
   ipcMain.handle("sync:get", () => getSyncState());
 
-  // ---------- tools: MCP + Workflow Skills ----------
+  // ---------- tools: MCP + Agent Skills ----------
   ipcMain.handle("tools:snapshot", () => getToolsSnapshot());
   ipcMain.handle(
     "tools:updateTool",

@@ -438,7 +438,7 @@ function extractObservationCandidates(text: string): Array<{
         line,
       );
     const skill =
-      /\bhow to\b|\bworkflow\b|\bsteps? to\b|\u6d41\u7a0b|\u65b9\u6cd5|\u6b65\u9aa4/i.test(line);
+      /\bhow to\b|\bprocedure\b|\bsteps? to\b|\u6d41\u7a0b|\u65b9\u6cd5|\u6b65\u9aa4/i.test(line);
     const episode =
       /\byesterday\b|\blast week\b|\brecently\b|\btoday\b|\u6628\u5929|\u4e0a\u5468|\u6700\u8fd1|\u4eca\u5929/i.test(
         line,

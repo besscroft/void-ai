@@ -15,6 +15,7 @@ import { DesktopPetTrayController } from "./lib/desktop-pet-tray";
 import { showDesktopPetContextMenu } from "./lib/desktop-pet-context-menu";
 import { startCronScheduler, stopCronScheduler } from "./lib/cron-scheduler";
 import { ensureBuiltinCatalogSources } from "./lib/catalog-service";
+import { agentLoopSessions } from "./lib/agent-loop-session";
 
 const WINDOWS_APP_ID = "com.zzzvoid.ai";
 
@@ -238,6 +239,7 @@ app.on("window-all-closed", () => {
 
 // 应用退出前清理资源
 app.on("before-quit", () => {
+  agentLoopSessions.interruptAll();
   desktopPetControllerRef?.prepareForAppQuit();
   desktopPetTrayRef?.dispose();
   stopCronScheduler();

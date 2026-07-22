@@ -24,7 +24,7 @@ import { Button } from "./ui";
 import { api, type RuntimeSnapshot } from "../lib/api";
 import { hasMeaningfulConversationTitle } from "../lib/conversation-title";
 import { getChatErrorMessage } from "../lib/errors";
-import { AgentStatusWidget } from "./WorkflowStatusWidget";
+import { AgentStatusWidget } from "./AgentStatusWidget";
 import {
   appendOrReplaceMessage,
   buildUserMessage,
@@ -144,6 +144,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     | "agentRuntimeStates"
     | "conversationAgentStates"
     | "agentInstances"
+    | "agentRunInputs"
+    | "runtimeEvents"
     | "sandboxSessions"
     | "sandboxSnapshots"
     | "sandboxArtifacts"
@@ -158,6 +160,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
   const selectedModelRef = useRef<string | null>(null);
   const reasoningLevelRef = useRef<ChatReasoningLevel>(DEFAULT_SETTINGS.chatReasoningLevel);
   const toolSelectionRef = useRef<ChatToolSelectionRequest>(DEFAULT_CHAT_TOOL_SELECTION);
+  const runIdRef = useRef<string | null>(null);
+  const runModeRef = useRef<"start" | "resume">("start");
   const mediaSettingsRef = useRef<MediaGenerationSettings>(DEFAULT_MEDIA_GENERATION_SETTINGS);
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const hydratedConversationRef = useRef<string | null>(null);
@@ -365,6 +369,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
           conversationId,
           reasoning: reasoningLevelRef.current,
           toolSelection: toolSelectionRef.current,
+          runId: runIdRef.current ?? undefined,
+          mode: runModeRef.current,
         }),
       }),
     [conversationId, serverInfo.port, serverInfo.token],
@@ -376,6 +382,8 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     setChatError(null);
     setIsStopped(false);
     setToolSelection(DEFAULT_CHAT_TOOL_SELECTION);
+    runIdRef.current = null;
+    runModeRef.current = "start";
     createdAtRef.current = new Map();
     revisionRef.current = 0;
     persistenceDirtyRef.current = false;
@@ -424,6 +432,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     transport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onFinish: ({ messages, isError }) => {
+      if (runIdRef.current) runModeRef.current = "resume";
       if (!isError) setChatError(null);
       setIsStopped(false);
       const learningKey = getAgentLearningQueueKey(conversationId, messages, isError);
@@ -467,6 +476,13 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
   const isChatLoading = chat.status === "submitted" || chat.status === "streaming";
   const isLoading = isChatLoading || isMediaGenerating;
+  const hasActivePersistedRun = !!runtimeSnapshot?.runtimeRuns.some(
+    (item) =>
+      item.conversation_id === conversationId &&
+      ["queued", "running", "waiting_approval", "waiting_handoff"].includes(item.status),
+  );
+  const isAgentRunActive = isChatLoading || hasActivePersistedRun;
+  const shouldPollRuntime = isLoading || hasActivePersistedRun;
 
   useEffect(() => {
     if (hydrationState !== "ready" || !isChatLoading) return;
@@ -498,11 +514,24 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     let cancelled = false;
     const load = (): void => {
       void api.agents.runtimeSnapshot().then((snapshot) => {
-        if (!cancelled) setRuntimeSnapshot(snapshot);
+        if (!cancelled) {
+          setRuntimeSnapshot(snapshot);
+          const activeRun = snapshot.runtimeRuns
+            .filter(
+              (item) =>
+                item.conversation_id === conversationId &&
+                ["queued", "running", "waiting_approval", "waiting_handoff"].includes(item.status),
+            )
+            .sort((a, b) => b.started_at - a.started_at)[0];
+          if (activeRun) {
+            runIdRef.current = activeRun.id;
+            runModeRef.current = "resume";
+          }
+        }
       });
     };
     load();
-    if (!isLoading) {
+    if (!shouldPollRuntime) {
       return () => {
         cancelled = true;
       };
@@ -512,7 +541,7 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [conversationId, isLoading]);
+  }, [conversationId, shouldPollRuntime]);
 
   /* ---------- 新建对话开场建议（随机生成） ---------- */
   const starterFetchedForRef = useRef<string | null>(null);
@@ -691,18 +720,60 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
     chat.clearError();
 
     const pendingMessages = appendOrReplaceMessage(latestMessagesRef.current, userMessage);
+    const activeRunId = runIdRef.current;
+    const activeRuntimeRun = activeRunId
+      ? runtimeSnapshot?.runtimeRuns.some(
+          (item) =>
+            item.id === activeRunId &&
+            ["queued", "running", "waiting_approval", "waiting_handoff"].includes(item.status),
+        )
+      : false;
+    if (activeRunId && (isChatLoading || activeRuntimeRun)) {
+      void api.runtime
+        .enqueueInput({
+          runId: activeRunId,
+          kind: "steering",
+          source: "user",
+          message: userMessage,
+        })
+        .then(() => {
+          chat.setMessages(pendingMessages);
+          latestMessagesRef.current = pendingMessages;
+          persistInBackground(pendingMessages, "steering input");
+        })
+        .catch(async (err) => {
+          const code = err && typeof err === "object" && "code" in err ? String(err.code) : "";
+          runIdRef.current = null;
+          runModeRef.current = "start";
+          if (code === "run_not_active" || code === "run_not_found") {
+            latestMessagesRef.current = pendingMessages;
+            void persistAndTouch(pendingMessages);
+            await chat.sendMessage(userMessage);
+            return;
+          }
+          reportChatError("send", err, { persistSnapshot: pendingMessages });
+        });
+      return;
+    }
+    runIdRef.current = crypto.randomUUID();
+    runModeRef.current = "start";
     latestMessagesRef.current = pendingMessages;
     void persistAndTouch(pendingMessages).catch((err) => {
       console.error("[chat] failed to pre-save user message:", err);
     });
-
     void chat.sendMessage(userMessage).catch((err) => {
       reportChatError("send", err, { persistSnapshot: pendingMessages });
     });
   };
 
   const handleStop = (): void => {
-    void chat.stop().finally(() => {
+    const runId = runIdRef.current;
+    void Promise.all([
+      chat.stop(),
+      runId ? api.runtime.cancelRun(runId) : Promise.resolve(false),
+    ]).finally(() => {
+      runIdRef.current = null;
+      runModeRef.current = "start";
       setIsStopped(true);
       persistInBackground(latestMessagesRef.current, "stopped response");
     });
@@ -959,8 +1030,9 @@ export function ChatView({ conversationId, serverInfo }: ChatViewProps): React.J
 
       <MessageInput
         isLoading={isLoading}
+        isRunActive={isAgentRunActive}
         onSend={handleSend}
-        onStop={isChatLoading ? handleStop : undefined}
+        onStop={isAgentRunActive ? handleStop : undefined}
         selectedModel={selectedModel}
         reasoningLevel={reasoningLevel}
         onModelChange={setSelectedModel}

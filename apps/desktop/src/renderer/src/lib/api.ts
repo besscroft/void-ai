@@ -48,9 +48,12 @@ import type {
   ProviderInfo,
   ProviderTestResult,
   SyncState,
-  ActiveWorkflowRunSnapshot,
+  AgentRunInput,
+  AgentRunInputKind,
+  AgentRunInputSource,
   RuntimeSnapshot,
 } from "@shared/types";
+import type { UIMessage } from "ai";
 
 /**
  * 娓叉煋灞傚 window.api 鐨勭被鍨嬪寲灏佽
@@ -146,6 +149,13 @@ export const api = {
   },
   runtime: {
     snapshot: (): Promise<RuntimeSnapshot> => assertApi().runtime.snapshot(),
+    enqueueInput: (input: {
+      runId: string;
+      kind: AgentRunInputKind;
+      source?: AgentRunInputSource;
+      message: UIMessage;
+    }): Promise<AgentRunInput> => assertApi().runtime.enqueueInput(input),
+    cancelRun: (runId: string): Promise<boolean> => assertApi().runtime.cancelRun(runId),
     events: {
       list: (): Promise<RuntimeEvent[]> => assertApi().runtime.events.list(),
     },
@@ -174,6 +184,7 @@ export const api = {
         | "sandboxArtifacts"
         | "runtimeEvents"
         | "agentInstances"
+        | "agentRunInputs"
         | "collaborationMessages"
         | "contextCheckpoints"
       >
@@ -213,13 +224,6 @@ export const api = {
       ids: string[],
       patch: Partial<Pick<MemoryRecord, "pinned" | "salience" | "kind" | "scope">>,
     ): Promise<number> => assertApi().memories.updateBatch(ids, patch),
-  },
-  workflows: {
-    // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）
-    activeRunForConversation: (conversationId: string): Promise<ActiveWorkflowRunSnapshot | null> =>
-      assertApi().workflows.activeRunForConversation(conversationId),
-    // 用户可主动取消正在运行的 workflow
-    cancelRun: (runId: string): Promise<boolean> => assertApi().workflows.cancelRun(runId),
   },
   interactions: {
     list: (): Promise<InteractionProfile[]> => assertApi().interactions.list(),
@@ -380,6 +384,5 @@ export type {
   ProviderInfo,
   ProviderTestResult,
   SyncState,
-  ActiveWorkflowRunSnapshot,
   RuntimeSnapshot,
 };

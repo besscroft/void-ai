@@ -283,34 +283,28 @@ async function installSkillItem(
     ? updateSkillTool(existing.skill_id, {
         name: inspected.name,
         description: inspected.description,
+        instructions: inspected.markdown,
         enabled: false,
-        config: { installationId, installPath: target, sourceItemId: item.id },
-        steps: [
-          {
-            id: "apply-skill",
-            type: "prompt",
-            title: "Apply installed skill",
-            detail: inspected.markdown,
-          },
-        ],
+        config: {
+          installationId,
+          installPath: target,
+          sourceItemId: item.id,
+        },
       })
     : createSkillTool({
         name: inspected.name,
         description: inspected.description,
+        instructions: inspected.markdown,
         category: "catalog",
         enabled: false,
         auto_use: false,
         requires_approval: true,
         tags: ["catalog", "installed"],
-        config: { installationId, installPath: target, sourceItemId: item.id },
-        steps: [
-          {
-            id: "apply-skill",
-            type: "prompt",
-            title: "Apply installed skill",
-            detail: inspected.markdown,
-          },
-        ],
+        config: {
+          installationId,
+          installPath: target,
+          sourceItemId: item.id,
+        },
       });
   const now = Date.now();
   const hash = skillPackageHash(inspected);

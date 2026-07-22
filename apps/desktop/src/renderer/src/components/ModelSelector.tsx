@@ -9,12 +9,14 @@ interface ModelSelectorProps {
   value: string | null;
   onChange: (modelRef: string | null) => void;
   placement?: "top" | "bottom";
+  disabled?: boolean;
 }
 
 export function ModelSelector({
   value,
   onChange,
   placement = "bottom",
+  disabled = false,
 }: ModelSelectorProps): React.JSX.Element {
   const { t } = useT();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -92,7 +94,8 @@ export function ModelSelector({
     <div ref={ref} className="relative min-w-0">
       <button
         type="button"
-        className="flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-foreground/10 bg-foreground/[0.035] px-2.5 text-[13px] shadow-sm transition hover:bg-foreground/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+        disabled={disabled}
+        className="flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-foreground/10 bg-foreground/[0.035] px-2.5 text-[13px] shadow-sm transition hover:bg-foreground/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-50"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}

@@ -9,7 +9,6 @@ import {
   DEFAULT_BUILTIN_TOOL_SEEDS,
   DEFAULT_CHILD_AGENT_SEEDS,
   DEFAULT_ROOT_AGENT_SEED,
-  DEFAULT_WORKFLOW_SEEDS,
 } from "./runtime-defaults";
 import { getSandboxSessionOrThrow } from "./sandbox-runtime";
 import { buildToolRegistryPreview } from "./tool-registry";
@@ -69,7 +68,7 @@ void describe("runtime architecture", () => {
     assert.deepEqual(migrations, ["0000_initial.sql"]);
   });
 
-  void it("defines default seed data for agents, workflows, and tools", () => {
+  void it("defines default seed data for agents and tools", () => {
     assert.equal(DEFAULT_ROOT_AGENT_SEED.name, "Paimon");
     assert.equal(DEFAULT_ROOT_AGENT_SEED.description, "最好的伙伴！");
     assert.ok(
@@ -88,7 +87,6 @@ void describe("runtime architecture", () => {
           agent.description === "通用人工智能引擎",
       ),
     );
-    assert.ok(DEFAULT_WORKFLOW_SEEDS.some((workflow) => workflow.id === "workflow-runtime-review"));
     assert.ok(DEFAULT_BUILTIN_TOOL_SEEDS.some((tool) => tool.id === "runtime_snapshot"));
     assert.ok(DEFAULT_BUILTIN_TOOL_SEEDS.some((tool) => tool.id === "sandbox_run_command"));
     assert.ok(

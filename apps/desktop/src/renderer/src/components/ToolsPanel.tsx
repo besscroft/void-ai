@@ -620,7 +620,7 @@ function SkillCard({
   const { t, f } = useT();
   const config = safeJsonObject(skill.config_json);
   const source = typeof config.source === "string" ? config.source : "manual";
-  const instructions = typeof config.instructions === "string" ? config.instructions : "";
+  const instructions = skill.instructions;
   return (
     <Card>
       <Card.Header>
@@ -638,10 +638,6 @@ function SkillCard({
           <ReadStat
             label={t("tools.field.lastRun")}
             value={skill.last_run_at ? f.dateTime(skill.last_run_at) : t("tools.never")}
-          />
-          <ReadStat
-            label={t("tools.field.workflow")}
-            value={skill.workflow_id ?? t("tools.none")}
           />
         </div>
         {instructions ? (
@@ -819,15 +815,9 @@ function ToolDetailModal({
                           : t("tools.never")
                       }
                     />
-                    <ReadStat
-                      label={t("tools.field.workflow")}
-                      value={(detail.item as ToolSkill).workflow_id ?? t("tools.none")}
-                    />
                   </div>
                   {(() => {
-                    const config = safeJsonObject((detail.item as ToolSkill).config_json);
-                    const instructions =
-                      typeof config.instructions === "string" ? config.instructions : "";
+                    const instructions = (detail.item as ToolSkill).instructions;
                     return instructions ? (
                       <div className="space-y-2">
                         <h4 className="text-sm font-medium">{t("tools.detail.instructions")}</h4>

@@ -72,6 +72,14 @@ const api = {
   },
   runtime: {
     snapshot: () => ipcRenderer.invoke("runtime:snapshot"),
+    enqueueInput: async (input: unknown) => {
+      const result = (await ipcRenderer.invoke("runtime:enqueueInput", input)) as
+        | { ok: true; value: unknown }
+        | { ok: false; code: string; error: string };
+      if (result.ok) return result.value;
+      throw Object.assign(new Error(result.error), { code: result.code });
+    },
+    cancelRun: (runId: string) => ipcRenderer.invoke("runtime:cancelRun", runId),
     events: {
       list: () => ipcRenderer.invoke("runtime:events:list"),
     },
@@ -106,13 +114,6 @@ const api = {
     deleteBatch: (ids: string[]) => ipcRenderer.invoke("memories:deleteBatch", ids),
     updateBatch: (ids: string[], patch: unknown) =>
       ipcRenderer.invoke("memories:updateBatch", ids, patch),
-  },
-  workflows: {
-    // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）
-    activeRunForConversation: (conversationId: string) =>
-      ipcRenderer.invoke("workflowRuns:activeForConversation", conversationId),
-    // 用户在悬浮状态框中可主动取消正在运行的 workflow
-    cancelRun: (runId: string) => ipcRenderer.invoke("workflowRuns:cancel", runId),
   },
   interactions: {
     list: () => ipcRenderer.invoke("interactions:list"),

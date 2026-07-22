@@ -38,7 +38,7 @@ interface AppShellProps {
 const primaryNav: { id: AppView; labelKey: TranslationKey; Icon: typeof IconMessage }[] = [
   { id: "chat", labelKey: "shell.nav.conversations", Icon: IconMessage },
   { id: "agents", labelKey: "main.title.agents", Icon: IconCpu },
-  // 工作流与工作流运行已下沉�?chat 页面右上角悬浮状态框（WorkflowStatusWidget�?  // 入口不再展示，独立页面与组件（WorkflowRunsPanel / WorkflowRunDetail）已删除
+  // Agent Loop status and controls are shown in the chat header.
   { id: "tools", labelKey: "main.title.tools", Icon: IconWrench },
   { id: "skills", labelKey: "skills.title", Icon: IconSparkles },
   { id: "automations", labelKey: "automation.title", Icon: IconClock },

@@ -229,6 +229,8 @@ export interface AgentHandoffConfig {
 
 export interface AgentRuntimeConfig {
   maxTurns: number;
+  maxDurationMs?: number;
+  maxToolCalls?: number;
   maxConcurrentSubagents?: number;
   totalTimeoutMs?: number;
   contextPolicy?: AgentContextPolicy;
@@ -418,7 +420,8 @@ export interface RuntimeRun {
   conversation_id: string | null;
   root_agent_id: string | null;
   final_agent_id: string | null;
-  workflow_id?: string | null;
+  origin: AgentRunOrigin;
+  finish_reason: AgentRunFinishReason | null;
   status: RunStatus;
   model_ref: string | null;
   started_at: number;
@@ -433,12 +436,15 @@ export interface RuntimeRun {
 }
 
 export type RuntimeStepKind =
+  | "agent"
   | "model"
   | "tool"
   | "approval"
   | "handoff"
   | "memory"
-  | "workflow"
+  | "loop_input"
+  | "skill"
+  | "budget"
   | "sandbox"
   | "guardrail"
   | "diagnostic"
@@ -588,182 +594,39 @@ export interface AgentMemoryFileSnapshot {
   updatedAt: number;
 }
 
-export type WorkflowStatus = "enabled" | "paused" | "draft";
-
-export interface WorkflowStep {
-  id: string;
-  type: "prompt" | "tool" | "approval" | "memory" | "handoff";
-  title: string;
-  detail: string;
-}
-
-/**
- * 工作流节点类型。在 OpenAI Orchestration 范式之上扩展：
- * - handoff 节点把控制权转交给子代理（OpenAI Handoffs 范式）
- * - consult 节点作为受限能力被父代理调用（Agents-as-tools 范式）
- * - parallel / branch / delay 提供控制流
- */
-export type WorkflowNodeKind =
-  | "prompt"
-  | "tool"
-  | "approval"
-  | "memory"
-  | "handoff"
-  | "consult"
-  | "parallel"
-  | "branch"
-  | "delay";
-
-export type WorkflowNodeStatus =
-  | "pending"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "skipped"
-  | "cancelled"
-  | "waiting_approval"
-  | "waiting_handoff";
-
-export type WorkflowRunStatus =
+export type RunStatus =
   | "queued"
   | "running"
   | "waiting_approval"
   | "waiting_handoff"
   | "succeeded"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "interrupted";
 
-export type WorkflowOnErrorPolicy = "fail" | "continue" | "compensate" | "fallback";
+export type RuntimeStatus = RunStatus;
+export type AgentRunOrigin = "chat" | "automation" | "system";
+export type AgentRunFinishReason =
+  | "natural"
+  | "budget_exhausted"
+  | "cancelled"
+  | "interrupted"
+  | "error";
+export type AgentRunInputKind = "steering" | "follow_up";
+export type AgentRunInputSource = "user" | "system" | "automation" | "tool";
+export type AgentRunInputStatus = "queued" | "consumed" | "discarded";
 
-/**
- * Chat 页面悬浮状态框专用快照：与主进程 `getActiveWorkflowRunForConversation` 返回值对齐。
- * - 活动 run：status 在 queued/running/waiting_approval/waiting_handoff 之一
- * - 终态 run：用于显示短暂 toast（5s 后自动隐藏）
- */
-export interface ActiveWorkflowRunSnapshot {
+export interface AgentRunInput {
   id: string;
-  workflowId: string;
-  status: WorkflowRunStatus;
-  startedAt: number;
-  finishedAt: number | null;
-  currentNodeId: string | null;
-}
-
-export interface WorkflowRetryPolicy {
-  maxAttempts: number; // 0 = 不重试
-  backoffMs: number; // 首次退避毫秒
-  backoffMultiplier: number; // 指数退避倍率
-}
-
-export interface WorkflowBranchOption {
-  nodeId: string; // 分支选中的下一节点 id
-  when?: string; // 极简表达式，命中条件（缺省/空 = 默认分支）
-}
-
-export interface WorkflowNodeConfig {
-  // 通用
-  agentId?: string;
-  /**
-   * 该节点归属的 agent 路径（OpenAI Responses Multi-agent 风格的层级命名，例如
-   * "/root"、"/root/researcher"）。缺省时引擎回退到 "/root"。UI 可按此字段对节点
-   * 事件做来源分组/着色；目前仅 engine 透传到 EngineEvent 与 step_run.metadata_json，
-   * 不持久化到独立列。
-   */
-  agentPath?: string;
-  // prompt
-  systemPrompt?: string;
-  promptTemplate?: string;
-  // tool
-  toolRef?: string; // "skill:<id>" / "<chatToolId>" / "mcp:<serverId>:<toolName>"
-  toolInput?: JsonObject;
-  // approval
-  approvalPrompt?: string;
-  // memory
-  memoryQuery?: string;
-  memoryKind?: MemoryKind;
-  memoryWrite?: { title: string; content: string; kind: MemoryKind };
-  // handoff / consult
-  targetAgentId?: string;
-  handoffTask?: string;
-  handoffExpectedOutput?: string;
-  // parallel
-  parallelNodes?: string[]; // 参与并行的节点 id 列表
-  // branch
-  conditionExpression?: string; // 整条表达式的入口；branches 缺省时用此求值
-  branches?: WorkflowBranchOption[]; // 多路分支，第一个 when 求值为 truthy 的胜出
-  // delay
-  delayMs?: number;
-}
-
-export interface WorkflowNode {
-  id: string;
-  kind: WorkflowNodeKind;
-  title: string;
-  description?: string;
-  dependsOn: string[]; // DAG 前置节点
-  config: WorkflowNodeConfig;
-  retryPolicy: WorkflowRetryPolicy;
-  onError: WorkflowOnErrorPolicy;
-  fallbackNodeId?: string; // onError=fallback 时跳转的节点
-  timeoutMs?: number; // 节点级超时
-}
-
-export interface WorkflowDefinition {
-  id: string;
-  name: string;
-  description: string;
-  status: WorkflowStatus;
-  trigger: string;
-  version: number;
-  entryNodeId: string;
-  nodes: WorkflowNode[];
-  // 旧版 ToolSkillStep JSON，保留以兼容存量数据
-  steps_json?: string;
+  run_id: string;
+  kind: AgentRunInputKind;
+  source: AgentRunInputSource;
+  status: AgentRunInputStatus;
+  message_json: string;
+  sequence: number;
   created_at: number;
-  updated_at: number;
-}
-
-export type RunStatus = WorkflowRunStatus;
-
-export interface WorkflowStepRun {
-  id: string;
-  workflow_run_id: string;
-  node_id: string;
-  status: WorkflowNodeStatus;
-  attempt: number;
-  input_json: string | null;
-  output_json: string | null;
-  error: string | null;
-  started_at: number | null;
-  finished_at: number | null;
-  duration_ms: number | null;
-  assigned_agent_id: string | null;
-  metadata_json: string;
-}
-
-export interface WorkflowTransition {
-  id: string;
-  workflow_run_id: string;
-  from_node_id: string | null;
-  to_node_id: string;
-  reason: string;
-  created_at: number;
-}
-
-export interface WorkflowRun {
-  id: string;
-  workflow_id: string;
-  runtime_run_id?: string | null;
-  status: RunStatus;
-  input_json: string | null;
-  output_json: string | null;
-  error: string | null;
-  context_json: string;
-  started_at: number;
-  finished_at: number | null;
-  triggered_by: "void-tool" | "manual" | "schedule" | "skill";
-  triggered_by_agent_id: string | null;
-  conversation_id: string | null;
+  consumed_at: number | null;
+  discarded_reason: string | null;
 }
 
 export interface RuntimeEvent {
@@ -875,14 +738,13 @@ export interface ToolRecord {
   name: string;
   title: string | null;
   description: string;
+  instructions: string;
   kind: ToolRecordKind;
   category: string;
   reference: string;
   input_schema_json: string;
   output_schema_json: string;
   config_json: string;
-  steps_json: string;
-  workflow_id: string | null;
   trigger_keywords_json: string;
   tags_json: string;
   enabled: number;
@@ -904,19 +766,11 @@ export interface ToolDiscoveryResult {
   message: string;
 }
 
-export type ToolSkillStepType = "prompt" | "tool" | "approval" | "memory" | "handoff";
-
-export interface ToolSkillStep {
-  id: string;
-  type: ToolSkillStepType;
-  title: string;
-  detail: string;
-}
-
 export interface ToolSkill {
   id: string;
   name: string;
   description: string;
+  instructions: string;
   category: string;
   enabled: number;
   auto_use: number;
@@ -925,8 +779,6 @@ export interface ToolSkill {
   tags_json: string;
   config_schema_json: string;
   config_json: string;
-  steps_json: string;
-  workflow_id: string | null;
   last_run_at: number | null;
   created_at: number;
   updated_at: number;
@@ -937,6 +789,7 @@ export interface ToolSkill {
 export interface ToolSkillInput {
   name: string;
   description?: string;
+  instructions?: string;
   category?: string;
   enabled?: boolean | number;
   auto_use?: boolean | number;
@@ -945,8 +798,6 @@ export interface ToolSkillInput {
   tags?: string[] | string;
   configSchema?: JsonObject | string;
   config?: JsonObject | string;
-  steps?: ToolSkillStep[] | string;
-  workflow_id?: string | null;
 }
 
 export interface SkillDraftRequest {
@@ -989,7 +840,6 @@ export interface ToolsSnapshot {
   toolRecords: ToolRecord[];
   skills: ToolSkill[];
   secrets: ToolSecretPublic[];
-  workflowRuns: WorkflowRun[];
   runtimeEvents: RuntimeEvent[];
 }
 
@@ -1134,6 +984,8 @@ export const DEFAULT_AGENT_HANDOFF_CONFIG: AgentHandoffConfig = {
 
 export const DEFAULT_AGENT_RUNTIME_CONFIG: AgentRuntimeConfig = {
   maxTurns: 8,
+  maxDurationMs: 600_000,
+  maxToolCalls: 50,
   maxConcurrentSubagents: 3,
   totalTimeoutMs: 120_000,
   contextPolicy: {
@@ -1206,6 +1058,12 @@ export function normalizeAgentRuntimeConfig(
   const value = readAgentConfigObject(raw);
   const config: AgentRuntimeConfig = {
     maxTurns: Math.round(clampFiniteNumber(value?.maxTurns, fallback.maxTurns, 1, 20)),
+    maxDurationMs: Math.round(
+      clampFiniteNumber(value?.maxDurationMs, fallback.maxDurationMs ?? 600_000, 10_000, 3_600_000),
+    ),
+    maxToolCalls: Math.round(
+      clampFiniteNumber(value?.maxToolCalls, fallback.maxToolCalls ?? 50, 1, 500),
+    ),
     maxConcurrentSubagents: normalizeMaxConcurrentSubagents(
       value?.maxConcurrentSubagents,
       fallback.maxConcurrentSubagents ?? 3,
@@ -2154,8 +2012,7 @@ export interface RuntimeSnapshot {
   sandboxSnapshots: SandboxSnapshot[];
   sandboxArtifacts: SandboxArtifact[];
   memories: MemoryRecord[];
-  workflows: WorkflowDefinition[];
-  workflowRuns: WorkflowRun[];
+  agentRunInputs: AgentRunInput[];
   runtimeEvents: RuntimeEvent[];
   agentInstances: AgentInstanceRecord[];
   collaborationMessages: AgentCollaborationMessage[];
