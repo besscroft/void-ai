@@ -8,8 +8,24 @@ export interface CatalogAdapterItem {
   description: string;
   version?: string;
   installUrl: string;
-  contentHash: string;
+  contentHash?: string;
   detail: JsonObject;
+}
+
+export interface SkillsShSearchResult {
+  items: CatalogAdapterItem[];
+  hasMore: boolean;
+  source: "skills-sh";
+}
+
+export interface SkillPackageFile {
+  path: string;
+  contents: string;
+}
+
+export interface SkillPackage {
+  files: SkillPackageFile[];
+  hash: string;
 }
 
 export interface ModelScopeSkillsResult {
@@ -21,6 +37,11 @@ export interface ModelScopeSkillsResult {
 
 const MODELSCOPE_ORIGIN = "https://www.modelscope.cn";
 const MODELSCOPE_SKILLS_API = `${MODELSCOPE_ORIGIN}/api/v1/dolphin/skills`;
+const SKILLS_SH_ORIGIN = "https://skills.sh";
+const SKILLS_SH_SEARCH_API = `${SKILLS_SH_ORIGIN}/api/search`;
+
+export const SKILLS_SH_SOURCE_ID = "catalog-skills-sh";
+export const MODELSCOPE_SOURCE_ID = "catalog-modelscope-skills";
 
 export async function searchModelScopeSkills(
   input: CatalogSearchInput = {},
@@ -59,6 +80,79 @@ export async function searchModelScopeSkills(
     throw new Error("ModelScope Skills returned browser verification instead of catalog data.");
   }
   return parseModelScopeSkillsData(JSON.parse(text), page, pageSize);
+}
+
+export async function searchSkillsShSkills(
+  input: CatalogSearchInput = {},
+): Promise<SkillsShSearchResult> {
+  const query = input.query?.trim() ?? "";
+  if (query.length < 2) return { items: [], hasMore: false, source: "skills-sh" };
+  const page = clampInteger(input.page, 1, 1, 1_000);
+  const pageSize = clampInteger(input.pageSize, 40, 1, 100);
+  const limit = Math.min(200, page * pageSize);
+  const url = new URL(SKILLS_SH_SEARCH_API);
+  url.searchParams.set("q", query);
+  url.searchParams.set("limit", String(limit));
+  const response = await fetch(url, { redirect: "follow" });
+  const resolved = new URL(response.url || url.href);
+  if (resolved.protocol !== "https:" || resolved.origin !== SKILLS_SH_ORIGIN) {
+    throw new Error(`skills.sh search redirected to an untrusted origin: ${resolved.origin}`);
+  }
+  if (!response.ok) throw new Error(`skills.sh search returned HTTP ${response.status}.`);
+  const payload = (await response.json()) as unknown;
+  const root = asRecord(payload);
+  const rawItems = firstArray(root.skills, root.items);
+  const items = rawItems
+    .map((value) => skillsShItem(asRecord(value)))
+    .filter((item): item is CatalogAdapterItem => item !== null);
+  return {
+    items: items.slice((page - 1) * pageSize, page * pageSize),
+    hasMore: items.length >= limit && limit < 200,
+    source: "skills-sh",
+  };
+}
+
+export async function downloadSkillsShPackage(externalId: string): Promise<SkillPackage> {
+  const parts = externalId.split("/");
+  if (parts.length < 3) throw new Error("Invalid skills.sh skill identifier.");
+  const [owner, repo, ...skillParts] = parts;
+  const skill = skillParts.join("/");
+  if (
+    !owner ||
+    !repo ||
+    !skill ||
+    !/^[A-Za-z0-9_.-]+$/.test(owner) ||
+    !/^[A-Za-z0-9_.:-]+$/.test(repo)
+  ) {
+    throw new Error("Invalid skills.sh skill identifier.");
+  }
+  const url = new URL(
+    `/api/download/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${skill
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/")}`,
+    SKILLS_SH_ORIGIN,
+  );
+  const response = await fetch(url, { redirect: "follow" });
+  const resolved = new URL(response.url || url.href);
+  if (resolved.protocol !== "https:" || resolved.origin !== SKILLS_SH_ORIGIN) {
+    throw new Error(`skills.sh download redirected to an untrusted origin: ${resolved.origin}`);
+  }
+  if (!response.ok) throw new Error(`skills.sh download returned HTTP ${response.status}.`);
+  const contentLength = Number(response.headers.get("content-length") ?? 0);
+  if (contentLength > 20 * 1024 * 1024) throw new Error("Skill package exceeds 20 MB.");
+  const payload = asRecord(await response.json());
+  const files = firstArray(payload.files)
+    .map((value) => {
+      const item = asRecord(value);
+      const path = stringValue(item.path);
+      const contents = typeof item.contents === "string" ? item.contents : "";
+      return path && contents ? { path, contents } : null;
+    })
+    .filter((value): value is SkillPackageFile => value !== null);
+  if (files.length === 0) throw new Error("skills.sh returned an empty package.");
+  const hash = stringValue(payload.hash);
+  return { files, hash: hash || createHash("sha256").update(JSON.stringify(files)).digest("hex") };
 }
 
 export function parseModelScopeSkillsData(
@@ -126,8 +220,52 @@ function modelScopeSkillItem(item: Record<string, unknown>): CatalogAdapterItem 
       tags: Array.isArray(item.Tags) ? item.Tags.map(String) : [],
       catalogUrl: `${MODELSCOPE_ORIGIN}/skills/${encodedId}`,
       modifiedAt: modified ?? 0,
+      canonicalKey: canonicalGithubKey(
+        stringValue(item.SourceURL ?? item.SourceUrl ?? item.sourceUrl),
+        repositoryName,
+      ),
     },
   };
+}
+
+function skillsShItem(item: Record<string, unknown>): CatalogAdapterItem | null {
+  const id = stringValue(item.id);
+  const name = stringValue(item.name) || stringValue(item.skillId);
+  const source = stringValue(item.source);
+  if (!id || !name || !source || !id.startsWith(`${source}/`)) return null;
+  const slug = id.slice(source.length + 1);
+  if (!slug) return null;
+  const encoded = id.split("/").map(encodeURIComponent).join("/");
+  return {
+    externalId: id,
+    artifactType: "skill",
+    name,
+    description: stringValue(item.description),
+    version: undefined,
+    installUrl: `${SKILLS_SH_ORIGIN}/api/download/${encoded}`,
+    detail: {
+      provider: "skills.sh",
+      source,
+      slug,
+      skillUrl: `${SKILLS_SH_ORIGIN}/${encoded}`,
+      sourceUrl: `https://github.com/${source}`,
+      installs: numberValue(item.installs) ?? 0,
+      canonicalKey: `github:${source.toLowerCase()}#${slug.toLowerCase()}`,
+    },
+  };
+}
+
+function canonicalGithubKey(sourceUrl: string, skill: string): string | null {
+  try {
+    const url = new URL(sourceUrl);
+    if (url.hostname !== "github.com") return null;
+    const [owner, repo] = url.pathname.split("/").filter(Boolean);
+    return owner && repo
+      ? `github:${owner.toLowerCase()}/${repo.toLowerCase()}#${skill.toLowerCase()}`
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

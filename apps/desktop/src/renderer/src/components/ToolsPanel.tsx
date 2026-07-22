@@ -11,6 +11,9 @@ import {
   TabsList,
   TabsTrigger,
   TextArea,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "./ui";
 import { strFromU8, unzipSync } from "fflate";
 import { api, type ToolsSnapshot } from "../lib/api";
@@ -28,6 +31,9 @@ import { cn } from "../lib/utils";
 import { isChatToolId } from "@shared/types";
 import type {
   CatalogItem,
+  CatalogItemDetail,
+  CatalogSnapshot,
+  CatalogSourceFilter,
   McpTransportKind,
   ToolRecord,
   ToolServer,
@@ -39,6 +45,7 @@ import {
   IconClose,
   IconEye,
   IconGlobe,
+  IconInfo,
   IconList,
   IconPlus,
   IconRotateCcw,
@@ -46,11 +53,9 @@ import {
   IconSparkles,
   IconTrash,
 } from "./icons";
+import { RichContent } from "./ai-elements/rich-content";
 
-type ToolsTab = "registry" | "mcp" | "skills";
-type CatalogTab = "discover" | "installed";
-type DeleteTarget = { type: "mcp"; item: ToolServer } | { type: "skill"; item: ToolSkill } | null;
-
+type ToolsTab = "registry" | "mcp";
 const EMPTY_MCP_FORM: McpFormState = {
   name: "",
   description: "",
@@ -70,25 +75,13 @@ const EMPTY_MCP_FORM: McpFormState = {
 
 export function ToolsPanel(): React.JSX.Element {
   const { t } = useT();
-  const [tab, setTab] = useState<CatalogTab>("discover");
   return (
     <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
-      <div className="flex shrink-0 items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t("catalog.title")}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t("catalog.subtitle")}</p>
-        </div>
-        <Tabs value={tab} onValueChange={(value) => setTab(toCatalogTab(value))}>
-          <TabsList aria-label={t("catalog.tabs.label")}>
-            <TabsTrigger value="discover">{t("catalog.tab.discover")}</TabsTrigger>
-            <TabsTrigger value="installed">{t("catalog.tab.installed")}</TabsTrigger>
-          </TabsList>
-        </Tabs>
+      <div className="shrink-0">
+        <h1 className="text-xl font-semibold tracking-tight">{t("main.title.tools")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t("main.subtitle.tools")}</p>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {tab === "discover" ? <CatalogDiscover /> : null}
-        {tab === "installed" ? <InstalledToolsPanel /> : null}
-      </div>
+      <InstalledToolsPanel />
     </div>
   );
 }
@@ -104,13 +97,12 @@ function InstalledToolsPanel(): React.JSX.Element {
   const [kind, setKind] = useState<ToolKindFilter>("all");
   const [status, setStatus] = useState<ToolStatusFilter>("all");
   const [mcpOpen, setMcpOpen] = useState(false);
-  const [skillOpen, setSkillOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
-  const [detailTarget, setDetailTarget] = useState<
-    | { type: "mcp"; item: ToolServer; tools: ToolRecord[] }
-    | { type: "skill"; item: ToolSkill }
-    | null
-  >(null);
+  const [deleteTarget, setDeleteTarget] = useState<ToolServer | null>(null);
+  const [detailTarget, setDetailTarget] = useState<{
+    type: "mcp";
+    item: ToolServer;
+    tools: ToolRecord[];
+  } | null>(null);
 
   const refresh = (): void => {
     setRefreshing(true);
@@ -127,7 +119,11 @@ function InstalledToolsPanel(): React.JSX.Element {
   useEffect(refresh, []);
 
   const rows = useMemo(
-    () => filterToolRecords(snapshot?.toolRecords ?? [], { query, kind, status }),
+    () =>
+      filterToolRecords(
+        (snapshot?.toolRecords ?? []).filter((tool) => tool.kind !== "skill"),
+        { query, kind, status },
+      ),
     [kind, query, snapshot, status],
   );
   const mcpServers = useMemo(
@@ -156,21 +152,17 @@ function InstalledToolsPanel(): React.JSX.Element {
     if (!deleteTarget) return;
     const target = deleteTarget;
     setDeleteTarget(null);
-    void runAction(
-      () =>
-        target.type === "mcp"
-          ? api.tools.mcp.delete(target.item.id)
-          : api.tools.skills.delete(target.item.id),
-      t("tools.toast.deleted"),
-    );
+    void runAction(() => api.tools.mcp.delete(target.id), t("tools.toast.deleted"));
   };
 
   return (
     <div className="flex h-full w-full flex-col gap-5">
-      <div className="grid shrink-0 gap-3 sm:grid-cols-3">
-        <MetricCard label={t("tools.metric.tools")} value={snapshot?.toolRecords.length ?? 0} />
+      <div className="grid shrink-0 gap-3 sm:grid-cols-2">
+        <MetricCard
+          label={t("tools.metric.tools")}
+          value={(snapshot?.toolRecords ?? []).filter((tool) => tool.kind !== "skill").length}
+        />
         <MetricCard label={t("tools.metric.mcp")} value={mcpServers.length} />
-        <MetricCard label={t("tools.metric.skills")} value={snapshot?.skills.length ?? 0} />
       </div>
 
       <div className="flex shrink-0 items-center justify-between">
@@ -178,7 +170,6 @@ function InstalledToolsPanel(): React.JSX.Element {
           <TabsList aria-label={t("tools.tabs.label")}>
             <TabsTrigger value="registry">{t("tools.tab.registry")}</TabsTrigger>
             <TabsTrigger value="mcp">{t("tools.tab.mcp")}</TabsTrigger>
-            <TabsTrigger value="skills">{t("tools.tab.skills")}</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="flex items-center gap-2">
@@ -186,12 +177,6 @@ function InstalledToolsPanel(): React.JSX.Element {
             <Button variant="primary" size="sm" onPress={() => setMcpOpen(true)}>
               <IconPlus className="size-4" />
               {t("tools.mcp.add")}
-            </Button>
-          ) : null}
-          {tab === "skills" ? (
-            <Button variant="primary" size="sm" onPress={() => setSkillOpen(true)}>
-              <IconPlus className="size-4" />
-              {t("tools.skill.add")}
             </Button>
           ) : null}
           <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
@@ -220,7 +205,6 @@ function InstalledToolsPanel(): React.JSX.Element {
             <option value="all">{t("tools.filter.allKinds")}</option>
             <option value="builtin">{t("tools.kind.builtin")}</option>
             <option value="mcp">{t("tools.kind.mcp")}</option>
-            <option value="skill">{t("tools.kind.skill")}</option>
             <option value="sandbox">{t("tools.kind.sandbox")}</option>
           </select>
           <select
@@ -249,35 +233,11 @@ function InstalledToolsPanel(): React.JSX.Element {
             servers={mcpServers}
             toolsByServer={mcpToolsByServer}
             busy={busy}
-            onDelete={(server) => setDeleteTarget({ type: "mcp", item: server })}
+            onDelete={setDeleteTarget}
             onToggle={(server, enabled) =>
               runAction(() => api.tools.mcp.setEnabled(server.id, enabled), t("tools.toast.saved"))
             }
             onDetail={(server, tools) => setDetailTarget({ type: "mcp", item: server, tools })}
-          />
-        ) : null}
-
-        {tab === "skills" && snapshot ? (
-          <SkillsSection
-            skills={snapshot.skills}
-            busy={busy}
-            onDelete={(skill) => setDeleteTarget({ type: "skill", item: skill })}
-            onToggle={(skill, enabled) =>
-              runAction(
-                () => api.tools.skills.setEnabled(skill.id, enabled),
-                t("tools.toast.saved"),
-              )
-            }
-            onApprovalChange={(skill, requiresApproval) =>
-              runAction(
-                () =>
-                  api.tools.skills.update(skill.id, {
-                    requires_approval: requiresApproval,
-                  }),
-                t("tools.toast.saved"),
-              )
-            }
-            onDetail={(skill) => setDetailTarget({ type: "skill", item: skill })}
           />
         ) : null}
       </div>
@@ -296,6 +256,103 @@ function InstalledToolsPanel(): React.JSX.Element {
         }
       />
 
+      <ToolDetailModal detail={detailTarget} onClose={() => setDetailTarget(null)} />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        danger
+        title={t("tools.delete.title")}
+        message={t("tools.delete.message", { name: deleteTarget?.name ?? "" })}
+        confirmLabel={t("common.delete")}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTarget(null)}
+      />
+    </div>
+  );
+}
+
+export function InstalledSkillsPanel(): React.JSX.Element {
+  const { t, locale } = useT();
+  const [snapshot, setSnapshot] = useState<ToolsSnapshot | null>(null);
+  const [catalogSnapshot, setCatalogSnapshot] = useState<CatalogSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [skillOpen, setSkillOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ToolSkill | null>(null);
+  const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
+
+  const refresh = (): void => {
+    setRefreshing(true);
+    void Promise.all([api.tools.snapshot(), api.catalog.snapshot()])
+      .then(([toolsSnapshot, nextCatalogSnapshot]) => {
+        setSnapshot(toolsSnapshot);
+        setCatalogSnapshot(nextCatalogSnapshot);
+      })
+      .catch((error) => notify.error(t("tools.toast.failed"), error, locale))
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
+  };
+
+  useEffect(refresh, []);
+
+  const runAction = async (action: () => Promise<unknown>, success: string): Promise<void> => {
+    setBusy(true);
+    try {
+      await action();
+      notify.success(success);
+    } catch (error) {
+      notify.error(t("tools.toast.failed"), error, locale);
+    } finally {
+      refresh();
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex shrink-0 items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {t("skills.installedCount", { count: snapshot?.skills.length ?? 0 })}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button variant="primary" size="sm" onPress={() => setSkillOpen(true)}>
+            <IconPlus className="size-4" />
+            {t("tools.skill.add")}
+          </Button>
+          <Button variant="secondary" size="sm" onPress={refresh} isDisabled={refreshing}>
+            <IconRotateCcw className={cn("size-4", refreshing && "animate-spin")} />
+            {t("main.refresh")}
+          </Button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {loading && !snapshot ? (
+          <EmptyTools message={t("main.loading")} />
+        ) : (
+          <SkillsSection
+            skills={snapshot?.skills ?? []}
+            busy={busy}
+            onDelete={setDeleteTarget}
+            onToggle={(skill, enabled) =>
+              runAction(
+                () => api.tools.skills.setEnabled(skill.id, enabled),
+                t("tools.toast.saved"),
+              )
+            }
+            onApprovalChange={(skill, requiresApproval) =>
+              runAction(
+                () => api.tools.skills.update(skill.id, { requires_approval: requiresApproval }),
+                t("tools.toast.saved"),
+              )
+            }
+            onRun={(skill) => runAction(() => api.tools.skills.run(skill.id), t("tools.toast.ran"))}
+            onDetail={(skill) => setDetailTarget({ type: "skill", item: skill })}
+          />
+        )}
+      </div>
       <AddSkillModal
         open={skillOpen}
         busy={busy}
@@ -307,16 +364,29 @@ function InstalledToolsPanel(): React.JSX.Element {
           }, t("tools.toast.saved"))
         }
       />
-
       <ToolDetailModal detail={detailTarget} onClose={() => setDetailTarget(null)} />
-
       <ConfirmDialog
         open={!!deleteTarget}
         danger
         title={t("tools.delete.title")}
-        message={t("tools.delete.message", { name: deleteTarget?.item.name ?? "" })}
+        message={t("tools.delete.message", { name: deleteTarget?.name ?? "" })}
         confirmLabel={t("common.delete")}
-        onConfirm={confirmDelete}
+        onConfirm={() => {
+          const target = deleteTarget;
+          setDeleteTarget(null);
+          if (target) {
+            const installation = catalogSnapshot?.installations.find(
+              (value) => value.skillId === target.id,
+            );
+            void runAction(
+              () =>
+                installation
+                  ? api.catalog.uninstall(installation.id)
+                  : api.tools.skills.delete(target.id),
+              t("tools.toast.deleted"),
+            );
+          }
+        }}
         onClose={() => setDeleteTarget(null)}
       />
     </div>
@@ -497,6 +567,7 @@ function SkillsSection({
   onDelete,
   onToggle,
   onApprovalChange,
+  onRun,
   onDetail,
 }: {
   skills: ToolSkill[];
@@ -504,6 +575,7 @@ function SkillsSection({
   onDelete: (skill: ToolSkill) => void;
   onToggle: (skill: ToolSkill, enabled: boolean) => void;
   onApprovalChange: (skill: ToolSkill, requiresApproval: boolean) => void;
+  onRun: (skill: ToolSkill) => void;
   onDetail: (skill: ToolSkill) => void;
 }): React.JSX.Element {
   const { t } = useT();
@@ -520,6 +592,7 @@ function SkillsSection({
           onDelete={() => onDelete(skill)}
           onToggle={(enabled) => onToggle(skill, enabled)}
           onApprovalChange={(requiresApproval) => onApprovalChange(skill, requiresApproval)}
+          onRun={() => onRun(skill)}
           onDetail={() => onDetail(skill)}
         />
       ))}
@@ -533,6 +606,7 @@ function SkillCard({
   onDelete,
   onToggle,
   onApprovalChange,
+  onRun,
   onDetail,
 }: {
   skill: ToolSkill;
@@ -540,6 +614,7 @@ function SkillCard({
   onDelete: () => void;
   onToggle: (enabled: boolean) => void;
   onApprovalChange: (requiresApproval: boolean) => void;
+  onRun: () => void;
   onDetail: () => void;
 }): React.JSX.Element {
   const { t, f } = useT();
@@ -596,6 +671,10 @@ function SkillCard({
             </Switch>
           </div>
           <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" onPress={onRun} isDisabled={busy}>
+              <IconSparkles className="size-4" />
+              {t("tools.action.run")}
+            </Button>
             <Button size="sm" variant="secondary" onPress={onDetail} isDisabled={busy}>
               <IconEye className="size-4" />
               {t("tools.detail")}
@@ -1259,20 +1338,23 @@ async function handleSkillZip(
   }
 }
 
-function CatalogDiscover(): React.JSX.Element {
+export function CatalogDiscover(): React.JSX.Element {
   const { t, f, locale } = useT();
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [query, setQuery] = useState("");
+  const [source, setSource] = useState<CatalogSourceFilter>("all");
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [offline, setOffline] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [hasMore, setHasMore] = useState(false);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [reviewItem, setReviewItem] = useState<CatalogItem | null>(null);
-  const pageSize = 40;
+  const [detailItem, setDetailItem] = useState<CatalogItem | null>(null);
+  const [detail, setDetail] = useState<CatalogItemDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const pageSize = 36;
 
   const loadPage = async (nextPage: number, append: boolean): Promise<void> => {
     if (append) setLoadingMore(true);
@@ -1282,20 +1364,21 @@ function CatalogDiscover(): React.JSX.Element {
         ...(query.trim() ? { query: query.trim() } : {}),
         page: nextPage,
         pageSize,
+        source,
       });
       setItems((current) => {
         if (!append) return result.items;
         const byId = new Map(current.map((item) => [item.id, item]));
-        for (const item of result.items) byId.set(item.id, item);
+        result.items.forEach((item) => byId.set(item.id, item));
         return [...byId.values()];
       });
       setPage(result.page);
-      setTotal(result.total);
-      setOffline(result.offline);
-      setWarning(result.error ?? null);
+      setHasMore(result.hasMore);
+      setWarnings(result.sources.flatMap((state) => (state.error ? [state.error] : [])));
       setError(null);
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : String(reason));
+      setWarnings([]);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -1305,14 +1388,14 @@ function CatalogDiscover(): React.JSX.Element {
   useEffect(() => {
     const timer = window.setTimeout(() => void loadPage(1, false), 250);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [query, source]);
 
   const install = async (item: CatalogItem): Promise<void> => {
     setBusyId(item.id);
     try {
       await api.catalog.install({ itemId: item.id, enable: false });
       await loadPage(1, false);
-      setReviewItem(null);
+      setDetailItem(null);
       notify.success(
         item.installed ? t("catalog.updatedDisabled") : t("catalog.installedDisabled"),
       );
@@ -1323,35 +1406,59 @@ function CatalogDiscover(): React.JSX.Element {
     }
   };
 
+  const openDetail = (item: CatalogItem): void => {
+    setDetailItem(item);
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    void api.catalog
+      .detail(item.id)
+      .then(setDetail)
+      .catch((reason) => setDetailError(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setDetailLoading(false));
+  };
+
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden">
-      <div className="flex shrink-0 flex-col gap-2">
-        <label className="relative">
-          <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder={t("catalog.search")}
-          />
-        </label>
+      <div className="flex shrink-0 flex-col gap-3">
+        <div className="flex flex-col gap-2 md:flex-row">
+          <label className="relative min-w-0 flex-1">
+            <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder={t("catalog.search")}
+            />
+          </label>
+          <Tabs value={source} onValueChange={(value) => setSource(value as CatalogSourceFilter)}>
+            <TabsList aria-label={t("catalog.sourceFilter")}>
+              <TabsTrigger value="all">{t("catalog.source.all")}</TabsTrigger>
+              <TabsTrigger value="skills-sh">skills.sh</TabsTrigger>
+              <TabsTrigger value="modelscope-skills">ModelScope</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>{t("catalog.modelscopeDescription")}</span>
-          <span className="shrink-0">{t("catalog.total", { count: f.number(total) })}</span>
+          <span>
+            {query.trim().length < 2 && source !== "skills-sh"
+              ? t("catalog.modelscopeDescription")
+              : t("catalog.multiSourceDescription")}
+          </span>
+          <span className="shrink-0">{t("catalog.loaded", { count: f.number(items.length) })}</span>
         </div>
       </div>
       {error ? (
         <p
           role="alert"
-          className="rounded-md border border-destructive/30 px-3 py-2 text-sm text-destructive"
+          className="rounded-md border border-danger/30 px-3 py-2 text-sm text-danger"
         >
           {error}
         </p>
       ) : null}
-      {offline ? (
+      {warnings.length > 0 ? (
         <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          {t("catalog.offlineCache")}
-          {warning ? ` ${warning}` : ""}
+          {t("catalog.sourceWarning")} {warnings.join(" ")}
         </p>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1360,55 +1467,32 @@ function CatalogDiscover(): React.JSX.Element {
         ) : items.length === 0 ? (
           <Card>
             <Card.Header>
-              <Card.Title>{t("catalog.empty")}</Card.Title>
-              <Card.Description>{t("catalog.emptyDescription")}</Card.Description>
+              <Card.Title>
+                {source === "skills-sh" && query.trim().length < 2
+                  ? t("catalog.skillsShSearchRequired")
+                  : t("catalog.empty")}
+              </Card.Title>
+              <Card.Description>
+                {source === "skills-sh" && query.trim().length < 2
+                  ? t("catalog.skillsShSearchRequiredDescription")
+                  : t("catalog.emptyDescription")}
+              </Card.Description>
             </Card.Header>
           </Card>
         ) : (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {items.map((item) => (
-              <Card key={item.id}>
-                <Card.Header>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <Card.Title className="truncate">{item.name}</Card.Title>
-                      <Card.Description className="line-clamp-2">
-                        {item.description || item.externalId}
-                      </Card.Description>
-                    </div>
-                    <Chip size="sm" variant="soft">
-                      <Chip.Label>Skill</Chip.Label>
-                    </Chip>
-                  </div>
-                </Card.Header>
-                <Card.Content className="flex flex-col gap-2">
-                  <p className="text-[11px] text-muted-foreground">{t("catalog.thirdPartyRisk")}</p>
-                  <p className="truncate font-mono text-[10px] text-muted-foreground">
-                    {item.externalId}
-                  </p>
-                </Card.Content>
-                <Card.Footer className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] text-muted-foreground">
-                    {item.installed ? t("catalog.installed") : t("catalog.reviewFlow")}
-                  </span>
-                  <Button
-                    size="sm"
-                    isPending={busyId === item.id}
-                    isDisabled={(item.installed && !item.updateAvailable) || busyId !== null}
-                    onPress={() => setReviewItem(item)}
-                  >
-                    {item.updateAvailable
-                      ? t("catalog.updateReview")
-                      : item.installed
-                        ? t("catalog.installed")
-                        : t("catalog.downloadReview")}
-                  </Button>
-                </Card.Footer>
-              </Card>
+              <CatalogCard
+                key={item.id}
+                item={item}
+                busy={busyId !== null}
+                onDetail={openDetail}
+                onInstall={(next) => void install(next)}
+              />
             ))}
           </div>
         )}
-        {!loading && items.length < total ? (
+        {!loading && hasMore ? (
           <div className="flex justify-center py-5">
             <Button
               variant="secondary"
@@ -1421,65 +1505,217 @@ function CatalogDiscover(): React.JSX.Element {
           </div>
         ) : null}
       </div>
-      <CatalogInstallReview
-        item={reviewItem}
-        busy={reviewItem !== null && busyId === reviewItem.id}
-        onClose={() => setReviewItem(null)}
+      <CatalogDetailModal
+        item={detailItem}
+        detail={detail}
+        loading={detailLoading}
+        error={detailError}
+        busy={detailItem !== null && busyId === detailItem.id}
+        onClose={() => setDetailItem(null)}
+        onRetry={() => (detailItem ? openDetail(detailItem) : undefined)}
         onInstall={(item) => void install(item)}
       />
     </div>
   );
 }
 
-function CatalogInstallReview({
+function CatalogCard({
   item,
   busy,
+  onDetail,
+  onInstall,
+}: {
+  item: CatalogItem;
+  busy: boolean;
+  onDetail: (item: CatalogItem) => void;
+  onInstall: (item: CatalogItem) => void;
+}): React.JSX.Element {
+  const { t, f } = useT();
+  const metric = item.metrics.installs ?? item.metrics.downloads ?? 0;
+  return (
+    <Card className="overflow-hidden rounded-md">
+      <Card.Header className="p-3">
+        <div className="flex min-h-12 items-center gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background text-xs font-semibold">
+            {item.sourceKind === "skills-sh" ? "AI" : "MS"}
+          </div>
+          <div className="min-w-0 flex-1">
+            <Card.Title className="truncate text-sm">{item.name}</Card.Title>
+            <p className="mt-1 truncate text-[11px] text-muted-foreground">{item.externalId}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  aria-label={t("catalog.details")}
+                  onPress={() => onDetail(item)}
+                >
+                  <IconInfo className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("catalog.details")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="primary"
+                  aria-label={item.installed ? t("catalog.installed") : t("catalog.install")}
+                  isDisabled={busy || (item.installed && !item.updateAvailable)}
+                  onPress={() => onInstall(item)}
+                >
+                  {item.installed && !item.updateAvailable ? (
+                    <IconCheck className="size-4" />
+                  ) : (
+                    <IconPlus className="size-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {item.installed ? t("catalog.installed") : t("catalog.install")}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      </Card.Header>
+      <Card.Content className="flex items-center gap-2 px-3 pb-3">
+        <Chip size="sm" color="accent" variant="soft">
+          <Chip.Label>{item.sourceLabel}</Chip.Label>
+        </Chip>
+        <Chip size="sm" variant="secondary">
+          <Chip.Label>{metric ? f.compactNumber(metric) : "-"}</Chip.Label>
+        </Chip>
+      </Card.Content>
+    </Card>
+  );
+}
+
+function CatalogDetailModal({
+  item,
+  detail,
+  loading,
+  error,
+  busy,
   onClose,
+  onRetry,
   onInstall,
 }: {
   item: CatalogItem | null;
+  detail: CatalogItemDetail | null;
+  loading: boolean;
+  error: string | null;
   busy: boolean;
   onClose: () => void;
+  onRetry: () => void;
   onInstall: (item: CatalogItem) => void;
 }): React.JSX.Element {
-  const { t } = useT();
-
-  const confirm = (): void => {
-    if (!item) return;
-    onInstall(item);
-  };
-
+  const { t, f } = useT();
+  const metric = item?.metrics.installs ?? item?.metrics.downloads ?? 0;
   return (
     <Modal isOpen={item !== null} onOpenChange={(open) => (!open ? onClose() : undefined)}>
       <Modal.Backdrop isDismissable>
         <Modal.Container>
-          <Modal.Dialog className="w-[min(720px,calc(100vw-24px))]">
+          <Modal.Dialog className="max-h-[88vh] w-[min(760px,calc(100vw-24px))] overflow-hidden">
             <Modal.Header>
-              <Modal.Heading>
-                {item?.updateAvailable ? t("catalog.updateReview") : t("catalog.installReview")}
-              </Modal.Heading>
-              <p className="mt-1 text-xs text-muted-foreground">{item?.name}</p>
-            </Modal.Header>
-            <Modal.Body className="flex flex-col gap-4">
-              <div className="rounded-md border border-border bg-muted/30 p-3 text-xs">
-                <p className="font-medium">{t("catalog.thirdPartyRisk")}</p>
-                {item?.installUrl ? (
-                  <p className="mt-2 break-all font-mono text-[10px] text-muted-foreground">
-                    {item.installUrl}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Modal.Heading>{item?.name}</Modal.Heading>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {item?.sourceLabel} · {item?.externalId}
                   </p>
-                ) : null}
+                </div>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="tertiary"
+                  aria-label={t("common.close")}
+                  onPress={onClose}
+                >
+                  <IconClose className="size-4" />
+                </Button>
               </div>
-              <pre className="max-h-48 overflow-auto rounded-md border border-border p-3 text-[10px]">
-                {JSON.stringify(item?.detail ?? {}, null, 2)}
-              </pre>
+            </Modal.Header>
+            <Modal.Body className="min-h-0 space-y-4 overflow-y-auto">
+              {item ? (
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <ReadStat label={t("catalog.source")} value={item.sourceLabel} />
+                  <ReadStat
+                    label={t("catalog.installs")}
+                    value={metric ? f.compactNumber(metric) : "-"}
+                  />
+                  <ReadStat
+                    label={t("catalog.files")}
+                    value={detail ? String(detail.files.length) : "-"}
+                  />
+                </div>
+              ) : null}
+              {item?.description ? (
+                <p className="text-sm text-muted-foreground">{item.description}</p>
+              ) : null}
+              {loading ? (
+                <p className="py-10 text-center text-sm text-muted-foreground">
+                  {t("catalog.detailLoading")}
+                </p>
+              ) : null}
+              {error ? (
+                <div className="space-y-2">
+                  <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+                  <Button size="sm" variant="secondary" onPress={onRetry}>
+                    {t("catalog.retry")}
+                  </Button>
+                </div>
+              ) : null}
+              {detail ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                    <span>{t("catalog.packageSize", { size: f.number(detail.totalBytes) })}</span>
+                    <span>·</span>
+                    <span>{t("catalog.validated")}</span>
+                  </div>
+                  <div className="rounded-md border border-border p-4">
+                    <RichContent value={detail.markdown} />
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                    {detail.files.map((file) => (
+                      <span key={file.path} className="rounded bg-muted px-2 py-1 font-mono">
+                        {file.path}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {item?.catalogUrl ? (
+                <a
+                  className="text-xs text-accent underline underline-offset-2"
+                  href={item.catalogUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("catalog.openSource")}
+                </a>
+              ) : null}
             </Modal.Body>
             <Modal.Footer className="flex justify-end gap-2">
               <Button variant="tertiary" onPress={onClose}>
                 {t("common.cancel")}
               </Button>
-              <Button isPending={busy} onPress={confirm}>
-                {item?.updateAvailable ? t("catalog.updateDisabled") : t("catalog.installDisabled")}
-              </Button>
+              {item ? (
+                <Button
+                  isPending={busy}
+                  isDisabled={item.installed && !item.updateAvailable}
+                  onPress={() => onInstall(item)}
+                >
+                  {item.updateAvailable
+                    ? t("catalog.updateDisabled")
+                    : item.installed
+                      ? t("catalog.installed")
+                      : t("catalog.installDisabled")}
+                </Button>
+              ) : null}
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>
@@ -1536,9 +1772,5 @@ function safeJsonObject(raw: string): Record<string, unknown> {
 }
 
 function toToolsTab(value: unknown): ToolsTab {
-  return value === "mcp" || value === "skills" ? value : "registry";
-}
-
-function toCatalogTab(value: unknown): CatalogTab {
-  return value === "installed" ? value : "discover";
+  return value === "mcp" ? value : "registry";
 }

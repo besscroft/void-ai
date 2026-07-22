@@ -91,21 +91,42 @@ export interface CronJobInput {
 }
 
 export type CatalogArtifactType = "skill" | "mcp";
+export type CatalogSourceKind = "modelscope-skills" | "skills-sh";
+export type CatalogSourceFilter = "all" | CatalogSourceKind;
+
+export interface CatalogMetric {
+  installs?: number;
+  downloads?: number;
+}
 
 export interface CatalogItem {
   id: string;
   sourceId: string;
+  sourceKind: CatalogSourceKind;
+  sourceLabel: string;
   artifactType: CatalogArtifactType;
   externalId: string;
+  canonicalKey: string | null;
   name: string;
   description: string;
   version: string | null;
   installUrl: string | null;
+  catalogUrl: string | null;
+  metrics: CatalogMetric;
   detail: JsonObject;
   contentHash: string | null;
   cachedAt: number;
   installed: boolean;
   updateAvailable: boolean;
+}
+
+export interface CatalogItemDetail {
+  itemId: string;
+  markdown: string;
+  files: Array<{ path: string; size: number }>;
+  totalBytes: number;
+  contentHash: string;
+  safetyChecks: string[];
 }
 
 export interface ArtifactInstallation {
@@ -142,15 +163,22 @@ export interface CatalogSearchInput {
   query?: string;
   page?: number;
   pageSize?: number;
+  source?: CatalogSourceFilter;
+}
+
+export interface CatalogSourceState {
+  source: CatalogSourceKind;
+  status: "online" | "cache" | "error" | "idle";
+  hasMore: boolean;
+  error?: string;
 }
 
 export interface CatalogSearchResult {
   items: CatalogItem[];
-  total: number;
   page: number;
   pageSize: number;
-  offline: boolean;
-  error?: string;
+  hasMore: boolean;
+  sources: CatalogSourceState[];
 }
 
 export type AgentStatus = "active" | "draft" | "archived";

@@ -120,6 +120,7 @@ import {
 import { getCronScheduler } from "../lib/cron-scheduler";
 import {
   getCatalogSnapshot,
+  getCatalogItemDetail,
   installCatalogItem,
   searchCatalogSkills,
   setArtifactInstallationEnabled,
@@ -225,6 +226,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle("catalog:snapshot", () => getCatalogSnapshot());
   ipcMain.handle("catalog:search", (_e, input?: CatalogSearchInput) => searchCatalogSkills(input));
+  ipcMain.handle("catalog:detail", (_e, itemId: string) => getCatalogItemDetail(itemId));
   ipcMain.handle("catalog:install", (_e, input: CatalogInstallInput) => installCatalogItem(input));
   ipcMain.handle("catalog:enable", (_e, id: string, enabled: boolean) =>
     setArtifactInstallationEnabled(id, enabled),

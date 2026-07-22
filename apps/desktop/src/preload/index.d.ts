@@ -6,6 +6,7 @@ import type {
   Conversation,
   ArtifactInstallation,
   CatalogInstallInput,
+  CatalogItemDetail,
   CatalogSearchInput,
   CatalogSearchResult,
   CatalogSnapshot,
@@ -106,6 +107,7 @@ export interface VoidAIApi {
   catalog: {
     snapshot: () => Promise<CatalogSnapshot>;
     search: (input?: CatalogSearchInput) => Promise<CatalogSearchResult>;
+    detail: (itemId: string) => Promise<CatalogItemDetail>;
     install: (input: CatalogInstallInput) => Promise<ArtifactInstallation>;
     enable: (id: string, enabled: boolean) => Promise<ArtifactInstallation>;
     uninstall: (id: string) => Promise<boolean>;
