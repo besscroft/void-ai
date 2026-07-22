@@ -106,16 +106,6 @@ function AppContent(): React.JSX.Element {
   );
 
   useEffect(() => {
-    return api.desktopPet.onOpenConversation((conversationId) => {
-      if (conversationId) {
-        setActiveId(conversationId);
-        void api.settings.set(SettingKey.ActiveConversationId, conversationId);
-      }
-      setActiveView("chat");
-    });
-  }, []);
-
-  useEffect(() => {
     const handleOpenConversation = (event: Event): void => {
       const conversationId = (event as CustomEvent<{ conversationId?: string }>).detail
         ?.conversationId;

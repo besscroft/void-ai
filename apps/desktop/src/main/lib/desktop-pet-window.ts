@@ -8,7 +8,6 @@ import {
   type StorePetQuery,
 } from "../../shared/types";
 import {
-  acknowledgeDesktopPetActivity,
   getDesktopPetSnapshot,
   isDesktopPetEnabled,
   setDesktopPetEnabled,
@@ -29,14 +28,11 @@ import {
   type DesktopPetBounds,
 } from "./desktop-pet-bounds";
 
-export const DESKTOP_PET_OPEN_CONVERSATION_CHANNEL = "desktopPet:openConversation";
-
 /**
  * 展开/收起桌宠时窗口大小的硬性范围。
  * 下限 = 球本身能塞下的最小值；上限 = 防止设置异常导致窗口飞出屏幕。
  */
 interface DesktopPetWindowControllerOptions {
-  getMainWindow: () => BrowserWindow;
   preloadPath: string;
   rendererFilePath: string;
   rendererDevUrl?: string;
@@ -75,9 +71,6 @@ export class DesktopPetWindowController {
     ipcMain.handle("desktopPet:delete", (_event, selector: DesktopPetSelector) =>
       this.deletePet(selector),
     );
-    ipcMain.handle("desktopPet:acknowledge", (_event, runId: string) =>
-      acknowledgeDesktopPetActivity(runId),
-    );
     ipcMain.handle("desktopPet:setEnabled", (_event, enabled: boolean) =>
       this.setEnabled(Boolean(enabled)),
     );
@@ -89,9 +82,6 @@ export class DesktopPetWindowController {
     ipcMain.handle("desktopPet:resetPosition", () => this.resetPosition());
     ipcMain.handle("desktopPet:moveWindowBy", (_event, delta: { dx?: unknown; dy?: unknown }) =>
       this.moveWindowBy(delta),
-    );
-    ipcMain.handle("desktopPet:openMain", (_event, conversationId?: string) =>
-      this.openMain(conversationId),
     );
     ipcMain.handle("desktopPet:showContextMenu", () => this.showContextMenu());
     ipcMain.handle("desktopPet:getLookDirection", () => this.getLookDirection());
@@ -198,37 +188,6 @@ export class DesktopPetWindowController {
 
     this.petWindow.setBounds(nextBounds);
     this.scheduleBoundsSave();
-    return true;
-  }
-
-  async openMain(conversationId?: string): Promise<boolean> {
-    const snapshot = getDesktopPetSnapshot();
-    const targetConversationId = conversationId ?? snapshot.activity.conversationId ?? undefined;
-    const mainWindow = this.options.getMainWindow();
-
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-
-    const send = (): void => {
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(DESKTOP_PET_OPEN_CONVERSATION_CHANNEL, targetConversationId);
-      }
-    };
-
-    if (mainWindow.webContents.isLoading()) {
-      mainWindow.webContents.once("did-finish-load", send);
-    } else {
-      send();
-    }
-
-    if (
-      snapshot.activity.runId &&
-      (snapshot.activity.kind === "ready" || snapshot.activity.kind === "blocked")
-    ) {
-      acknowledgeDesktopPetActivity(snapshot.activity.runId);
-    }
-
     return true;
   }
 

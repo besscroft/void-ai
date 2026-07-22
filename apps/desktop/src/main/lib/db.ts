@@ -2225,11 +2225,7 @@ export function getDesktopPetSnapshot(): DesktopPetSnapshot {
   const mainAgentState = listagentRuntimeStates().find(
     (state) => state.agent_id === DEFAULT_AGENT_ID,
   );
-  const resolution = resolveDesktopPetActivity(
-    listRuntimeRuns(),
-    config.acknowledgedRunIds,
-    mainAgentState,
-  );
+  const resolution = resolveDesktopPetActivity(listRuntimeRuns(), mainAgentState);
   const now = Date.now();
   let activity = resolution.activity;
   if (activity.kind === "idle") {
@@ -2265,17 +2261,6 @@ export function updateDesktopPetConfig(patch: DesktopPetConfigPatch): DesktopPet
   const profile = ensureDesktopPetProfile();
   const current = normalizeDesktopPetConfig(profile.config_json);
   updateDesktopPetProfile({ config_json: JSON.stringify(mergeDesktopPetConfig(current, patch)) });
-  return getDesktopPetSnapshot();
-}
-
-export function acknowledgeDesktopPetActivity(runId: string): DesktopPetSnapshot {
-  if (!runId.trim()) return getDesktopPetSnapshot();
-  const profile = ensureDesktopPetProfile();
-  const current = normalizeDesktopPetConfig(profile.config_json);
-  const acknowledgedRunIds = [...new Set([...current.acknowledgedRunIds, runId])].slice(-100);
-  updateDesktopPetProfile({
-    config_json: JSON.stringify(mergeDesktopPetConfig(current, { acknowledgedRunIds })),
-  });
   return getDesktopPetSnapshot();
 }
 

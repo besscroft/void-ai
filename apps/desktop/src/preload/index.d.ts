@@ -201,18 +201,15 @@ export interface VoidAIApi {
     beginLocalImport: (mode: "zip" | "folder") => Promise<PetImportCandidate | null>;
     commitLocalImport: (token: string, replace?: boolean) => Promise<InstalledPet>;
     delete: (selector: DesktopPetSelector) => Promise<DesktopPetSnapshot>;
-    acknowledge: (runId: string) => Promise<DesktopPetSnapshot>;
     setEnabled: (enabled: boolean) => Promise<DesktopPetSnapshot>;
     updateWindow: (patch: DesktopPetConfigPatch["window"]) => Promise<DesktopPetSnapshot>;
     show: () => Promise<DesktopPetSnapshot>;
     hide: () => Promise<DesktopPetSnapshot>;
     resetPosition: () => Promise<DesktopPetSnapshot>;
     moveWindowBy: (delta: { dx: number; dy: number }) => Promise<boolean>;
-    openMain: (conversationId?: string) => Promise<boolean>;
     showContextMenu: () => Promise<boolean>;
     getLookDirection: () => Promise<number | null>;
     setIgnoreMouseEvents: (ignore: boolean) => Promise<boolean>;
-    onOpenConversation: (handler: (conversationId?: string) => void) => () => void;
     onSnapshotApplied: (handler: (snapshot: DesktopPetSnapshot) => void) => () => void;
   };
   sync: {
