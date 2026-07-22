@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { DefaultChatTransport, readUIMessageStream, type UIMessage } from "ai";
 import {
-  CHAT_SESSION_HEADER,
   DEFAULT_AGENT_ID,
   DEFAULT_CHAT_TOOL_SELECTION,
   DEFAULT_SETTINGS,
@@ -12,8 +11,9 @@ import {
   type CronRun,
   type MessageRow,
 } from "../../shared/types";
-import { applyMessagesPatch, getMessagesSnapshot, getSetting } from "./db";
-import { getServerInfo } from "../server";
+import { applyMessagesPatch, buildAgentSystemPrompt, getMessagesSnapshot, getSetting } from "./db";
+import { runAgentChat } from "./agent-runtime";
+import { resolveModel } from "./providers";
 import {
   claimCronJobNow,
   claimDueCronJobs,
@@ -26,7 +26,11 @@ import { isTransientCronError } from "./cron-schedule";
 export interface CronSchedulerOptions {
   maxConcurrency?: number;
   pollIntervalMs?: number;
-  execute?: (job: CronJob, run: CronRun, signal: AbortSignal) => Promise<string>;
+  execute?: (
+    job: CronJob,
+    run: CronRun,
+    signal: AbortSignal,
+  ) => Promise<string | { output: string; runtimeRunId: string }>;
 }
 
 export class CronScheduler {
@@ -75,8 +79,15 @@ export class CronScheduler {
     const controller = new AbortController();
     this.running.set(claim.job.id, controller);
     void this.execute(claim.job, claim.run, controller.signal)
-      .then((output) => {
-        if (this.timer) completeCronRun(claim, { output });
+      .then((result) => {
+        if (this.timer) {
+          completeCronRun(
+            claim,
+            typeof result === "string"
+              ? { output: result }
+              : { output: result.output, runtimeRunId: result.runtimeRunId },
+          );
+        }
       })
       .catch((error) => {
         if (!this.timer) return;
@@ -112,7 +123,7 @@ async function executeCronAgentTurn(
   job: CronJob,
   _run: CronRun,
   signal: AbortSignal,
-): Promise<string> {
+): Promise<{ output: string; runtimeRunId: string }> {
   const modelRef = job.payload.modelRef ?? getSetting(SettingKey.SelectedModel);
   if (!modelRef) throw new Error("Automation has no model configured.");
   const snapshot = getMessagesSnapshot(job.conversationId);
@@ -123,20 +134,28 @@ async function executeCronAgentTurn(
     parts: [{ type: "text", text: job.payload.prompt }],
     metadata: { automation: { jobId: job.id, scheduled: true } },
   };
+  const runtimeRunId = randomUUID();
   await persistCronMessages(job.conversationId, [userMessage]);
 
-  const server = getServerInfo();
   const transport = new DefaultChatTransport<UIMessage>({
-    api: `http://127.0.0.1:${server.port}/api/chat`,
-    headers: { [CHAT_SESSION_HEADER]: server.token },
-    body: {
-      model: modelRef,
-      agentId: job.payload.agentId ?? DEFAULT_AGENT_ID,
-      conversationId: job.conversationId,
-      reasoning: job.payload.reasoning ?? DEFAULT_SETTINGS.chatReasoningLevel,
-      toolSelection: cronToolSelection(job),
-      cronRun: true,
-    },
+    api: "agent-loop://automation",
+    fetch: async (_input, init) =>
+      runAgentChat({
+        messages: [...history, userMessage],
+        modelRef,
+        resolved: resolveModel(modelRef),
+        conversationId: job.conversationId,
+        preferredAgentId: job.payload.agentId ?? DEFAULT_AGENT_ID,
+        reasoning: job.payload.reasoning ?? DEFAULT_SETTINGS.chatReasoningLevel,
+        toolSelection: cronToolSelection(job),
+        disableCronTools: true,
+        runId: runtimeRunId,
+        mode: "start",
+        origin: "automation",
+        buildAgentSystemPrompt,
+        resolveModel,
+        abortSignal: init?.signal ?? signal,
+      }),
   });
   const stream = await transport.sendMessages({
     trigger: "submit-message",
@@ -154,13 +173,14 @@ async function executeCronAgentTurn(
   }
   if (!assistant) throw new Error("Automation completed without an assistant response.");
   await persistCronMessages(job.conversationId, [assistant]);
-  return assistant.parts
+  const output = assistant.parts
     .filter(
       (part): part is Extract<UIMessage["parts"][number], { type: "text" }> => part.type === "text",
     )
     .map((part) => part.text)
     .join("\n\n")
     .trim();
+  return { output, runtimeRunId };
 }
 
 function cronToolSelection(job: CronJob): ChatToolSelectionRequest {

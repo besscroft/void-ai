@@ -219,7 +219,12 @@ export const runtimeRuns = sqliteTable(
     }),
     root_agent_id: text("root_agent_id").references(() => agents.id, { onDelete: "set null" }),
     final_agent_id: text("final_agent_id").references(() => agents.id, { onDelete: "set null" }),
-    workflow_id: text("workflow_id"),
+    origin: text("origin", { enum: ["chat", "automation", "system"] })
+      .notNull()
+      .default("chat"),
+    finish_reason: text("finish_reason", {
+      enum: ["natural", "budget_exhausted", "cancelled", "interrupted", "error"],
+    }),
     status: text("status", {
       enum: [
         "queued",
@@ -229,6 +234,7 @@ export const runtimeRuns = sqliteTable(
         "succeeded",
         "failed",
         "cancelled",
+        "interrupted",
       ],
     }).notNull(),
     model_ref: text("model_ref"),
@@ -247,6 +253,33 @@ export const runtimeRuns = sqliteTable(
     index("idx_runtime_runs_root_agent").on(table.root_agent_id),
     index("idx_runtime_runs_started").on(table.started_at),
     index("idx_runtime_runs_status").on(table.status),
+  ],
+);
+
+export const agentRunInputs = sqliteTable(
+  "agent_run_inputs",
+  {
+    id: text("id").primaryKey(),
+    run_id: text("run_id")
+      .notNull()
+      .references(() => runtimeRuns.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["steering", "follow_up"] }).notNull(),
+    source: text("source", { enum: ["user", "system", "automation", "tool"] }).notNull(),
+    status: text("status", { enum: ["queued", "consumed", "discarded"] })
+      .notNull()
+      .default("queued"),
+    message_json: text("message_json").notNull(),
+    sequence: integer("sequence").notNull(),
+    created_at: integer("created_at").notNull(),
+    consumed_at: integer("consumed_at"),
+    discarded_reason: text("discarded_reason"),
+  },
+  (table) => [
+    index("idx_agent_run_inputs_run_status_sequence").on(
+      table.run_id,
+      table.status,
+      table.sequence,
+    ),
   ],
 );
 
@@ -342,12 +375,15 @@ export const runtimeSteps = sqliteTable(
     tool_id: text("tool_id"),
     kind: text("kind", {
       enum: [
+        "agent",
         "model",
         "tool",
         "approval",
         "handoff",
         "memory",
-        "workflow",
+        "loop_input",
+        "skill",
+        "budget",
         "sandbox",
         "guardrail",
         "diagnostic",
@@ -363,6 +399,7 @@ export const runtimeSteps = sqliteTable(
         "succeeded",
         "failed",
         "cancelled",
+        "interrupted",
       ],
     }).notNull(),
     title: text("title").notNull(),
@@ -394,12 +431,15 @@ export const runtimeEvents = sqliteTable(
     owner_id: text("owner_id"),
     kind: text("kind", {
       enum: [
+        "agent",
         "model",
         "tool",
         "approval",
         "handoff",
         "memory",
-        "workflow",
+        "loop_input",
+        "skill",
+        "budget",
         "sandbox",
         "guardrail",
         "diagnostic",
@@ -415,6 +455,7 @@ export const runtimeEvents = sqliteTable(
         "succeeded",
         "failed",
         "cancelled",
+        "interrupted",
       ],
     }).notNull(),
     severity: text("severity", { enum: ["debug", "info", "warning", "error"] })
@@ -490,6 +531,7 @@ export const tools = sqliteTable(
     name: text("name").notNull(),
     title: text("title"),
     description: text("description").notNull().default(""),
+    instructions: text("instructions").notNull().default(""),
     kind: text("kind", { enum: ["builtin", "mcp", "skill", "sandbox"] }).notNull(),
     category: text("category").notNull().default("general"),
     reference: text("reference").notNull(),
@@ -499,8 +541,6 @@ export const tools = sqliteTable(
     input_schema_json: text("input_schema_json").notNull().default("{}"),
     output_schema_json: text("output_schema_json").notNull().default("{}"),
     config_json: text("config_json").notNull().default("{}"),
-    steps_json: text("steps_json").notNull().default("[]"),
-    workflow_id: text("workflow_id"),
     trigger_keywords_json: text("trigger_keywords_json").notNull().default("[]"),
     tags_json: text("tags_json").notNull().default("[]"),
     discovered_at: integer("discovered_at").notNull(),
@@ -533,131 +573,6 @@ export const toolSecrets = sqliteTable(
   (table) => [
     index("idx_tool_secrets_owner").on(table.owner_type, table.owner_id),
     index("idx_tool_secrets_key").on(table.key),
-  ],
-);
-
-export const workflows = sqliteTable(
-  "workflows",
-  {
-    id: text("id").primaryKey(),
-    name: text("name").notNull(),
-    description: text("description").notNull(),
-    status: text("status", { enum: ["enabled", "paused", "draft"] })
-      .notNull()
-      .default("draft"),
-    // 新版：节点 + 边（DAG）
-    nodes_json: text("nodes_json").notNull().default("[]"),
-    entry_node_id: text("entry_node_id").notNull().default(""),
-    version: integer("version").notNull().default(1),
-    // 兼容旧 ToolSkillStep 的 JSON 描述
-    steps_json: text("steps_json").notNull().default("[]"),
-    trigger: text("trigger").notNull().default("manual"),
-    created_at: integer("created_at").notNull(),
-    updated_at: integer("updated_at").notNull(),
-  },
-  (table) => [index("idx_workflows_status").on(table.status)],
-);
-
-export const workflowRuns = sqliteTable(
-  "workflow_runs",
-  {
-    id: text("id").primaryKey(),
-    workflow_id: text("workflow_id")
-      .notNull()
-      .references(() => workflows.id, { onDelete: "cascade" }),
-    runtime_run_id: text("runtime_run_id").references(() => runtimeRuns.id, {
-      onDelete: "set null",
-    }),
-    status: text("status", {
-      enum: [
-        "queued",
-        "running",
-        "waiting_approval",
-        "waiting_handoff",
-        "succeeded",
-        "failed",
-        "cancelled",
-      ],
-    }).notNull(),
-    input_json: text("input_json"),
-    output_json: text("output_json"),
-    error: text("error"),
-    context_json: text("context_json").notNull().default("{}"),
-    triggered_by: text("triggered_by", {
-      enum: ["void-tool", "manual", "schedule", "skill"],
-    })
-      .notNull()
-      .default("manual"),
-    triggered_by_agent_id: text("triggered_by_agent_id").references(() => agents.id, {
-      onDelete: "set null",
-    }),
-    conversation_id: text("conversation_id").references(() => conversations.id, {
-      onDelete: "set null",
-    }),
-    started_at: integer("started_at").notNull(),
-    finished_at: integer("finished_at"),
-  },
-  (table) => [
-    index("idx_workflow_runs_workflow").on(table.workflow_id),
-    index("idx_workflow_runs_runtime").on(table.runtime_run_id),
-    index("idx_workflow_runs_started").on(table.started_at),
-    index("idx_workflow_runs_status").on(table.status),
-  ],
-);
-
-export const workflowStepRuns = sqliteTable(
-  "workflow_step_runs",
-  {
-    id: text("id").primaryKey(),
-    workflow_run_id: text("workflow_run_id")
-      .notNull()
-      .references(() => workflowRuns.id, { onDelete: "cascade" }),
-    node_id: text("node_id").notNull(),
-    status: text("status", {
-      enum: [
-        "pending",
-        "running",
-        "succeeded",
-        "failed",
-        "skipped",
-        "cancelled",
-        "waiting_approval",
-        "waiting_handoff",
-      ],
-    }).notNull(),
-    attempt: integer("attempt").notNull().default(1),
-    input_json: text("input_json"),
-    output_json: text("output_json"),
-    error: text("error"),
-    started_at: integer("started_at"),
-    finished_at: integer("finished_at"),
-    duration_ms: integer("duration_ms"),
-    assigned_agent_id: text("assigned_agent_id").references(() => agents.id, {
-      onDelete: "set null",
-    }),
-    metadata_json: text("metadata_json").notNull().default("{}"),
-  },
-  (table) => [
-    index("idx_workflow_step_runs_run").on(table.workflow_run_id),
-    index("idx_workflow_step_runs_started").on(table.started_at),
-  ],
-);
-
-export const workflowTransitions = sqliteTable(
-  "workflow_transitions",
-  {
-    id: text("id").primaryKey(),
-    workflow_run_id: text("workflow_run_id")
-      .notNull()
-      .references(() => workflowRuns.id, { onDelete: "cascade" }),
-    from_node_id: text("from_node_id"),
-    to_node_id: text("to_node_id").notNull(),
-    reason: text("reason").notNull().default(""),
-    created_at: integer("created_at").notNull(),
-  },
-  (table) => [
-    index("idx_workflow_transitions_run").on(table.workflow_run_id),
-    index("idx_workflow_transitions_created").on(table.created_at),
   ],
 );
 
@@ -918,6 +833,7 @@ export const schema = {
   agents,
   agentPolicies,
   runtimeRuns,
+  agentRunInputs,
   agentInstances,
   collaborationMessages,
   contextCheckpoints,
@@ -926,8 +842,6 @@ export const schema = {
   toolServers,
   tools,
   toolSecrets,
-  workflows,
-  workflowRuns,
   memories,
   memoryObservations,
   memoryJobs,
@@ -959,6 +873,8 @@ export type AgentPolicy = typeof agentPolicies.$inferSelect;
 export type NewAgentPolicy = typeof agentPolicies.$inferInsert;
 export type RuntimeRun = typeof runtimeRuns.$inferSelect;
 export type NewRuntimeRun = typeof runtimeRuns.$inferInsert;
+export type AgentRunInput = typeof agentRunInputs.$inferSelect;
+export type NewAgentRunInput = typeof agentRunInputs.$inferInsert;
 export type AgentInstance = typeof agentInstances.$inferSelect;
 export type NewAgentInstance = typeof agentInstances.$inferInsert;
 export type CollaborationMessage = typeof collaborationMessages.$inferSelect;
@@ -981,10 +897,6 @@ export type MemoryObservation = typeof memoryObservations.$inferSelect;
 export type NewMemoryObservation = typeof memoryObservations.$inferInsert;
 export type MemoryJob = typeof memoryJobs.$inferSelect;
 export type NewMemoryJob = typeof memoryJobs.$inferInsert;
-export type WorkflowDefinition = typeof workflows.$inferSelect;
-export type NewWorkflowDefinition = typeof workflows.$inferInsert;
-export type WorkflowRun = typeof workflowRuns.$inferSelect;
-export type NewWorkflowRun = typeof workflowRuns.$inferInsert;
 export type InteractionProfile = typeof interactionProfiles.$inferSelect;
 export type SyncProfile = typeof syncProfiles.$inferSelect;
 export type Setting = typeof settings.$inferSelect;

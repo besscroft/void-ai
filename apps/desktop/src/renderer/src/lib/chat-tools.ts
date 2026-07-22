@@ -286,7 +286,7 @@ function createtoolChatToolDescriptors(
     return {
       id: `skill:${skill.id}`,
       label: skill.name,
-      description: skill.description || "Workflow skill",
+      description: skill.description || "Agent skill",
       kind: "host",
       execution: "host",
       category: "skill",

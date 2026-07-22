@@ -41,7 +41,6 @@ const dbUpsertAgentRuntimeState = mock.fn();
 const dbGetRuntimeSnapshot = mock.fn(() => ({
   agents: [],
   memories: [],
-  workflows: [],
   runtimeEvents: [],
   syncState: { mode: "off", status: "disabled", encryption_enabled: 0 },
 }));

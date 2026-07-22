@@ -836,7 +836,7 @@ function CustomMessage({ message, onReact }) {
 鈹? 馃彔 Void OS       鈹屸攢 瀵硅瘽鍘嗗彶                       [+] 鈹€鈹?                 鈹?
 鈹? 馃挰 Chat          鈹?馃攳 鎼滅储浼氳瘽鈥?                         鈹?                 鈹?
 鈹? 馃 Agents        鈹?                                       鈹?                 鈹?
-鈹? 鈿欙笍 Workflows    鈹?浠婂ぉ                                    鈹?                 鈹?
+鈹? 鈿欙笍 Agent Loop   鈹?浠婂ぉ                                    鈹?                 鈹?
 鈹? 馃捑 Memory        鈹?  馃挰 瑙ｉ噴閲忓瓙璁＄畻                馃棏    鈹?                 鈹?
 鈹? 馃攼 Runtime       鈹?  馃挰 React 缁勪欢璁捐              馃棏    鈹?                 鈹?
 鈹? 馃寪 Server        鈹?                                       鈹?                 鈹?

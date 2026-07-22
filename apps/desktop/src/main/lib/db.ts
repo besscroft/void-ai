@@ -12,9 +12,9 @@ import {
   DEFAULT_BUILTIN_TOOL_SEEDS,
   DEFAULT_CHILD_AGENT_SEEDS,
   DEFAULT_ROOT_AGENT_SEED,
-  DEFAULT_WORKFLOW_SEEDS,
 } from "./runtime-defaults";
 import {
+  agentRunInputs,
   agentPolicies,
   agentInstances,
   agents,
@@ -40,7 +40,7 @@ import {
   toolSecrets,
   toolServers,
   tools,
-  workflows,
+  type AgentRunInput as DbAgentRunInput,
   type AgentPolicy as DbAgentPolicy,
   type AgentInstance as DbAgentInstance,
   type CollaborationMessage as DbCollaborationMessage,
@@ -48,6 +48,7 @@ import {
   type AgentProfile as DbAgentProfile,
   type NewMemoryJob,
   type NewMemoryObservation,
+  type NewAgentRunInput,
   type NewRuntimeEvent,
   type NewRuntimeRun,
   type NewRuntimeStep,
@@ -81,6 +82,9 @@ import {
   normalizeAgentToolPolicy,
   normalizeDesktopPetConfig,
   type AgentInput,
+  type AgentRunInput,
+  type AgentRunInputKind,
+  type AgentRunInputSource,
   type AgentCollaborationMessage,
   type AgentContextCheckpoint,
   type AgentInstanceRecord,
@@ -120,24 +124,13 @@ import {
   type ToolServerInput,
   type ToolSkill,
   type ToolSkillInput,
-  type ToolSkillStep,
   type ToolsSnapshot,
-  type WorkflowDefinition,
-  type WorkflowRun,
 } from "../../shared/types";
 import { resolveDesktopPet } from "./desktop-pet-assets";
 import { applyDesktopPetIdleTimeout, resolveDesktopPetActivity } from "./desktop-pet-activity";
 import { assertCognitiveMemorySchema, isRecoverableSchemaInitError } from "./schema-init";
-import {
-  createWorkflowRunRecord,
-  listWorkflowDefinitions,
-  listWorkflowRuns,
-  toWorkflowDefinition,
-  updateWorkflowRunRecord,
-} from "./workflow-runs";
-import { buildNodeFromLegacyStep } from "./workflow-types";
-
 export type {
+  AgentRunInput,
   AgentProfile,
   AgentRuntimeState,
   Conversation,
@@ -156,8 +149,6 @@ export type {
   ToolRecord,
   ToolServer,
   ToolSkill,
-  WorkflowDefinition,
-  WorkflowRun,
 };
 
 // 重新导出 schema 供其他模块直接引用（统一来源）。
@@ -237,15 +228,27 @@ function openAndMigrateDb(dbPath: string): DbInstance {
 
 function cancelStaleRuntimeRuns(): void {
   const now = Date.now();
-  getDb()
-    .update(runtimeRuns)
-    .set({
-      status: "cancelled",
-      finished_at: now,
-      updated_at: now,
-    })
-    .where(inArray(runtimeRuns.status, ["queued", "running"]))
-    .run();
+  getDb().transaction((tx) => {
+    tx.update(runtimeRuns)
+      .set({
+        status: "interrupted",
+        finish_reason: "interrupted",
+        finished_at: now,
+        updated_at: now,
+      })
+      .where(
+        inArray(runtimeRuns.status, ["queued", "running", "waiting_approval", "waiting_handoff"]),
+      )
+      .run();
+    tx.update(agentRunInputs)
+      .set({
+        status: "discarded",
+        consumed_at: now,
+        discarded_reason: "application_interrupted",
+      })
+      .where(eq(agentRunInputs.status, "queued"))
+      .run();
+  });
 }
 
 export function getDb(): DbInstance {
@@ -806,12 +809,18 @@ export function listRuntimeRuns(limit = 50): RuntimeRun[] {
     .map(toRuntimeRun);
 }
 
+export function getRuntimeRun(id: string): RuntimeRun | null {
+  const row = getDb().select().from(runtimeRuns).where(eq(runtimeRuns.id, id)).get();
+  return row ? toRuntimeRun(row) : null;
+}
+
 export function createRuntimeRun(input: {
   id?: string;
   conversation_id?: string | null;
   root_agent_id?: string | null;
   final_agent_id?: string | null;
-  workflow_id?: string | null;
+  origin?: RuntimeRun["origin"];
+  finish_reason?: RuntimeRun["finish_reason"];
   status: RuntimeStatus;
   model_ref?: string | null;
   trace_id?: string | null;
@@ -829,7 +838,8 @@ export function createRuntimeRun(input: {
     conversation_id: input.conversation_id ?? null,
     root_agent_id: input.root_agent_id ?? null,
     final_agent_id: input.final_agent_id ?? null,
-    workflow_id: input.workflow_id ?? null,
+    origin: input.origin ?? "chat",
+    finish_reason: input.finish_reason ?? null,
     status: input.status,
     model_ref: input.model_ref ?? null,
     trace_id: input.trace_id ?? null,
@@ -852,6 +862,7 @@ export function cancelActiveRuntimeRunsForConversation(conversationId: string): 
     .update(runtimeRuns)
     .set({
       status: "cancelled",
+      finish_reason: "cancelled",
       finished_at: now,
       updated_at: now,
     })
@@ -875,6 +886,9 @@ export function updateRuntimeRun(
     .update(runtimeRuns)
     .set({
       final_agent_id: patch.final_agent_id ?? existing.final_agent_id,
+      origin: patch.origin ?? existing.origin,
+      finish_reason:
+        patch.finish_reason === undefined ? existing.finish_reason : patch.finish_reason,
       status: (patch.status as RuntimeStatus | undefined) ?? existing.status,
       model_ref: patch.model_ref ?? existing.model_ref,
       finished_at: patch.finished_at === undefined ? existing.finished_at : patch.finished_at,
@@ -891,6 +905,85 @@ export function updateRuntimeRun(
     .run();
   const row = getDb().select().from(runtimeRuns).where(eq(runtimeRuns.id, id)).get();
   return row ? toRuntimeRun(row) : null;
+}
+
+export function listAgentRunInputs(runId?: string, limit = 500): AgentRunInput[] {
+  const query = getDb()
+    .select()
+    .from(agentRunInputs)
+    .where(runId ? eq(agentRunInputs.run_id, runId) : undefined)
+    .orderBy(asc(agentRunInputs.sequence))
+    .limit(Math.max(1, Math.min(2_000, limit)));
+  return query.all().map(toAgentRunInput);
+}
+
+export function enqueueAgentRunInput(input: {
+  runId: string;
+  kind: AgentRunInputKind;
+  source: AgentRunInputSource;
+  message: unknown;
+  id?: string;
+  createdAt?: number;
+}): AgentRunInput {
+  return getDb().transaction((tx) => {
+    const latest = tx
+      .select({ sequence: agentRunInputs.sequence })
+      .from(agentRunInputs)
+      .where(eq(agentRunInputs.run_id, input.runId))
+      .orderBy(desc(agentRunInputs.sequence))
+      .limit(1)
+      .get();
+    const row: NewAgentRunInput = {
+      id: input.id ?? randomUUID(),
+      run_id: input.runId,
+      kind: input.kind,
+      source: input.source,
+      status: "queued",
+      message_json: JSON.stringify(input.message),
+      sequence: (latest?.sequence ?? 0) + 1,
+      created_at: input.createdAt ?? Date.now(),
+      consumed_at: null,
+      discarded_reason: null,
+    };
+    tx.insert(agentRunInputs).values(row).run();
+    return toAgentRunInput(row as DbAgentRunInput);
+  });
+}
+
+export function consumeAgentRunInputs(
+  runId: string,
+  kind: AgentRunInputKind,
+  now = Date.now(),
+): AgentRunInput[] {
+  return getDb().transaction((tx) => {
+    const rows = tx
+      .select()
+      .from(agentRunInputs)
+      .where(
+        and(
+          eq(agentRunInputs.run_id, runId),
+          eq(agentRunInputs.kind, kind),
+          eq(agentRunInputs.status, "queued"),
+        ),
+      )
+      .orderBy(asc(agentRunInputs.sequence))
+      .all();
+    for (const row of rows) {
+      tx.update(agentRunInputs)
+        .set({ status: "consumed", consumed_at: now })
+        .where(and(eq(agentRunInputs.id, row.id), eq(agentRunInputs.status, "queued")))
+        .run();
+    }
+    return rows.map((row) => toAgentRunInput({ ...row, status: "consumed", consumed_at: now }));
+  });
+}
+
+export function discardAgentRunInputs(runId: string, reason: string, now = Date.now()): number {
+  return getDb()
+    .update(agentRunInputs)
+    .set({ status: "discarded", consumed_at: now, discarded_reason: reason.slice(0, 240) })
+    .where(and(eq(agentRunInputs.run_id, runId), eq(agentRunInputs.status, "queued")))
+    .run().changes;
 }
 
 export function listRuntimeSteps(limit = 200): RuntimeStep[] {
@@ -1170,6 +1263,7 @@ export function upsertConversationAgentState(
 export function runtimeSnapshot(): Pick<
   RuntimeSnapshot,
   | "runtimeRuns"
+  | "agentRunInputs"
   | "runtimeSteps"
   | "agentRuntimeStates"
   | "conversationAgentStates"
@@ -1183,6 +1277,7 @@ export function runtimeSnapshot(): Pick<
 > {
   return {
     runtimeRuns: listRuntimeRuns(),
+    agentRunInputs: listAgentRunInputs(),
     runtimeSteps: listRuntimeSteps(),
     agentRuntimeStates: listagentRuntimeStates(),
     conversationAgentStates: listConversationAgentStates(),
@@ -1776,67 +1871,6 @@ function searchMemoriesSqlite(filters: {
   return limit !== undefined && limit > 0 ? queryBuilder.limit(limit).all() : queryBuilder.all();
 }
 
-export function listWorkflows(): WorkflowDefinition[] {
-  return listWorkflowDefinitions();
-}
-
-export function createWorkflowRun(input: {
-  id?: string;
-  workflow_id: string;
-  runtime_run_id?: string | null;
-  status: RuntimeStatus | "waiting_handoff";
-  input_json?: string | null;
-  output_json?: string | null;
-  started_at?: number;
-  finished_at?: number | null;
-}): WorkflowRun {
-  return createWorkflowRunRecord({
-    id: input.id,
-    workflowId: input.workflow_id,
-    runtimeRunId: input.runtime_run_id ?? null,
-    status: input.status,
-    inputJson: input.input_json ?? null,
-    outputJson: input.output_json ?? null,
-    startedAt: input.started_at,
-    finishedAt: input.finished_at ?? null,
-    triggeredBy: "manual",
-  });
-}
-
-export function updateWorkflowRun(
-  id: string,
-  patch: Partial<Pick<WorkflowRun, "status" | "output_json" | "finished_at">>,
-): WorkflowRun | null {
-  return updateWorkflowRunRecord(id, {
-    status: patch.status as WorkflowRun["status"] | undefined,
-    outputJson: patch.output_json === undefined ? undefined : patch.output_json,
-    finishedAt: patch.finished_at === undefined ? undefined : patch.finished_at,
-  });
-}
-
-/**
- * 暴露给 IPC / server 的"只读"集合，配合 workflow-runs.ts 使用。
- * 旧代码仍可直接 import 这两个函数；新代码优先使用 workflow-runs.ts 的具名导出。
- */
-export {
-  getWorkflowDefinition,
-  listWorkflowDefinitions,
-  createWorkflowDefinition,
-  updateWorkflowDefinition,
-  deleteWorkflowDefinition,
-  getWorkflowRun,
-  getWorkflowRunDetail,
-  listWorkflowStepRuns,
-  listWorkflowTransitions,
-  listWorkflowRuns,
-  createWorkflowRunRecord,
-  updateWorkflowRunRecord,
-  createWorkflowStepRun,
-  updateWorkflowStepRun,
-  recordWorkflowTransition,
-  upgradeLegacyWorkflows,
-} from "./workflow-runs";
-
 export function listToolServers(kind?: "mcp" | "local" | "sandbox"): ToolServer[] {
   const where = kind
     ? and(eq(toolServers.kind, kind), isNull(toolServers.deleted_at))
@@ -2067,8 +2101,6 @@ export function upsertMcpToolDefinitions(
       input_schema_json: JSON.stringify(definition.inputSchema ?? {}),
       output_schema_json: JSON.stringify(definition.outputSchema ?? {}),
       config_json: existing?.config_json ?? "{}",
-      steps_json: "[]",
-      workflow_id: null,
       trigger_keywords_json: "[]",
       tags_json: "[]",
       discovered_at: existing?.discovered_at ?? now,
@@ -2137,10 +2169,10 @@ export function getSkillTool(id: string): ToolSkill | null {
 }
 
 export function createSkillTool(input: ToolSkillInput): ToolSkill {
+  assertSkillInputKeys(input);
   const now = Date.now();
   const row = normalizeSkillToolInput(randomUUID(), input, null, now);
   getDb().insert(tools).values(row).run();
-  ensureSkillWorkflow(row);
   insertRuntimeEvent({
     kind: "tool",
     title: "Skill tool created",
@@ -2153,12 +2185,34 @@ export function createSkillTool(input: ToolSkillInput): ToolSkill {
 }
 
 export function updateSkillTool(id: string, input: Partial<ToolSkillInput>): ToolSkill {
+  assertSkillInputKeys(input);
   const existing = getRequiredToolRecord(id);
   const now = Date.now();
   const row = normalizeSkillToolInput(id, input, existing, now);
   getDb().update(tools).set(row).where(eq(tools.id, id)).run();
-  ensureSkillWorkflow(row);
   return toToolSkill(getRequiredToolRecord(id));
+}
+
+const SKILL_INPUT_KEYS = new Set<keyof ToolSkillInput>([
+  "name",
+  "description",
+  "instructions",
+  "category",
+  "enabled",
+  "auto_use",
+  "requires_approval",
+  "triggerKeywords",
+  "tags",
+  "configSchema",
+  "config",
+]);
+
+function assertSkillInputKeys(input: Partial<ToolSkillInput>): void {
+  for (const key of Object.keys(input)) {
+    if (!SKILL_INPUT_KEYS.has(key as keyof ToolSkillInput)) {
+      throw new Error(`Unsupported Skill field: ${key}`);
+    }
+  }
 }
 
 export function deleteSkillTool(id: string): void {
@@ -2336,7 +2390,6 @@ export function getToolsSnapshot(): ToolsSnapshot {
     toolRecords: listToolRecords(),
     skills: listSkillTools(),
     secrets: listToolSecretsPublic(),
-    workflowRuns: listWorkflowRuns(),
     runtimeEvents: listRuntimeEvents(),
   };
 }
@@ -2413,8 +2466,7 @@ export function getRuntimeSnapshot(): RuntimeSnapshot {
     sandboxSnapshots: listSandboxSnapshots(),
     sandboxArtifacts: listSandboxArtifacts(),
     memories: listMemories(),
-    workflows: listWorkflows(),
-    workflowRuns: listWorkflowRuns(),
+    agentRunInputs: listAgentRunInputs(),
     runtimeEvents: listRuntimeEvents(),
     agentInstances: listAgentInstances(),
     collaborationMessages: listCollaborationMessages(),
@@ -2577,24 +2629,6 @@ function seedDefaults(): void {
     }
   }
 
-  if (listWorkflows().length === 0) {
-    getDb()
-      .insert(workflows)
-      .values(
-        DEFAULT_WORKFLOW_SEEDS.map((seed) => ({
-          id: seed.id,
-          name: seed.name,
-          description: seed.description,
-          status: seed.status,
-          steps_json: JSON.stringify(seed.steps),
-          trigger: seed.trigger,
-          created_at: now,
-          updated_at: now,
-        })),
-      )
-      .run();
-  }
-
   seedBuiltinTools(now);
   ensureDesktopPetProfile();
   ensureSyncProfile();
@@ -2622,8 +2656,6 @@ function seedBuiltinTools(now: number): void {
         input_schema_json: "{}",
         output_schema_json: "{}",
         config_json: "{}",
-        steps_json: "[]",
-        workflow_id: null,
         trigger_keywords_json: "[]",
         tags_json: "[]",
         discovered_at: now,
@@ -2680,9 +2712,9 @@ function toAgentProfile(row: DbAgentProfile): AgentProfile {
     name: row.name,
     role: row.role,
     description: row.description,
+    instructions: row.instructions,
     personality: row.persona,
     soul_prompt: row.instructions,
-    instructions: row.instructions,
     persona: row.persona,
     avatar: row.avatar,
     status: row.status,
@@ -2807,6 +2839,10 @@ function toRuntimeRun(row: DbRuntimeRun): RuntimeRun {
   return row as RuntimeRun;
 }
 
+function toAgentRunInput(row: DbAgentRunInput): AgentRunInput {
+  return row as AgentRunInput;
+}
+
 function toRuntimeStep(row: DbRuntimeStep): RuntimeStep {
   return row as RuntimeStep;
 }
@@ -2828,6 +2864,7 @@ function toToolSkill(row: DbToolRecord): ToolSkill {
     id: row.id,
     name: row.title ?? row.name,
     description: row.description,
+    instructions: row.instructions,
     category: row.category,
     enabled: row.enabled,
     auto_use: row.auto_use,
@@ -2836,8 +2873,6 @@ function toToolSkill(row: DbToolRecord): ToolSkill {
     tags_json: row.tags_json,
     config_schema_json: row.input_schema_json,
     config_json: row.config_json,
-    steps_json: row.steps_json,
-    workflow_id: row.workflow_id,
     last_run_at: row.last_run_at,
     created_at: row.discovered_at,
     updated_at: row.updated_at,
@@ -2895,17 +2930,17 @@ function normalizeSkillToolInput(
     120,
   );
   const category = normalizeRequiredText(
-    input.category ?? existing?.category ?? "workflow",
+    input.category ?? existing?.category ?? "general",
     "category",
     80,
   );
-  const workflowId = input.workflow_id ?? existing?.workflow_id ?? skillWorkflowId(id);
   return {
     id,
     server_id: null,
     name: slugPart(name),
     title: name,
     description: normalizeText(input.description ?? existing?.description ?? "", 800),
+    instructions: normalizeText(input.instructions ?? existing?.instructions ?? "", 20_000),
     kind: "skill",
     category,
     reference: `skill:${id}`,
@@ -2919,8 +2954,6 @@ function normalizeSkillToolInput(
     ),
     output_schema_json: "{}",
     config_json: normalizeJsonObjectString(input.config ?? existing?.config_json ?? {}),
-    steps_json: normalizeSkillStepsJson(input.steps ?? existing?.steps_json ?? []),
-    workflow_id: workflowId,
     trigger_keywords_json: normalizeJsonArrayString(
       input.triggerKeywords ?? existing?.trigger_keywords_json ?? [],
     ),
@@ -2931,40 +2964,6 @@ function normalizeSkillToolInput(
     deleted_at: null,
     purge_after_at: null,
   };
-}
-
-function ensureSkillWorkflow(skill: NewToolRecord): WorkflowDefinition {
-  const id = skill.workflow_id ?? skillWorkflowId(skill.id);
-  const existing = getDb().select().from(workflows).where(eq(workflows.id, id)).get();
-  if (existing) return toWorkflowDefinition(existing);
-  const now = Date.now();
-  // 把 skill 的 steps_json (ToolSkillStep) 升级为 WorkflowNode
-  const parsedLegacy = safeParseSteps(skill.steps_json ?? "[]");
-  const nodes = parsedLegacy.map((s, idx) => buildNodeFromLegacyStep(s, idx));
-  const row = {
-    id,
-    name: skill.title ?? skill.name,
-    description: skill.description ?? "",
-    status: "enabled" as const,
-    nodes_json: JSON.stringify(nodes),
-    entry_node_id: nodes[0]?.id ?? "",
-    version: 1,
-    steps_json: skill.steps_json ?? "[]",
-    trigger: `skill:${skill.id}`,
-    created_at: now,
-    updated_at: now,
-  };
-  getDb().insert(workflows).values(row).run();
-  return toWorkflowDefinition(row);
-}
-
-function safeParseSteps(raw: string): unknown[] {
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
 }
 
 function getRequiredToolServer(id: string): ToolServer {
@@ -3063,7 +3062,9 @@ function normalizeRuntimeKind(kind: string): NewRuntimeEvent["kind"] {
   if (kind === "approval") return "approval";
   if (kind === "handoff" || kind === "consult") return "handoff";
   if (kind === "memory" || kind === "learning") return "memory";
-  if (kind === "workflow") return "workflow";
+  if (kind === "loop_input") return "loop_input";
+  if (kind === "skill") return "skill";
+  if (kind === "budget") return "budget";
   if (kind === "sandbox") return "sandbox";
   if (kind === "guardrail" || kind === "input_guardrail" || kind === "output_guardrail")
     return "guardrail";
@@ -3167,29 +3168,6 @@ function normalizeStringRecordJson(raw: unknown): string {
   );
 }
 
-function normalizeSkillStepsJson(raw: unknown): string {
-  const items = typeof raw === "string" ? safeParseArray(raw) : Array.isArray(raw) ? raw : [];
-  const steps: ToolSkillStep[] = items
-    .map((item, index) => {
-      if (!item || typeof item !== "object") return null;
-      const value = item as Partial<ToolSkillStep>;
-      return {
-        id: String(value.id ?? `step-${index + 1}`).slice(0, 80),
-        type: normalizeSkillStepType(value.type),
-        title: String(value.title ?? "Step").slice(0, 120),
-        detail: String(value.detail ?? "").slice(0, 2_000),
-      };
-    })
-    .filter((item): item is ToolSkillStep => item !== null);
-  return JSON.stringify(steps);
-}
-
-function normalizeSkillStepType(raw: unknown): ToolSkillStep["type"] {
-  return raw === "tool" || raw === "approval" || raw === "memory" || raw === "handoff"
-    ? raw
-    : "prompt";
-}
-
 function normalizeMcpTransport(raw: unknown): ToolServer["transport"] {
   return raw === "http" || raw === "sse" ? raw : "stdio";
 }
@@ -3218,25 +3196,12 @@ function parseSecretReference(value: string): string | null {
   return match?.[1] ?? null;
 }
 
-function safeParseArray(raw: string): unknown[] {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
 function toolSecretId(ownerType: ToolSecretOwnerType, ownerId: string, key: string): string {
   return `${ownerType}-${slugPart(ownerId)}-${slugPart(key)}`;
 }
 
 function toolRowId(serverId: string, name: string): string {
   return `tool-${slugPart(serverId)}-${slugPart(name)}`;
-}
-
-function skillWorkflowId(skillId: string): string {
-  return `workflow-${slugPart(skillId)}`;
 }
 
 function slugPart(value: string): string {

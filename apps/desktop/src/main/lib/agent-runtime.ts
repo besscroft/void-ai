@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { createAgentUIStreamResponse, isStepCount, jsonSchema, ToolLoopAgent, tool } from "ai";
+import {
+  convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  isStepCount,
+  jsonSchema,
+  toUIMessageStream,
+  ToolLoopAgent,
+  tool,
+} from "ai";
 import type {
+  FinishReason,
+  ModelMessage,
   streamText,
   ToolApprovalConfiguration,
   ToolApprovalStatus,
@@ -23,6 +34,7 @@ import {
   type AgentProfile,
   type AgentRuntimeProtocolEvent,
   type AgentRuntimeConfig,
+  type AgentRunOrigin,
   type AgentRuntimeStatus,
   type AgentToolPolicy,
   type ChatMessageMetadata,
@@ -32,7 +44,6 @@ import {
   type ModelCapabilities,
 } from "../../shared/types";
 import { appendReactionFeedback, type ResolvedChatModel } from "./chat-agent";
-import { z } from "zod";
 import {
   auditChatToolApprovalResponses,
   buildChatToolRuntime,
@@ -53,9 +64,7 @@ import {
   getSetting,
   upsertAgentRuntimeState,
   upsertConversationAgentState,
-  createRuntimeRun,
   createRuntimeStep,
-  cancelActiveRuntimeRunsForConversation,
   updateRuntimeRun,
   updateRuntimeStep,
   insertRuntimeEvent,
@@ -76,6 +85,8 @@ import {
 } from "./sandbox-agents";
 import { getSandboxSessionOrThrow } from "./sandbox-runtime";
 import { ROOT_AGENT_STOP_WHEN } from "./agent-run-policy";
+import { agentLoopSessions, type AgentLoopMode, type AgentLoopSession } from "./agent-loop-session";
+import { RunToolScheduler, scheduleToolSet } from "./run-tool-scheduler";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
 type MessageMetadataCallback = NonNullable<
@@ -94,6 +105,9 @@ export interface RunAgentChatOptions {
   resolveModel?: (modelRef: string) => ResolvedChatModel;
   abortSignal?: AbortSignal;
   disableCronTools?: boolean;
+  runId?: string;
+  mode?: AgentLoopMode;
+  origin?: AgentRunOrigin;
 }
 
 interface RuntimeContext {
@@ -118,6 +132,9 @@ interface RuntimeContext {
   abortSignal?: AbortSignal;
   disableCronTools: boolean;
   protocolRecorder: (event: AgentRuntimeProtocolEvent) => void;
+  session: AgentLoopSession;
+  toolScheduler: RunToolScheduler;
+  preparedSteering: ModelMessage[];
 }
 
 const DEFAULT_MODEL_CAPABILITIES: ModelCapabilities = {
@@ -183,58 +200,74 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
   );
   const resolved = applyRuntimeConfig(rootResolved, rootRuntimeConfig);
   const modelContext = toChatToolModelContext(rootModelRef, resolved);
-  const runId = randomUUID();
+  const runId = options.runId ?? randomUUID();
+  const session = agentLoopSessions.start({
+    runId,
+    conversationId: options.conversationId,
+    rootAgentId: DEFAULT_AGENT_ID,
+    modelRef: rootModelRef,
+    origin: options.origin ?? "chat",
+    mode: options.mode ?? "start",
+    runtimeConfig: rootRuntimeConfig,
+    inputSummary: summarizeText(extractTranscript(options.messages, 6), 1_000),
+    messages: options.messages,
+  });
+  if (options.abortSignal) {
+    if (options.abortSignal.aborted) session.cancel("request_aborted");
+    else {
+      options.abortSignal.addEventListener(
+        "abort",
+        () => session.cancel(String(options.abortSignal?.reason ?? "request_aborted")),
+        { once: true },
+      );
+    }
+  }
+  const toolScheduler = new RunToolScheduler();
   const protocolRecorder = createProtocolRecorder(runId, options.conversationId);
   const coordinator = new AgentCoordinator({
     runId,
     maxConcurrentSubagents,
     onEvent: protocolRecorder,
   });
-  options.abortSignal?.addEventListener("abort", () => coordinator.interruptAll(), { once: true });
-  if (options.conversationId) {
-    cancelActiveRuntimeRunsForConversation(options.conversationId);
-  }
-  createRuntimeRun({
-    id: runId,
-    conversation_id: options.conversationId ?? null,
-    root_agent_id: DEFAULT_AGENT_ID,
-    final_agent_id: DEFAULT_AGENT_ID,
-    status: "running",
-    model_ref: rootModelRef,
-    trace_id: runId,
-    input_summary: summarizeText(extractTranscript(options.messages, 6), 1_000),
-    output_summary: null,
-    error: null,
-    usage_json: null,
-    finished_at: null,
-  });
-  recordState({
-    agentId: DEFAULT_AGENT_ID,
-    status: "running",
-    runId,
-    conversationId: options.conversationId,
-    summary: rootAgent.name + " is planning",
-  });
-  createRuntimeStep({
-    run_id: runId,
-    agent_id: DEFAULT_AGENT_ID,
-    kind: "input_guardrail",
-    status: "succeeded",
-    title: "Input guardrails passed",
-    detail: { conversationId: options.conversationId, messageCount: options.messages.length },
-    finished_at: Date.now(),
-  });
-  insertRuntimeEvent({
-    kind: "agent",
-    title: rootAgent.name + " orchestration started",
-    status: "running",
-    detail: {
-      runId,
-      modelRef: rootModelRef,
-      providerKind: resolved.providerKind,
-      enabledChildAgents: enabledChildren.map((agent) => agent.id),
+  session.attachRuntime({ coordinator, recorder: protocolRecorder });
+  options.abortSignal?.addEventListener(
+    "abort",
+    () => {
+      coordinator.interruptAll();
+      session.cancel("request_aborted");
     },
-  });
+    { once: true },
+  );
+  if ((options.mode ?? "start") === "start") {
+    recordState({
+      agentId: DEFAULT_AGENT_ID,
+      status: "running",
+      runId,
+      conversationId: options.conversationId,
+      summary: rootAgent.name + " is planning",
+    });
+    createRuntimeStep({
+      run_id: runId,
+      agent_id: DEFAULT_AGENT_ID,
+      kind: "guardrail",
+      status: "succeeded",
+      title: "Input guardrails passed",
+      detail: { conversationId: options.conversationId, messageCount: options.messages.length },
+      finished_at: Date.now(),
+    });
+    insertRuntimeEvent({
+      runId,
+      kind: "agent",
+      title: rootAgent.name + " orchestration started",
+      status: "running",
+      detail: {
+        runId,
+        modelRef: rootModelRef,
+        providerKind: resolved.providerKind,
+        enabledChildAgents: enabledChildren.map((agent) => agent.id),
+      },
+    });
+  }
 
   auditChatToolApprovalResponses({
     messages: options.messages,
@@ -269,6 +302,9 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
     abortSignal: options.abortSignal,
     disableCronTools: options.disableCronTools === true,
     protocolRecorder,
+    session,
+    toolScheduler,
+    preparedSteering: [],
   };
   emitProtocol(context, "agent.lifecycle", "/root", null, "start", { status: "running" });
 
@@ -302,27 +338,215 @@ export async function runAgentChat(options: RunAgentChatOptions): Promise<Respon
       messageStepRecorder: tracker.recordModelStep,
       contextManager: contextEngine,
       protocol: { context, agentPath: "/root", parentAgentPath: null },
+      singleStep: true,
+      injectSteering: true,
+    });
+    const finalAgent = createToolLoopAgent({
+      id: DEFAULT_AGENT_ID + "-finalize",
+      modelRef: rootModelRef,
+      resolved,
+      instructions:
+        rootInstructions +
+        "\n\nThe run budget is exhausted. Do not call tools. Summarize completed work, unresolved items, and the reason execution stopped.",
+      messages: options.messages,
+      runtimeConfig: rootRuntimeConfig,
+      reasoning: context.reasoning,
+      toolRuntime: {
+        ...toolRuntime,
+        tools: {},
+        activeTools: [],
+        toolChoice: "none",
+        toolApproval: undefined,
+      },
+      messageStepRecorder: tracker.recordModelStep,
+      contextManager: contextEngine,
+      protocol: { context, agentPath: "/root", parentAgentPath: null },
+      singleStep: true,
     });
 
-    return await createAgentUIStreamResponse({
+    return await streamRootAgentLoop({
       agent,
-      uiMessages: options.messages,
-      abortSignal: options.abortSignal,
-      sendReasoning: true,
-      sendSources: true,
-      messageMetadata: tracker.messageMetadata,
-      onError: (error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        finishRun(context, "failed", { error: message });
-        console.error("[agent-runtime] stream failed:", message);
-        return message || "Agent stream failed";
-      },
+      finalAgent,
+      toolRuntime,
+      context,
+      tracker,
+      contextEngine,
+      initialMessages: options.messages,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     finishRun(context, "failed", { error: message });
     throw error;
   }
+}
+
+async function streamRootAgentLoop({
+  agent,
+  finalAgent,
+  context,
+  tracker,
+  initialMessages,
+}: {
+  agent: ToolLoopAgent<never, ToolSet>;
+  finalAgent: ToolLoopAgent<never, ToolSet>;
+  toolRuntime: ChatToolRuntimeConfig;
+  context: RuntimeContext;
+  tracker: ReturnType<typeof createExecutionTracker>;
+  contextEngine?: ContextEngine;
+  initialMessages: UIMessage[];
+}): Promise<Response> {
+  let modelMessages = await convertToModelMessages(initialMessages, { tools: agent.tools });
+  let firstEpoch = true;
+  let lastFinishReason: FinishReason = "stop";
+  let lastText = "";
+  let lastUsage: unknown;
+
+  const stream = createUIMessageStream<UIMessage<ChatMessageMetadata>>({
+    originalMessages: initialMessages as UIMessage<ChatMessageMetadata>[],
+    execute: async ({ writer }) => {
+      try {
+        const finalizeBudget = async (budgetReason: string): Promise<void> => {
+          const finalizationPrompt: ModelMessage = {
+            role: "user",
+            content: `Execution budget exhausted (${budgetReason}). Provide the final status now.`,
+          };
+          const finalResult = await finalAgent.stream({
+            prompt: [...modelMessages, finalizationPrompt],
+            abortSignal: context.session.signal,
+          });
+          const finalUiStream = toUIMessageStream<ToolSet, UIMessage<ChatMessageMetadata>>({
+            stream: finalResult.stream,
+            tools: finalAgent.tools,
+            sendStart: firstEpoch,
+            sendFinish: false,
+            sendReasoning: true,
+            sendSources: true,
+            originalMessages: firstEpoch
+              ? (initialMessages as UIMessage<ChatMessageMetadata>[])
+              : undefined,
+            messageMetadata: tracker.messageMetadata,
+            onError: (error) => (error instanceof Error ? error.message : String(error)),
+          });
+          for await (const chunk of finalUiStream) writer.write(chunk);
+          lastFinishReason = await finalResult.finishReason;
+          lastText = await finalResult.text;
+          lastUsage = await finalResult.usage;
+          firstEpoch = false;
+          finishRun(context, "succeeded", {
+            execution: tracker.finalize(lastFinishReason, lastUsage),
+            outputSummary: lastText,
+          });
+        };
+
+        while (context.session.isActive) {
+          const existingBudgetReason = context.session.budgetExceededReason;
+          if (existingBudgetReason) {
+            await finalizeBudget(existingBudgetReason);
+            break;
+          }
+          modelMessages = await appendQueuedMessages(
+            modelMessages,
+            context.session.drain("steering"),
+            agent.tools,
+          );
+          let result: Awaited<ReturnType<typeof agent.stream>>;
+          try {
+            result = await agent.stream({
+              prompt: modelMessages,
+              abortSignal: context.session.signal,
+              timeout: { totalMs: context.session.remainingDurationMs },
+            });
+          } catch (error) {
+            if (context.session.budgetExceededReason === "max_duration") {
+              await finalizeBudget("max_duration");
+              break;
+            }
+            throw error;
+          }
+          const uiStream = toUIMessageStream<ToolSet, UIMessage<ChatMessageMetadata>>({
+            stream: result.stream,
+            tools: agent.tools,
+            sendStart: firstEpoch,
+            sendFinish: false,
+            sendReasoning: true,
+            sendSources: true,
+            originalMessages: firstEpoch
+              ? (initialMessages as UIMessage<ChatMessageMetadata>[])
+              : undefined,
+            messageMetadata: tracker.messageMetadata,
+            onError: (error) => (error instanceof Error ? error.message : String(error)),
+          });
+          for await (const chunk of uiStream) writer.write(chunk);
+
+          modelMessages.push(
+            ...context.preparedSteering.splice(0),
+            ...((await result.responseMessages) as ModelMessage[]),
+          );
+          const toolCalls = await result.toolCalls;
+          lastFinishReason = await result.finishReason;
+          lastText = await result.text;
+          lastUsage = await result.usage;
+          const budgetReason = context.session.recordStep();
+          firstEpoch = false;
+
+          if (context.approvalRequested) {
+            finishRun(context, "succeeded");
+            break;
+          }
+          if (budgetReason) {
+            await finalizeBudget(budgetReason);
+            break;
+          }
+          if (toolCalls.length > 0) continue;
+
+          const steering = context.session.drain("steering");
+          if (steering.length > 0) {
+            modelMessages = await appendQueuedMessages(modelMessages, steering, agent.tools);
+            continue;
+          }
+          const followUps = context.session.drain("follow_up");
+          if (followUps.length > 0) {
+            modelMessages = await appendQueuedMessages(modelMessages, followUps, agent.tools);
+            continue;
+          }
+
+          finishRun(context, "succeeded", {
+            execution: tracker.finalize(lastFinishReason, lastUsage),
+            outputSummary: lastText,
+          });
+          break;
+        }
+
+        if (context.session.signal.aborted) {
+          writer.write({
+            type: "abort",
+            reason: String(context.session.signal.reason ?? "cancelled"),
+          });
+        } else {
+          writer.write({ type: "finish", finishReason: lastFinishReason });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (context.session.isActive) finishRun(context, "failed", { error: message });
+        console.error("[agent-runtime] stream failed:", message);
+        writer.write({ type: "error", errorText: message || "Agent stream failed" });
+        writer.write({ type: "finish", finishReason: "error" });
+      }
+    },
+    onError: (error) => (error instanceof Error ? error.message : String(error)),
+  });
+
+  return createUIMessageStreamResponse({ stream });
+}
+
+async function appendQueuedMessages(
+  current: ModelMessage[],
+  queued: UIMessage[],
+  tools: ToolSet,
+): Promise<ModelMessage[]> {
+  if (queued.length === 0) return current;
+  const converted = await convertToModelMessages(queued, { tools });
+  return [...current, ...converted];
 }
 
 async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRuntimeConfig> {
@@ -389,12 +613,6 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
         activeTools.add(toolName);
       }
     }
-
-    // 仅有 Void 自身可调用工作流：把控制权转交给编排好的多步流程。
-    // Child agent 不挂此工具，避免循环调度。
-    const runWorkflowName = "run_workflow";
-    assignTool(tools, runWorkflowName, createRunWorkflowTool(context));
-    activeTools.add(runWorkflowName);
   }
 
   const names = [...activeTools];
@@ -426,6 +644,8 @@ function createToolLoopAgent({
   messageStepRecorder,
   contextManager,
   protocol,
+  singleStep = false,
+  injectSteering = false,
 }: {
   id: string;
   modelRef: string;
@@ -437,21 +657,33 @@ function createToolLoopAgent({
   toolRuntime: ChatToolRuntimeConfig;
   messageStepRecorder?: () => void;
   contextManager?: ContextEngine;
+  singleStep?: boolean;
+  injectSteering?: boolean;
   protocol?: {
     context: RuntimeContext;
     agentPath: string;
     parentAgentPath: string | null;
   };
 }): ToolLoopAgent<never, ToolSet> {
+  const agentTools = protocol
+    ? scheduleToolSet(
+        toolRuntime.tools ?? {},
+        protocol.context.toolScheduler,
+        protocol.context.session.signal,
+        () => protocol.context.session.beginToolCall(),
+      )
+    : (toolRuntime.tools ?? {});
   return new ToolLoopAgent<never, ToolSet>({
     id,
     model: resolved.model,
     instructions: appendReactionFeedback(instructions, messages),
-    tools: toolRuntime.tools ?? {},
+    tools: agentTools,
     activeTools: toolRuntime.activeTools,
     toolChoice: toolRuntime.toolChoice,
     toolApproval: toolRuntime.toolApproval,
-    stopWhen: toolRuntime.stopWhen ?? isStepCount(runtimeConfig.maxTurns),
+    stopWhen: singleStep
+      ? isStepCount(1)
+      : (toolRuntime.stopWhen ?? isStepCount(runtimeConfig.maxTurns)),
     temperature: runtimeConfig.temperature ?? resolved.temperature,
     topP: runtimeConfig.topP ?? resolved.topP,
     maxOutputTokens: runtimeConfig.maxOutputTokens ?? resolved.maxOutputTokens,
@@ -461,12 +693,22 @@ function createToolLoopAgent({
         ) as StreamTextOptions["providerOptions"])
       : resolved.providerOptions,
     reasoning,
-    prepareStep: contextManager
-      ? async ({ messages: stepMessages }) => {
-          const messages = await contextManager.prepare(stepMessages);
-          return messages ? { messages } : undefined;
-        }
-      : undefined,
+    prepareStep:
+      contextManager || (injectSteering && protocol)
+        ? async ({ messages: stepMessages }) => {
+            let messages = stepMessages;
+            if (injectSteering && protocol) {
+              const steering = protocol.context.session.drain("steering");
+              if (steering.length > 0) {
+                const converted = await convertToModelMessages(steering, { tools: agentTools });
+                protocol.context.preparedSteering.push(...converted);
+                messages = [...messages, ...converted];
+              }
+            }
+            const prepared = contextManager ? await contextManager.prepare(messages) : messages;
+            return prepared ? { messages: prepared } : undefined;
+          }
+        : undefined,
     onToolExecutionStart: protocol
       ? ({ toolCall }) => {
           emitProtocol(
@@ -534,104 +776,6 @@ function createHandoffTool(
     execute: async function* (input) {
       yield { mode: "handoff", agentId: child.id, agentName: child.name, status: "running" };
       yield await runChildAgent(context, child, "handoff", input, parentPath);
-    },
-  });
-}
-
-// 仅在 Void 自身可用的 run_workflow 工具：触发预定义的多步工作流。
-// 对齐 OpenAI Orchestration 范式中"manager 调度多步流程"的语义；
-// 实际子步骤执行由工作流引擎（workflow-engine.ts）接管。
-const runWorkflowInputSchema = z.object({
-  workflowId: z.string().describe("Workflow definition id to run"),
-  input: z.record(z.string(), z.unknown()).optional().describe("Input payload for the workflow"),
-  reason: z.string().optional().describe("Why Paimon chose to invoke this workflow"),
-});
-
-function createRunWorkflowTool(context: RuntimeContext): ToolSet[string] {
-  // 用一个可变容器承载 runId；引擎在 run_started 事件中写入，
-  // 工作流节点派发（approval 队列、记忆写入、handoff 记录）会读取最新值。
-  const liveRunId = { value: "" };
-  return tool({
-    description:
-      "Run a saved multi-step workflow by id. Use when the user request is best served by a " +
-      "predefined orchestration (multiple steps, agent handoffs, parallel/branch logic) rather " +
-      "than a single direct answer. Returns the workflow run id and a summary of node outcomes.",
-    inputSchema: runWorkflowInputSchema,
-    execute: async (input) => {
-      const { executeWorkflow } = await import("./workflow-engine");
-      const { getWorkflowDefinition } = await import("./workflow-runs");
-      const { buildDefaultEngineDeps } = await import("./workflow-dispatcher");
-      const workflow = getWorkflowDefinition(input.workflowId);
-      if (!workflow) {
-        throw new Error(`Workflow '${input.workflowId}' not found.`);
-      }
-      if (workflow.status === "paused") {
-        throw new Error(`Workflow '${input.workflowId}' is paused.`);
-      }
-      // deps 工厂：每次派发都基于最新 runId 生成
-      const depsFactory = () =>
-        buildDefaultEngineDeps({
-          conversationId: context.conversationId ?? null,
-          runtimeRunId: context.runId ?? null,
-          triggeredByAgentId: DEFAULT_AGENT_ID,
-          workflowRunId: liveRunId.value,
-        });
-      const result = await executeWorkflow({
-        workflow,
-        input: input.input ?? {},
-        triggeredBy: "void-tool",
-        triggeredByAgentId: DEFAULT_AGENT_ID,
-        conversationId: context.conversationId ?? null,
-        runtimeRunId: context.runId ?? null,
-        deps: {
-          dispatchTool: async (ref, payload) => depsFactory().dispatchTool(ref, payload),
-          dispatchChildAgent: (target, payload, mode) =>
-            depsFactory().dispatchChildAgent(target, payload, mode),
-          waitForApproval: async (nodeId, prompt) => depsFactory().waitForApproval(nodeId, prompt),
-          readMemories: (q, k) => depsFactory().readMemories(q, k),
-          writeMemory: (payload) => depsFactory().writeMemory(payload),
-          resolveModelRef: (node) => depsFactory().resolveModelRef(node),
-          onNodeEvent: (event) => {
-            if (event.type === "run_started") {
-              liveRunId.value = event.runId;
-            }
-            if (event.type === "node_started") {
-              insertRuntimeEvent({
-                kind: "workflow",
-                title: `Workflow node started: ${event.nodeId}`,
-                status: "running",
-                detail: { runId: event.runId, nodeId: event.nodeId, attempt: event.attempt },
-              });
-            } else if (event.type === "node_completed") {
-              insertRuntimeEvent({
-                kind: "workflow",
-                title: `Workflow node ${event.status}: ${event.nodeId}`,
-                status: event.status as "succeeded" | "failed" | "running",
-                detail: {
-                  runId: event.runId,
-                  nodeId: event.nodeId,
-                  durationMs: event.durationMs,
-                },
-              });
-            } else if (event.type === "run_completed") {
-              insertRuntimeEvent({
-                kind: "workflow",
-                title: `Workflow ${event.status}`,
-                status: event.status,
-                detail: { runId: event.runId, output: event.output, error: event.error },
-              });
-            }
-          },
-        },
-      });
-      return {
-        runId: result.runId,
-        status: result.status,
-        durationMs: result.durationMs,
-        output: result.output,
-        error: result.error,
-        reason: input.reason ?? null,
-      };
     },
   });
 }
@@ -1171,18 +1315,26 @@ function evaluateToolGuardrail(
 function finishRun(
   context: RuntimeContext,
   status: "succeeded" | "failed" | "cancelled",
-  extra: { error?: string; execution?: ChatMessageMetadata["execution"] } = {},
+  extra: {
+    error?: string;
+    execution?: ChatMessageMetadata["execution"];
+    outputSummary?: string;
+  } = {},
 ): void {
   const finishedAt = Date.now();
   const finalStatus =
     context.approvalRequested && status === "succeeded" ? "waiting_approval" : status;
-  updateRuntimeRun(context.runId, {
-    status: finalStatus,
-    final_agent_id: context.finalAgentId,
-    finished_at: finalStatus === "waiting_approval" ? null : finishedAt,
-    error: extra.error ?? null,
-    usage_json: extra.execution ? JSON.stringify(extra.execution) : null,
-  });
+  if (finalStatus === "waiting_approval") {
+    context.session.markWaitingApproval();
+    updateRuntimeRun(context.runId, { final_agent_id: context.finalAgentId });
+  } else if (status === "failed") {
+    context.session.fail(extra.error ?? "Agent run failed");
+  } else if (status === "cancelled") {
+    context.session.cancel(extra.error ?? "cancelled");
+  } else {
+    context.session.complete(extra.outputSummary, extra.execution);
+    updateRuntimeRun(context.runId, { final_agent_id: context.finalAgentId });
+  }
   createRuntimeStep({
     run_id: context.runId,
     agent_id: context.finalAgentId,
@@ -1253,19 +1405,15 @@ function createExecutionTracker({
 }): {
   messageMetadata: MessageMetadataCallback;
   recordModelStep: () => void;
+  finalize: (finishReason: FinishReason, usage: unknown) => ChatMessageMetadata["execution"];
 } {
   const startedAt = Date.now();
   let stepCount = 0;
   let toolCallCount = 0;
-  const messageMetadata: MessageMetadataCallback = ({ part }) => {
-    if (part.type === "tool-call") {
-      toolCallCount += 1;
-      return undefined;
-    }
-    if (part.type === "start") {
-      return { execution: { startedAt, model: modelRef, agentId } };
-    }
-    if (part.type !== "finish") return undefined;
+  const buildExecution = (
+    finishReason: FinishReason | string,
+    usage: unknown,
+  ): NonNullable<ChatMessageMetadata["execution"]> => {
     const finishedAt = Date.now();
     const execution = {
       startedAt,
@@ -1274,13 +1422,13 @@ function createExecutionTracker({
       model: modelRef,
       agentId: context.finalAgentId || agentId,
       agentPath: context.coordinator.currentOwnerPath(),
-      finishReason: String(part.finishReason),
-      inputTokens: readTokenTotal(part.totalUsage, "inputTokens"),
-      outputTokens: readTokenTotal(part.totalUsage, "outputTokens"),
-      textOutputTokens: readUsageDetail(part.totalUsage, "outputTokenDetails", "textTokens"),
-      reasoningTokens: readUsageDetail(part.totalUsage, "outputTokenDetails", "reasoningTokens"),
-      cacheReadTokens: readUsageDetail(part.totalUsage, "inputTokenDetails", "cacheReadTokens"),
-      cacheWriteTokens: readUsageDetail(part.totalUsage, "inputTokenDetails", "cacheWriteTokens"),
+      finishReason: String(finishReason),
+      inputTokens: readTokenTotal(usage, "inputTokens"),
+      outputTokens: readTokenTotal(usage, "outputTokens"),
+      textOutputTokens: readUsageDetail(usage, "outputTokenDetails", "textTokens"),
+      reasoningTokens: readUsageDetail(usage, "outputTokenDetails", "reasoningTokens"),
+      cacheReadTokens: readUsageDetail(usage, "inputTokenDetails", "cacheReadTokens"),
+      cacheWriteTokens: readUsageDetail(usage, "inputTokenDetails", "cacheWriteTokens"),
       totalTokens: undefined as number | undefined,
       stepCount: stepCount || undefined,
       toolCallCount: toolCallCount || undefined,
@@ -1295,7 +1443,18 @@ function createExecutionTracker({
       execution.inputTokens !== undefined || execution.outputTokens !== undefined
         ? (execution.inputTokens ?? 0) + (execution.outputTokens ?? 0)
         : undefined;
-    finishRun(context, "succeeded", { execution });
+    return execution;
+  };
+  const messageMetadata: MessageMetadataCallback = ({ part }) => {
+    if (part.type === "tool-call") {
+      toolCallCount += 1;
+      return undefined;
+    }
+    if (part.type === "start") {
+      return { execution: { startedAt, model: modelRef, agentId } };
+    }
+    if (part.type !== "finish") return undefined;
+    const execution = buildExecution(part.finishReason, part.totalUsage);
     return { execution };
   };
   return {
@@ -1312,6 +1471,7 @@ function createExecutionTracker({
         finished_at: Date.now(),
       });
     },
+    finalize: buildExecution,
   };
 }
 

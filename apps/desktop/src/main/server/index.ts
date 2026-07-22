@@ -250,6 +250,8 @@ export function createApp(options: CreateAppOptions = {}): Hono {
       reasoning?: unknown;
       toolSelection?: ChatToolSelectionRequest;
       cronRun?: boolean;
+      runId?: string;
+      mode?: "start" | "resume";
     };
 
     const messages = body.messages?.filter(
@@ -260,6 +262,12 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     }
     if (!body.model) {
       return c.json({ error: "model is required in provider/model format" }, 400);
+    }
+    if (body.runId !== undefined && !isUuid(body.runId)) {
+      return c.json({ error: "runId must be a UUID", code: "invalid_run_id" }, 400);
+    }
+    if (body.mode !== undefined && body.mode !== "start" && body.mode !== "resume") {
+      return c.json({ error: "mode must be start or resume", code: "invalid_mode" }, 400);
     }
     const parsedReasoning = parseChatReasoningLevel(body.reasoning);
     if (!parsedReasoning.ok) {
@@ -286,6 +294,9 @@ export function createApp(options: CreateAppOptions = {}): Hono {
         reasoning: reasoning.value,
         toolSelection: body.toolSelection,
         disableCronTools: body.cronRun === true,
+        runId: body.runId,
+        mode: body.mode ?? "start",
+        origin: body.cronRun === true ? "automation" : "chat",
         buildAgentSystemPrompt: async (agentId, conversationId) =>
           body.system ?? (await buildAgentSystemPrompt(agentId, conversationId)),
         resolveModel,
@@ -294,6 +305,10 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[server] /api/chat failed:", message);
+      if (isAgentLoopSessionError(err)) {
+        const status = err.code === "run_not_found" ? 404 : 409;
+        return c.json({ error: message, code: err.code }, status);
+      }
       return c.json({ error: message }, getHttpErrorStatus(err));
     }
   });
@@ -763,4 +778,27 @@ function getHttpErrorStatus(err: unknown): 400 | 500 {
     return 400;
   }
   return 500;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isAgentLoopSessionError(error: unknown): error is Error & {
+  code:
+    | "run_conflict"
+    | "run_not_found"
+    | "run_not_active"
+    | "conversation_mismatch"
+    | "conversation_busy";
+} {
+  if (!(error instanceof Error) || error.name !== "AgentLoopSessionError") return false;
+  const code = (error as { code?: unknown }).code;
+  return (
+    code === "run_conflict" ||
+    code === "run_not_found" ||
+    code === "run_not_active" ||
+    code === "conversation_mismatch" ||
+    code === "conversation_busy"
+  );
 }

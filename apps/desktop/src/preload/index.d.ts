@@ -46,16 +46,15 @@ import type {
   ToolServerInput,
   ToolRecord,
   ProviderModelSyncResult,
-  WorkflowDefinition,
-  WorkflowRun,
-  WorkflowStepRun,
-  WorkflowTransition,
   ProviderInfo,
   ProviderTestResult,
   SyncState,
   RuntimeSnapshot,
-  ActiveWorkflowRunSnapshot,
+  AgentRunInput,
+  AgentRunInputKind,
+  AgentRunInputSource,
 } from "../shared/types";
+import type { UIMessage } from "ai";
 
 /**
  * Paimon 鏆撮湶缁欐覆鏌撹繘绋嬬殑 API
@@ -126,6 +125,13 @@ export interface VoidAIApi {
   };
   runtime: {
     snapshot: () => Promise<RuntimeSnapshot>;
+    enqueueInput: (input: {
+      runId: string;
+      kind: AgentRunInputKind;
+      source?: AgentRunInputSource;
+      message: UIMessage;
+    }) => Promise<AgentRunInput>;
+    cancelRun: (runId: string) => Promise<boolean>;
     events: {
       list: () => Promise<RuntimeEvent[]>;
     };
@@ -152,6 +158,7 @@ export interface VoidAIApi {
         | "sandboxArtifacts"
         | "runtimeEvents"
         | "agentInstances"
+        | "agentRunInputs"
         | "collaborationMessages"
         | "contextCheckpoints"
       >
@@ -188,12 +195,6 @@ export interface VoidAIApi {
       ids: string[],
       patch: Partial<Pick<MemoryRecord, "pinned" | "salience" | "kind" | "scope">>,
     ) => Promise<number>;
-  };
-  workflows: {
-    // chat 页面悬浮状态框专用：按会话取最近一次 run（活动优先 / 终态次之）
-    activeRunForConversation: (conversationId: string) => Promise<ActiveWorkflowRunSnapshot | null>;
-    // 用户在悬浮状态框中可主动取消正在运行的 workflow
-    cancelRun: (runId: string) => Promise<boolean>;
   };
   interactions: {
     list: () => Promise<InteractionProfile[]>;

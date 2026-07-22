@@ -39,20 +39,6 @@ export const DEFAULT_CHILD_AGENT_SEEDS: Array<AgentInput & { id: string }> = [
   },
 ];
 
-export const DEFAULT_WORKFLOW_SEEDS = [
-  {
-    id: "workflow-runtime-review",
-    name: "Runtime review",
-    description: "Summarize failed runtime events and suggest a next action.",
-    status: "enabled",
-    steps: [
-      { id: "read-events", type: "memory", title: "Read recent events", detail: "" },
-      { id: "diagnose", type: "prompt", title: "Diagnose", detail: "" },
-    ],
-    trigger: "manual",
-  },
-] as const;
-
 export const DEFAULT_BUILTIN_TOOL_SEEDS = [
   {
     id: "web_search",

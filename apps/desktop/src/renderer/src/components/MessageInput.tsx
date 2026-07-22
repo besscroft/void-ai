@@ -47,6 +47,7 @@ export interface PendingAttachment extends AttachmentItem {
 
 interface MessageInputProps {
   isLoading: boolean;
+  isRunActive?: boolean;
   onSend: (payload: {
     text: string;
     files: FilePartLike[];
@@ -73,6 +74,7 @@ const DEFAULT_MAX_SIZE = 10 * 1024 * 1024;
 
 export function MessageInput({
   isLoading,
+  isRunActive = isLoading,
   onSend,
   onStop,
   selectedModel,
@@ -125,7 +127,7 @@ export function MessageInput({
     : false;
   const modelReady = effectiveMediaKind ? !!selectedMediaModel : !!selectedModel;
   const hasContent = effectiveMediaKind ? mediaInputReady : hasText || hasAttachments;
-  const canSend = modelReady && hasContent && !isLoading;
+  const canSend = modelReady && hasContent;
 
   const handleSubmit = (msg: PromptInputMessage): void => {
     if (!canSend) return;
@@ -323,12 +325,14 @@ export function MessageInput({
                   <div className="relative">
                     <button
                       type="button"
+                      disabled={isRunActive}
                       onClick={() => setMediaMenuOpen((v) => !v)}
                       aria-label={t("input.media")}
                       title={t("input.media")}
                       className={cn(
                         "flex size-8 shrink-0 items-center justify-center rounded-xl text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground",
                         activeMediaKind && "bg-accent/10 text-accent",
+                        isRunActive && "cursor-not-allowed opacity-40",
                       )}
                     >
                       <IconSparkles className="size-4" />
@@ -367,14 +371,20 @@ export function MessageInput({
                     onChange={onToolSelectionChange}
                     selectedModel={selectedModel}
                     providers={providers}
-                    disabled={isLoading}
+                    disabled={isRunActive}
                   />
-                  <ModelSelector value={selectedModel} onChange={onModelChange} placement="top" />
+                  <ModelSelector
+                    value={selectedModel}
+                    onChange={onModelChange}
+                    placement="top"
+                    disabled={isRunActive}
+                  />
                   <ReasoningSelector
                     value={reasoningLevel}
                     onChange={onReasoningLevelChange}
                     placement="top"
                     model={selectedReasoningModel}
+                    disabled={isRunActive}
                   />
 
                   {contextMetrics ? (
@@ -382,33 +392,23 @@ export function MessageInput({
                   ) : null}
                 </div>
 
-                {isLoading && onStop ? (
+                <PromptInputSubmit
+                  status="ready"
+                  disabled={!canSend}
+                  aria-label={t("input.send")}
+                  className="ml-auto size-8"
+                />
+                {isRunActive && onStop ? (
                   <button
                     type="button"
                     onClick={onStop}
                     aria-label={t("input.stop")}
                     data-slot="prompt-input-stop"
-                    className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-xl border border-foreground/20 bg-foreground/10 text-foreground/80 transition hover:bg-foreground/15"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-md border border-foreground/20 bg-foreground/10 text-foreground/80 transition hover:bg-foreground/15"
                   >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      stroke="none"
-                      aria-hidden
-                    >
-                      <rect x="6" y="6" width="12" height="12" rx="2" />
-                    </svg>
+                    <span className="size-3 rounded-[2px] bg-current" aria-hidden />
                   </button>
-                ) : (
-                  <PromptInputSubmit
-                    status={isLoading ? "streaming" : "ready"}
-                    disabled={!canSend}
-                    aria-label={t("input.send")}
-                    className="ml-auto size-8"
-                  />
-                )}
+                ) : null}
               </div>
 
               {isDragging && (

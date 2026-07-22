@@ -110,6 +110,34 @@ void describe("local chat server", () => {
     assert.match(body.error, /reasoning must be one of/);
   });
 
+  void it("validates agent run identity and mode", async () => {
+    const app = createApp({ sessionToken: token });
+    const headers = {
+      "Content-Type": "application/json",
+      [CHAT_SESSION_HEADER]: token,
+    };
+    const invalidId = await app.request("/api/chat", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ messages: validMessages, model: "mock/chat", runId: "bad" }),
+    });
+    assert.equal(invalidId.status, 400);
+    assert.equal((await invalidId.json()).code, "invalid_run_id");
+
+    const invalidMode = await app.request("/api/chat", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        messages: validMessages,
+        model: "mock/chat",
+        runId: "018f8896-bef7-7051-8c30-1f862a28d31a",
+        mode: "continue",
+      }),
+    });
+    assert.equal(invalidMode.status, 400);
+    assert.equal((await invalidMode.json()).code, "invalid_mode");
+  });
+
   void it("preserves every supported top-level reasoning value including none", async () => {
     const captured: Array<RunAgentChatOptions["reasoning"]> = [];
     const model = new MockLanguageModelV4({});
@@ -171,6 +199,8 @@ void describe("local chat server", () => {
         model: "mock/chat",
         conversationId: "c-stream",
         reasoning: "high",
+        runId: "018f8896-bef7-7051-8c30-1f862a28d31a",
+        mode: "resume",
       }),
     });
 
@@ -181,11 +211,48 @@ void describe("local chat server", () => {
     assert.equal(captured.value?.modelRef, "mock/chat");
     assert.equal(captured.value?.conversationId, "c-stream");
     assert.equal(captured.value?.reasoning, "high");
+    assert.equal(captured.value?.runId, "018f8896-bef7-7051-8c30-1f862a28d31a");
+    assert.equal(captured.value?.mode, "resume");
     assert.deepEqual(captured.value?.resolved.providerOptions, providerOptions);
     assert.equal(
       await captured.value?.buildAgentSystemPrompt("agent-void", "c-stream"),
       "You are a test assistant.",
     );
+  });
+
+  void it("returns stable run conflict codes", async () => {
+    const model = new MockLanguageModelV4({});
+    const app = createApp({
+      sessionToken: token,
+      resolveModel: () => ({
+        model,
+        temperature: 0.7,
+        topP: 1,
+        maxOutputTokens: 256,
+      }),
+      buildAgentSystemPrompt: async () => "test",
+      runAgentChat: async () => {
+        throw Object.assign(new Error("Run is no longer active."), {
+          name: "AgentLoopSessionError",
+          code: "run_not_active",
+        });
+      },
+    });
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CHAT_SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({
+        messages: validMessages,
+        model: "mock/chat",
+        runId: "018f8896-bef7-7051-8c30-1f862a28d31a",
+        mode: "resume",
+      }),
+    });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, "run_not_active");
   });
 
   void it("filters legacy empty assistant messages before invoking the runtime", async () => {

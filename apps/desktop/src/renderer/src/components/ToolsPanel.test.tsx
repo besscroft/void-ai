@@ -14,7 +14,7 @@ void describe("ToolsPanel data helpers", () => {
     const records = [
       toolRecord("builtin-time", "builtin", "current_time", "system", 1, 0),
       toolRecord("mcp-search", "mcp", "search", "web", 1, 1),
-      toolRecord("skill-research", "skill", "research", "workflow", 0, 1),
+      toolRecord("skill-research", "skill", "research", "general", 0, 1),
       toolRecord("sandbox-command", "sandbox", "sandbox_run_command", "sandbox", 1, 1),
     ];
 
@@ -97,7 +97,7 @@ void describe("ToolsPanel data helpers", () => {
     assert.equal(input.timeout_seconds, 45);
   });
 
-  void it("builds Skill input with normalized steps", () => {
+  void it("builds Skill input without executable steps", () => {
     const input = buildSkillInput({
       name: " Research brief ",
       description: "Summarize sources",
@@ -109,19 +109,11 @@ void describe("ToolsPanel data helpers", () => {
       tags: '["docs"]',
       configSchema: '{"type":"object"}',
       config: '{"depth":"fast"}',
-      steps: JSON.stringify([{ id: "", type: "unknown", title: "", detail: "Start" }]),
     });
 
     assert.equal(input.name, "Research brief");
     assert.equal(input.category, "analysis");
-    assert.deepEqual(input.steps, [
-      {
-        id: "step-1",
-        type: "prompt",
-        title: "prompt",
-        detail: "Start",
-      },
-    ]);
+    assert.equal(input.config, '{"depth":"fast"}');
   });
 
   void it("rejects invalid MCP and Skill JSON fields", () => {
@@ -142,24 +134,6 @@ void describe("ToolsPanel data helpers", () => {
           cwd: "",
         }),
       /headers must be a JSON object/,
-    );
-
-    assert.throws(
-      () =>
-        buildSkillInput({
-          name: "Broken",
-          description: "",
-          category: "",
-          enabled: true,
-          auto_use: true,
-          requires_approval: true,
-          triggerKeywords: "[]",
-          tags: "[]",
-          configSchema: "{}",
-          config: "{}",
-          steps: "{}",
-        }),
-      /steps must be a JSON array/,
     );
 
     assert.throws(
@@ -205,7 +179,7 @@ void describe("ToolsPanel data helpers", () => {
     assert.deepEqual(input.tags, ["skill", "upload"]);
     assert.deepEqual(input.triggerKeywords, ["research-brief"]);
     assert.equal((input.config as Record<string, unknown>).source, "upload");
-    assert.match(String((input.config as Record<string, unknown>).instructions), /tradeoffs/);
+    assert.match(String(input.instructions), /tradeoffs/);
   });
 
   void it("rejects invalid SKILL.md packages", () => {
@@ -239,14 +213,13 @@ function toolRecord(
     name,
     title: name,
     description: `${name} ${category}`,
+    instructions: kind === "skill" ? "Follow the skill instructions." : "",
     kind,
     category,
     reference: name,
     input_schema_json: "{}",
     output_schema_json: "{}",
     config_json: "{}",
-    steps_json: "[]",
-    workflow_id: null,
     trigger_keywords_json: "[]",
     tags_json: "[]",
     enabled,

@@ -33,6 +33,21 @@ CREATE TABLE `agent_policies` (
 );
 --> statement-breakpoint
 CREATE INDEX `idx_agent_policies_updated` ON `agent_policies` (`updated_at`);--> statement-breakpoint
+CREATE TABLE `agent_run_inputs` (
+	`id` text PRIMARY KEY NOT NULL,
+	`run_id` text NOT NULL,
+	`kind` text NOT NULL,
+	`source` text NOT NULL,
+	`status` text DEFAULT 'queued' NOT NULL,
+	`message_json` text NOT NULL,
+	`sequence` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	`consumed_at` integer,
+	`discarded_reason` text,
+	FOREIGN KEY (`run_id`) REFERENCES `runtime_runs`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `idx_agent_run_inputs_run_status_sequence` ON `agent_run_inputs` (`run_id`,`status`,`sequence`);--> statement-breakpoint
 CREATE TABLE `agents` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -255,32 +270,6 @@ CREATE INDEX `idx_memories_last_used` ON `memories` (`last_used_at`);--> stateme
 CREATE INDEX `idx_memories_expires` ON `memories` (`expires_at`);--> statement-breakpoint
 CREATE INDEX `idx_memories_mem0` ON `memories` (`mem0_id`);--> statement-breakpoint
 CREATE INDEX `idx_memories_sync_status` ON `memories` (`sync_status`);--> statement-breakpoint
-CREATE TABLE `memory_observations` (
-	`id` text PRIMARY KEY NOT NULL,
-	`dedupe_key` text NOT NULL,
-	`title` text NOT NULL,
-	`content` text NOT NULL,
-	`kind` text NOT NULL,
-	`source_conversation_id` text,
-	`source_run_id` text,
-	`source_agent_id` text,
-	`confidence` integer DEFAULT 50 NOT NULL,
-	`evidence_count` integer DEFAULT 1 NOT NULL,
-	`evidence_json` text DEFAULT '[]' NOT NULL,
-	`status` text DEFAULT 'pending' NOT NULL,
-	`expires_at` integer NOT NULL,
-	`promoted_memory_id` text,
-	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`source_conversation_id`) REFERENCES `conversations`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`source_run_id`) REFERENCES `runtime_runs`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`source_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`promoted_memory_id`) REFERENCES `memories`(`id`) ON UPDATE no action ON DELETE set null
-);
---> statement-breakpoint
-CREATE INDEX `idx_memory_observations_dedupe` ON `memory_observations` (`dedupe_key`);--> statement-breakpoint
-CREATE INDEX `idx_memory_observations_status_expires` ON `memory_observations` (`status`,`expires_at`);--> statement-breakpoint
-CREATE INDEX `idx_memory_observations_conversation` ON `memory_observations` (`source_conversation_id`);--> statement-breakpoint
 CREATE TABLE `memory_jobs` (
 	`id` text PRIMARY KEY NOT NULL,
 	`idempotency_key` text,
@@ -307,6 +296,32 @@ CREATE INDEX `idx_memory_jobs_kind` ON `memory_jobs` (`kind`);--> statement-brea
 CREATE INDEX `idx_memory_jobs_idempotency` ON `memory_jobs` (`idempotency_key`);--> statement-breakpoint
 CREATE INDEX `idx_memory_jobs_conversation` ON `memory_jobs` (`conversation_id`);--> statement-breakpoint
 CREATE INDEX `idx_memory_jobs_agent` ON `memory_jobs` (`agent_id`);--> statement-breakpoint
+CREATE TABLE `memory_observations` (
+	`id` text PRIMARY KEY NOT NULL,
+	`dedupe_key` text NOT NULL,
+	`title` text NOT NULL,
+	`content` text NOT NULL,
+	`kind` text NOT NULL,
+	`source_conversation_id` text,
+	`source_run_id` text,
+	`source_agent_id` text,
+	`confidence` integer DEFAULT 50 NOT NULL,
+	`evidence_count` integer DEFAULT 1 NOT NULL,
+	`evidence_json` text DEFAULT '[]' NOT NULL,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`expires_at` integer NOT NULL,
+	`promoted_memory_id` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`source_conversation_id`) REFERENCES `conversations`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`source_run_id`) REFERENCES `runtime_runs`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`source_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`promoted_memory_id`) REFERENCES `memories`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE INDEX `idx_memory_observations_dedupe` ON `memory_observations` (`dedupe_key`);--> statement-breakpoint
+CREATE INDEX `idx_memory_observations_status_expires` ON `memory_observations` (`status`,`expires_at`);--> statement-breakpoint
+CREATE INDEX `idx_memory_observations_conversation` ON `memory_observations` (`source_conversation_id`);--> statement-breakpoint
 CREATE TABLE `messages` (
 	`id` text PRIMARY KEY NOT NULL,
 	`conversation_id` text NOT NULL,
@@ -378,7 +393,8 @@ CREATE TABLE `runtime_runs` (
 	`conversation_id` text,
 	`root_agent_id` text,
 	`final_agent_id` text,
-	`workflow_id` text,
+	`origin` text DEFAULT 'chat' NOT NULL,
+	`finish_reason` text,
 	`status` text NOT NULL,
 	`model_ref` text,
 	`trace_id` text,
@@ -527,6 +543,7 @@ CREATE TABLE `tools` (
 	`name` text NOT NULL,
 	`title` text,
 	`description` text DEFAULT '' NOT NULL,
+	`instructions` text DEFAULT '' NOT NULL,
 	`kind` text NOT NULL,
 	`category` text DEFAULT 'general' NOT NULL,
 	`reference` text NOT NULL,
@@ -536,8 +553,6 @@ CREATE TABLE `tools` (
 	`input_schema_json` text DEFAULT '{}' NOT NULL,
 	`output_schema_json` text DEFAULT '{}' NOT NULL,
 	`config_json` text DEFAULT '{}' NOT NULL,
-	`steps_json` text DEFAULT '[]' NOT NULL,
-	`workflow_id` text,
 	`trigger_keywords_json` text DEFAULT '[]' NOT NULL,
 	`tags_json` text DEFAULT '[]' NOT NULL,
 	`discovered_at` integer NOT NULL,
@@ -553,75 +568,4 @@ CREATE INDEX `idx_tools_kind` ON `tools` (`kind`);--> statement-breakpoint
 CREATE INDEX `idx_tools_reference` ON `tools` (`reference`);--> statement-breakpoint
 CREATE INDEX `idx_tools_enabled` ON `tools` (`enabled`);--> statement-breakpoint
 CREATE INDEX `idx_tools_deleted_at` ON `tools` (`deleted_at`);--> statement-breakpoint
-CREATE INDEX `idx_tools_purge_after_at` ON `tools` (`purge_after_at`);--> statement-breakpoint
-CREATE TABLE `workflow_runs` (
-	`id` text PRIMARY KEY NOT NULL,
-	`workflow_id` text NOT NULL,
-	`runtime_run_id` text,
-	`status` text NOT NULL,
-	`input_json` text,
-	`output_json` text,
-	`error` text,
-	`context_json` text DEFAULT '{}' NOT NULL,
-	`triggered_by` text DEFAULT 'manual' NOT NULL,
-	`triggered_by_agent_id` text,
-	`conversation_id` text,
-	`started_at` integer NOT NULL,
-	`finished_at` integer,
-	FOREIGN KEY (`workflow_id`) REFERENCES `workflows`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`runtime_run_id`) REFERENCES `runtime_runs`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`triggered_by_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`conversation_id`) REFERENCES `conversations`(`id`) ON UPDATE no action ON DELETE set null
-);
---> statement-breakpoint
-CREATE INDEX `idx_workflow_runs_workflow` ON `workflow_runs` (`workflow_id`);--> statement-breakpoint
-CREATE INDEX `idx_workflow_runs_runtime` ON `workflow_runs` (`runtime_run_id`);--> statement-breakpoint
-CREATE INDEX `idx_workflow_runs_started` ON `workflow_runs` (`started_at`);--> statement-breakpoint
-CREATE INDEX `idx_workflow_runs_status` ON `workflow_runs` (`status`);--> statement-breakpoint
-CREATE TABLE `workflow_step_runs` (
-	`id` text PRIMARY KEY NOT NULL,
-	`workflow_run_id` text NOT NULL,
-	`node_id` text NOT NULL,
-	`status` text NOT NULL,
-	`attempt` integer DEFAULT 1 NOT NULL,
-	`input_json` text,
-	`output_json` text,
-	`error` text,
-	`started_at` integer,
-	`finished_at` integer,
-	`duration_ms` integer,
-	`assigned_agent_id` text,
-	`metadata_json` text DEFAULT '{}' NOT NULL,
-	FOREIGN KEY (`workflow_run_id`) REFERENCES `workflow_runs`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`assigned_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE set null
-);
---> statement-breakpoint
-CREATE INDEX `idx_workflow_step_runs_run` ON `workflow_step_runs` (`workflow_run_id`);--> statement-breakpoint
-CREATE INDEX `idx_workflow_step_runs_started` ON `workflow_step_runs` (`started_at`);--> statement-breakpoint
-CREATE TABLE `workflow_transitions` (
-	`id` text PRIMARY KEY NOT NULL,
-	`workflow_run_id` text NOT NULL,
-	`from_node_id` text,
-	`to_node_id` text NOT NULL,
-	`reason` text DEFAULT '' NOT NULL,
-	`created_at` integer NOT NULL,
-	FOREIGN KEY (`workflow_run_id`) REFERENCES `workflow_runs`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `idx_workflow_transitions_run` ON `workflow_transitions` (`workflow_run_id`);--> statement-breakpoint
-CREATE INDEX `idx_workflow_transitions_created` ON `workflow_transitions` (`created_at`);--> statement-breakpoint
-CREATE TABLE `workflows` (
-	`id` text PRIMARY KEY NOT NULL,
-	`name` text NOT NULL,
-	`description` text NOT NULL,
-	`status` text DEFAULT 'draft' NOT NULL,
-	`nodes_json` text DEFAULT '[]' NOT NULL,
-	`entry_node_id` text DEFAULT '' NOT NULL,
-	`version` integer DEFAULT 1 NOT NULL,
-	`steps_json` text DEFAULT '[]' NOT NULL,
-	`trigger` text DEFAULT 'manual' NOT NULL,
-	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `idx_workflows_status` ON `workflows` (`status`);
+CREATE INDEX `idx_tools_purge_after_at` ON `tools` (`purge_after_at`);

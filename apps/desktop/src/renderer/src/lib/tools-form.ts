@@ -1,10 +1,4 @@
-import type {
-  McpTransportKind,
-  ToolServerInput,
-  ToolSkillInput,
-  ToolSkillStep,
-  ToolSkillStepType,
-} from "@shared/types";
+import type { McpTransportKind, ToolServerInput, ToolSkillInput } from "@shared/types";
 
 export interface McpFormState {
   name: string;
@@ -34,7 +28,6 @@ export interface SkillFormState {
   tags: string;
   configSchema: string;
   config: string;
-  steps: string;
 }
 
 export interface SkillPackageDraft {
@@ -82,24 +75,18 @@ export function buildSkillInput(form: SkillFormState): ToolSkillInput {
   parseArray(form.tags, "tags");
   parseObject(form.configSchema, "config schema");
   parseObject(form.config, "config");
-  const steps = parseArray(form.steps, "steps").map(normalizeToolSkillStep);
   return {
     auto_use: form.auto_use,
-    category: form.category.trim() || "workflow",
+    category: form.category.trim() || "general",
     config: form.config,
     configSchema: form.configSchema,
     description: form.description.trim(),
     enabled: form.enabled,
     name,
     requires_approval: form.requires_approval,
-    steps,
     tags: form.tags,
     triggerKeywords: form.triggerKeywords,
   };
-}
-
-export function normalizeToolSkillSteps(raw: string): ToolSkillStep[] {
-  return readArray(raw).map(normalizeToolSkillStep);
 }
 
 export function parseSkillMarkdown(markdown: string, source: "upload" | "ai"): SkillPackageDraft {
@@ -130,7 +117,6 @@ export function buildSkillInputFromMarkdown(
     category: "skill",
     config: {
       source: draft.source,
-      instructions: draft.instructions,
       markdown: draft.markdown,
     },
     configSchema: {
@@ -141,40 +127,13 @@ export function buildSkillInputFromMarkdown(
       additionalProperties: true,
     },
     description: draft.description,
+    instructions: draft.instructions,
     enabled: true,
     name: draft.name,
     requires_approval: true,
-    steps: [
-      {
-        id: "follow-skill",
-        type: "prompt",
-        title: "Follow skill instructions",
-        detail: draft.instructions.slice(0, 4_000),
-      },
-    ],
     tags: ["skill", draft.source],
     triggerKeywords: [draft.name],
   };
-}
-
-function normalizeToolSkillStep(item: unknown, index: number): ToolSkillStep {
-  const record =
-    item && typeof item === "object" && !Array.isArray(item)
-      ? (item as Record<string, unknown>)
-      : {};
-  const type = normalizeStepType(record.type);
-  return {
-    id: typeof record.id === "string" && record.id.trim() ? record.id.trim() : `step-${index + 1}`,
-    type,
-    title: typeof record.title === "string" && record.title.trim() ? record.title.trim() : type,
-    detail: typeof record.detail === "string" ? record.detail : "",
-  };
-}
-
-function normalizeStepType(value: unknown): ToolSkillStepType {
-  return value === "tool" || value === "approval" || value === "memory" || value === "handoff"
-    ? value
-    : "prompt";
 }
 
 function parseCommandLine(commandLine: string): { command: string; args: string[] } {
@@ -257,15 +216,6 @@ function unquoteYamlString(value: string): string {
     return value.slice(1, -1).trim();
   }
   return value.trim();
-}
-
-function readArray(raw: string): unknown[] {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
 }
 
 function parseArray(raw: string, label: string): unknown[] {

@@ -1217,11 +1217,11 @@ function summarizeRuntimeSnapshot(limit: number): unknown {
         content: truncate(memory.content, 360),
       })),
     },
-    workflows: snapshot.workflows.slice(0, limit).map((workflow) => ({
-      id: workflow.id,
-      name: workflow.name,
-      status: workflow.status,
-      trigger: workflow.trigger,
+    agentRuns: snapshot.runtimeRuns.slice(0, limit).map((run) => ({
+      id: run.id,
+      origin: run.origin,
+      status: run.status,
+      finishReason: run.finish_reason,
     })),
     runtimeEvents: snapshot.runtimeEvents.slice(0, limit).map((event) => ({
       kind: event.kind,
@@ -1860,7 +1860,9 @@ function recordRuntimeEvent(input: {
     | "approval"
     | "handoff"
     | "memory"
-    | "workflow"
+    | "loop_input"
+    | "skill"
+    | "budget"
     | "sandbox"
     | "guardrail"
     | "diagnostic"
