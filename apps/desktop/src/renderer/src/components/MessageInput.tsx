@@ -8,38 +8,24 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from "react";
+import type { ChatReasoningLevel, ChatToolSelectionRequest, ProviderInfo } from "@shared/types";
 import { ModelSelector } from "./ModelSelector";
 import { ReasoningSelector } from "./ReasoningSelector";
 import { ToolSelector } from "./ToolSelector";
 import {
+  AttachmentChip,
+  ContextPopover,
   PromptInput,
   PromptInputSubmit,
   PromptInputTextarea,
-  type PromptInputMessage,
-  AttachmentChip,
-  ContextPopover,
   type AttachmentItem,
   type ContextMetrics,
   type FilePartLike,
+  type PromptInputMessage,
 } from "./ai-elements";
+import { IconPaperclip } from "./icons";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/utils";
-import {
-  detectMediaIntent,
-  getMediaCapableProviders,
-  MEDIA_GENERATION_KINDS,
-  selectMediaModelRef,
-  type MediaGenerationSelection,
-} from "../lib/chat-media";
-import { IconClose, IconPaperclip, IconSparkles } from "./icons";
-import type {
-  ChatReasoningLevel,
-  ChatToolSelectionRequest,
-  MediaGenerationKind,
-  MediaGenerationOptions,
-  MediaGenerationSettings,
-  ProviderInfo,
-} from "@shared/types";
 
 export interface PendingAttachment extends AttachmentItem {
   file: File;
@@ -48,11 +34,7 @@ export interface PendingAttachment extends AttachmentItem {
 interface MessageInputProps {
   isLoading: boolean;
   isRunActive?: boolean;
-  onSend: (payload: {
-    text: string;
-    files: FilePartLike[];
-    media?: MediaGenerationSelection;
-  }) => void;
+  onSend: (payload: { text: string; files: FilePartLike[] }) => void;
   onStop?: () => void;
   selectedModel: string | null;
   reasoningLevel: ChatReasoningLevel;
@@ -61,8 +43,6 @@ interface MessageInputProps {
   onReasoningLevelChange: (level: ChatReasoningLevel) => void;
   onToolSelectionChange: (selection: ChatToolSelectionRequest) => void;
   providers: ProviderInfo[];
-  mediaSettings: MediaGenerationSettings;
-  onMediaSettingsChange: (settings: MediaGenerationSettings) => void;
   maxFileSize?: number;
   accept?: string;
   contextMetrics?: ContextMetrics;
@@ -84,8 +64,6 @@ export function MessageInput({
   onReasoningLevelChange,
   onToolSelectionChange,
   providers,
-  mediaSettings,
-  onMediaSettingsChange,
   maxFileSize = DEFAULT_MAX_SIZE,
   accept = DEFAULT_ACCEPT,
   contextMetrics,
@@ -93,8 +71,9 @@ export function MessageInput({
   const { t } = useT();
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const [mediaMenuOpen, setMediaMenuOpen] = useState(false);
-  const [activeMediaKind, setActiveMediaKind] = useState<MediaGenerationKind | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const selectedReasoningModel = useMemo(() => {
     if (!selectedModel) return undefined;
     const separator = selectedModel.indexOf("/");
@@ -105,58 +84,31 @@ export function MessageInput({
       .find((provider) => provider.id === providerId)
       ?.models.find((model) => model.id === modelId);
   }, [providers, selectedModel]);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const detectedMediaKind = useMemo(
-    () => (activeMediaKind ? null : (detectMediaIntent(input, attachments)?.kind ?? null)),
-    [activeMediaKind, attachments, input],
-  );
-  const effectiveMediaKind = activeMediaKind ?? detectedMediaKind;
-  const selectedMediaModel = effectiveMediaKind
-    ? selectMediaModelRef(providers, mediaSettings, effectiveMediaKind)
-    : null;
-  const hasText = input.trim().length > 0;
-  const hasAttachments = attachments.length > 0;
-  const hasAudioAttachment = attachments.some((file) => file.mediaType.startsWith("audio/"));
-  const mediaInputReady = effectiveMediaKind
-    ? effectiveMediaKind === "transcription"
-      ? hasAudioAttachment
-      : hasText
-    : false;
-  const modelReady = effectiveMediaKind ? !!selectedMediaModel : !!selectedModel;
-  const hasContent = effectiveMediaKind ? mediaInputReady : hasText || hasAttachments;
+  const hasContent = input.trim().length > 0 || attachments.length > 0;
+  const modelReady = !!selectedModel;
   const canSend = modelReady && hasContent;
 
-  const handleSubmit = (msg: PromptInputMessage): void => {
+  const handleSubmit = (message: PromptInputMessage): void => {
     if (!canSend) return;
-    void flushSubmit(msg.text);
+    void flushSubmit(message.text);
   };
 
   const flushSubmit = async (text: string): Promise<void> => {
     try {
-      const fileParts: FilePartLike[] = await Promise.all(
-        attachments.map(async (a) => ({
+      const files: FilePartLike[] = await Promise.all(
+        attachments.map(async (attachment) => ({
           type: "file",
-          mediaType: a.mediaType,
-          filename: a.name,
-          url: await readFileAsDataURL(a.file),
+          mediaType: attachment.mediaType,
+          filename: attachment.name,
+          url: await readFileAsDataURL(attachment.file),
         })),
       );
-      const media = activeMediaKind
-        ? {
-            kind: activeMediaKind,
-            modelRef: selectMediaModelRef(providers, mediaSettings, activeMediaKind),
-            options: mediaSettings.defaults[activeMediaKind]?.options ?? {},
-          }
-        : undefined;
-      onSend({ text, files: fileParts, media });
+      onSend({ text, files });
       setInput("");
       setAttachments([]);
-      setMediaMenuOpen(false);
-    } catch (err) {
-      console.error("[MessageInput] failed to read attachments:", err);
+    } catch (error) {
+      console.error("[MessageInput] failed to read attachments:", error);
     }
   };
 
@@ -178,34 +130,34 @@ export function MessageInput({
           size: file.size,
         });
       }
-      if (next.length > 0) setAttachments((prev) => [...prev, ...next]);
+      if (next.length > 0) setAttachments((current) => [...current, ...next]);
     },
     [maxFileSize],
   );
 
-  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    if (e.currentTarget.files) ingestFiles(e.currentTarget.files);
-    e.currentTarget.value = "";
+  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    if (event.currentTarget.files) ingestFiles(event.currentTarget.files);
+    event.currentTarget.value = "";
   };
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>): void => {
-    e.preventDefault();
+  const handleDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    event.preventDefault();
     if (!isDragging) setIsDragging(true);
   };
 
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>): void => {
-    e.preventDefault();
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false);
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    if (!event.currentTarget.contains(event.relatedTarget as Node)) setIsDragging(false);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>): void => {
-    e.preventDefault();
+  const handleDrop = (event: DragEvent<HTMLDivElement>): void => {
+    event.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer?.files) ingestFiles(e.dataTransfer.files);
+    if (event.dataTransfer?.files) ingestFiles(event.dataTransfer.files);
   };
 
-  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
-    const items = e.clipboardData?.items;
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const items = event.clipboardData?.items;
     if (!items) return;
     const files: File[] = [];
     for (const item of Array.from(items)) {
@@ -213,34 +165,24 @@ export function MessageInput({
       const pasted = item.getAsFile();
       if (!pasted) continue;
       if (!pasted.name) {
-        const ext = (pasted.type.split("/")[1] || "png").toLowerCase();
-        files.push(new File([pasted], `pasted-${Date.now()}.${ext}`, { type: pasted.type }));
+        const extension = (pasted.type.split("/")[1] || "png").toLowerCase();
+        files.push(new File([pasted], `pasted-${Date.now()}.${extension}`, { type: pasted.type }));
       } else {
         files.push(pasted);
       }
     }
     if (files.length > 0) {
-      e.preventDefault();
+      event.preventDefault();
       ingestFiles(files);
     }
   };
 
-  const handleKeyDownExtra = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      e.currentTarget.form?.requestSubmit();
+  const handleKeyDownExtra = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
     }
   };
-
-  const removeAttachment = (id: string): void => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
-  };
-
-  const runtimeWarning = !modelReady
-    ? effectiveMediaKind
-      ? t("input.media.noModel")
-      : t("input.noModel")
-    : null;
 
   return (
     <div className="shrink-0 bg-background/70 px-3 pb-3 pt-2 backdrop-blur-xl sm:px-4">
@@ -265,31 +207,27 @@ export function MessageInput({
               onSubmit={handleSubmit}
               className="relative"
             >
-              {activeMediaKind && (
-                <MediaSettingsPanel
-                  kind={activeMediaKind}
-                  providers={providers}
-                  settings={mediaSettings}
-                  onChange={onMediaSettingsChange}
-                  onClear={() => setActiveMediaKind(null)}
-                />
-              )}
-
-              {attachments.length > 0 && (
+              {attachments.length > 0 ? (
                 <div
                   className="mb-2 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto pb-1"
                   data-slot="composer-attachments"
                 >
-                  {attachments.map((a) => (
-                    <AttachmentChip key={a.id} item={a} onRemove={removeAttachment} />
+                  {attachments.map((attachment) => (
+                    <AttachmentChip
+                      key={attachment.id}
+                      item={attachment}
+                      onRemove={(id) =>
+                        setAttachments((current) => current.filter((item) => item.id !== id))
+                      }
+                    />
                   ))}
                 </div>
-              )}
+              ) : null}
 
               <PromptInputTextarea
                 ref={textareaRef}
                 value={input}
-                onChange={(e) => setInput(e.currentTarget.value)}
+                onChange={(event) => setInput(event.currentTarget.value)}
                 onPaste={handlePaste}
                 onKeyDown={handleKeyDownExtra}
                 placeholder={
@@ -302,7 +240,7 @@ export function MessageInput({
               />
 
               <div className="relative flex min-h-11 items-start gap-2 px-3 pt-2">
-                <div className="inline-flex min-w-0 w-fit max-w-[calc(100%-2.75rem)] flex-wrap items-center gap-1.5">
+                <div className="inline-flex w-fit min-w-0 max-w-[calc(100%-2.75rem)] flex-wrap items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -321,48 +259,6 @@ export function MessageInput({
                     className="hidden"
                     aria-hidden
                   />
-
-                  <div className="relative">
-                    <button
-                      type="button"
-                      disabled={isRunActive}
-                      onClick={() => setMediaMenuOpen((v) => !v)}
-                      aria-label={t("input.media")}
-                      title={t("input.media")}
-                      className={cn(
-                        "flex size-8 shrink-0 items-center justify-center rounded-xl text-foreground/60 transition hover:bg-foreground/10 hover:text-foreground",
-                        activeMediaKind && "bg-accent/10 text-accent",
-                        isRunActive && "cursor-not-allowed opacity-40",
-                      )}
-                    >
-                      <IconSparkles className="size-4" />
-                    </button>
-                    {mediaMenuOpen && (
-                      <div className="absolute bottom-full left-0 z-50 mb-2 w-48 overflow-hidden rounded-lg border border-foreground/15 bg-background p-1 shadow-xl">
-                        {MEDIA_GENERATION_KINDS.map((kind) => (
-                          <button
-                            key={kind}
-                            type="button"
-                            className={cn(
-                              "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition hover:bg-foreground/5",
-                              activeMediaKind === kind && "bg-accent/10 text-accent",
-                            )}
-                            onClick={() => {
-                              setActiveMediaKind(kind);
-                              setMediaMenuOpen(false);
-                            }}
-                          >
-                            <span>{t(mediaKindLabelKey(kind))}</span>
-                            {kind === "video" && (
-                              <span className="rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning">
-                                {t("input.media.experimental")}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
 
                   <span className="mx-1 h-4 w-px shrink-0 bg-foreground/10" />
 
@@ -386,7 +282,6 @@ export function MessageInput({
                     model={selectedReasoningModel}
                     disabled={isRunActive}
                   />
-
                   {contextMetrics ? (
                     <ContextPopover metrics={contextMetrics} trigger="hover" className="ml-1" />
                   ) : null}
@@ -411,361 +306,40 @@ export function MessageInput({
                 ) : null}
               </div>
 
-              {isDragging && (
+              {isDragging ? (
                 <div
                   data-slot="composer-drop-overlay"
                   className="pointer-events-none absolute inset-2 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent/40 bg-accent/5 text-sm text-accent"
                 >
                   {t("input.dropHint")}
                 </div>
-              )}
+              ) : null}
             </PromptInput>
 
-            {runtimeWarning && (
+            {!modelReady ? (
               <p
                 id="message-input-model-warning"
                 className="mt-2 inline-flex max-w-full rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning"
               >
-                {runtimeWarning}
+                {t("input.noModel")}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
-
       <p className="mt-1.5 px-1 text-[10px] text-foreground/35">{t("input.shortcutHint")}</p>
     </div>
   );
-}
-
-function MediaSettingsPanel({
-  kind,
-  providers,
-  settings,
-  onChange,
-  onClear,
-}: {
-  kind: MediaGenerationKind;
-  providers: ProviderInfo[];
-  settings: MediaGenerationSettings;
-  onChange: (settings: MediaGenerationSettings) => void;
-  onClear: () => void;
-}): React.JSX.Element {
-  const { t } = useT();
-  const capableProviders = useMemo(
-    () => getMediaCapableProviders(providers, kind),
-    [kind, providers],
-  );
-  const selectedModel = selectMediaModelRef(providers, settings, kind) ?? "";
-  const kindSettings = settings.defaults[kind];
-  const options = kindSettings?.options ?? {};
-
-  const updateKindSettings = (
-    patch: Partial<{ modelRef: string | null; options: MediaGenerationOptions }>,
-  ): void => {
-    onChange({
-      version: 1,
-      defaults: {
-        ...settings.defaults,
-        [kind]: {
-          modelRef:
-            patch.modelRef !== undefined ? patch.modelRef : (kindSettings?.modelRef ?? null),
-          options: patch.options ?? options,
-        },
-      },
-    });
-  };
-
-  const updateOption = <K extends keyof MediaGenerationOptions>(
-    key: K,
-    value: MediaGenerationOptions[K] | undefined,
-  ): void => {
-    updateKindSettings({ options: { ...options, [key]: value } });
-  };
-
-  return (
-    <div className="mb-2 rounded-2xl border border-accent/15 bg-accent/[0.035] p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="size-2 rounded-full bg-accent" />
-          <span className="text-sm font-medium text-foreground/80">
-            {t(mediaKindLabelKey(kind))}
-          </span>
-          {kind === "video" && (
-            <span className="rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning">
-              {t("input.media.experimental")}
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          aria-label={t("input.media.clear")}
-          title={t("input.media.clear")}
-          onClick={onClear}
-          className="flex size-7 items-center justify-center rounded-lg text-foreground/45 transition hover:bg-foreground/10 hover:text-foreground"
-        >
-          <IconClose className="size-3.5" />
-        </button>
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <SelectControl
-          label={t("input.media.model")}
-          value={selectedModel}
-          onChange={(value) => updateKindSettings({ modelRef: value || null })}
-        >
-          {capableProviders.length === 0 ? <option value="">No model</option> : null}
-          {capableProviders.map((provider) => (
-            <optgroup key={provider.id} label={provider.label}>
-              {provider.models.map((model) => (
-                <option key={model.id} value={`${provider.id}/${model.id}`}>
-                  {model.label ?? model.id}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </SelectControl>
-
-        {kind === "image" && (
-          <>
-            <SelectControl
-              label={t("input.media.size")}
-              value={options.size ?? ""}
-              onChange={(value) => updateOption("size", value || undefined)}
-            >
-              <option value="">Auto</option>
-              <option value="1024x1024">1024x1024</option>
-              <option value="1024x1536">1024x1536</option>
-              <option value="1536x1024">1536x1024</option>
-            </SelectControl>
-            <SelectControl
-              label={t("input.media.aspectRatio")}
-              value={options.aspectRatio ?? ""}
-              onChange={(value) => updateOption("aspectRatio", value || undefined)}
-            >
-              <option value="">Auto</option>
-              <option value="1:1">1:1</option>
-              <option value="4:3">4:3</option>
-              <option value="16:9">16:9</option>
-              <option value="9:16">9:16</option>
-            </SelectControl>
-            <NumberControl
-              label={t("input.media.count")}
-              value={options.count}
-              min={1}
-              max={8}
-              onChange={(value) => updateOption("count", value)}
-            />
-          </>
-        )}
-
-        {kind === "speech" && (
-          <>
-            <TextControl
-              label={t("input.media.voice")}
-              value={options.voice ?? ""}
-              placeholder="alloy / Kore"
-              onChange={(value) => updateOption("voice", value || undefined)}
-            />
-            <SelectControl
-              label={t("input.media.format")}
-              value={options.outputFormat ?? ""}
-              onChange={(value) => updateOption("outputFormat", value || undefined)}
-            >
-              <option value="">Auto</option>
-              <option value="mp3">mp3</option>
-              <option value="wav">wav</option>
-            </SelectControl>
-            <NumberControl
-              label={t("input.media.speed")}
-              value={options.speed}
-              min={0.25}
-              max={4}
-              step={0.05}
-              onChange={(value) => updateOption("speed", value)}
-            />
-            <TextControl
-              label={t("input.media.language")}
-              value={options.language ?? ""}
-              placeholder="auto"
-              onChange={(value) => updateOption("language", value || undefined)}
-            />
-          </>
-        )}
-
-        {kind === "transcription" && (
-          <TextControl
-            label={t("input.media.language")}
-            value={options.language ?? ""}
-            placeholder="auto"
-            onChange={(value) => updateOption("language", value || undefined)}
-          />
-        )}
-
-        {kind === "video" && (
-          <>
-            <SelectControl
-              label={t("input.media.aspectRatio")}
-              value={options.aspectRatio ?? ""}
-              onChange={(value) => updateOption("aspectRatio", value || undefined)}
-            >
-              <option value="">Auto</option>
-              <option value="16:9">16:9</option>
-              <option value="9:16">9:16</option>
-              <option value="1:1">1:1</option>
-            </SelectControl>
-            <SelectControl
-              label={t("input.media.resolution")}
-              value={options.resolution ?? ""}
-              onChange={(value) => updateOption("resolution", value || undefined)}
-            >
-              <option value="">Auto</option>
-              <option value="1280x720">1280x720</option>
-              <option value="1920x1080">1920x1080</option>
-            </SelectControl>
-            <NumberControl
-              label={t("input.media.duration")}
-              value={options.duration}
-              min={1}
-              max={60}
-              onChange={(value) => updateOption("duration", value)}
-            />
-            <NumberControl
-              label={t("input.media.fps")}
-              value={options.fps}
-              min={1}
-              max={120}
-              onChange={(value) => updateOption("fps", value)}
-            />
-            <NumberControl
-              label={t("input.media.count")}
-              value={options.count}
-              min={1}
-              max={4}
-              onChange={(value) => updateOption("count", value)}
-            />
-            <label className="flex h-10 select-none items-center gap-2 rounded-lg border border-foreground/10 bg-background/70 px-2.5 text-xs text-foreground/70">
-              <input
-                type="checkbox"
-                checked={options.generateAudio ?? false}
-                onChange={(event) => updateOption("generateAudio", event.currentTarget.checked)}
-              />
-              {t("input.media.generateAudio")}
-            </label>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SelectControl({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <label className="flex min-w-0 select-none flex-col gap-1 text-xs text-foreground/55">
-      <span className="font-medium">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
-        className="h-9 min-w-0 select-none rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
-      >
-        {children}
-      </select>
-    </label>
-  );
-}
-
-function TextControl({
-  label,
-  value,
-  placeholder,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  placeholder?: string;
-  onChange: (value: string) => void;
-}): React.JSX.Element {
-  return (
-    <label className="flex min-w-0 select-none flex-col gap-1 text-xs text-foreground/55">
-      <span className="font-medium">{label}</span>
-      <input
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.currentTarget.value)}
-        className="h-9 min-w-0 select-none rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
-      />
-    </label>
-  );
-}
-
-function NumberControl({
-  label,
-  value,
-  min,
-  max,
-  step = 1,
-  onChange,
-}: {
-  label: string;
-  value?: number;
-  min: number;
-  max: number;
-  step?: number;
-  onChange: (value: number | undefined) => void;
-}): React.JSX.Element {
-  return (
-    <label className="flex min-w-0 select-none flex-col gap-1 text-xs text-foreground/55">
-      <span className="font-medium">{label}</span>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value ?? ""}
-        onChange={(event) => {
-          const raw = event.currentTarget.value;
-          onChange(raw === "" ? undefined : Number(raw));
-        }}
-        className="h-9 min-w-0 select-none rounded-lg border border-foreground/10 bg-background/80 px-2 text-xs text-foreground outline-none focus:border-accent/45"
-      />
-    </label>
-  );
-}
-
-function mediaKindLabelKey(
-  kind: MediaGenerationKind,
-): "input.media.image" | "input.media.speech" | "input.media.transcription" | "input.media.video" {
-  switch (kind) {
-    case "image":
-      return "input.media.image";
-    case "speech":
-      return "input.media.speech";
-    case "transcription":
-      return "input.media.transcription";
-    case "video":
-      return "input.media.video";
-  }
 }
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") resolve(result);
-      else reject(new Error("FileReader did not return a string"));
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("Failed to read file as a data URL"));
     };
-    reader.onerror = () => reject(reader.error ?? new Error("FileReader error"));
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
     reader.readAsDataURL(file);
   });
 }

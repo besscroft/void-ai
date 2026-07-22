@@ -1,4 +1,4 @@
-import { isSilentRootMemoryTool } from "../../shared/types";
+import { isSilentRootMemoryTool, MEDIA_GENERATION_TOOL_NAME } from "../../shared/types";
 
 export interface RootToolApprovalInput {
   toolName: string;
@@ -16,7 +16,9 @@ export function builtinChatToolRequiresApproval(toolName: string, input?: unknow
 }
 
 export function rootToolRequiresApproval(input: RootToolApprovalInput): boolean {
-  if (isSilentRootMemoryTool(input.toolName)) return false;
+  if (isSilentRootMemoryTool(input.toolName) || input.toolName === MEDIA_GENERATION_TOOL_NAME) {
+    return false;
+  }
   return (
     input.reviewAll ||
     input.dynamicallyRequiresApproval ||

@@ -2,7 +2,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { AgentProfile, ModelCapabilities } from "../../shared/types";
+import {
+  CHAT_TOOL_IDS,
+  MEDIA_GENERATION_TOOL_NAME,
+  type AgentProfile,
+  type ModelCapabilities,
+} from "../../shared/types";
 import { isRoutableAgent } from "./agent-routing";
 import { commandLooksDangerous, inputHasPathEscape } from "./approval-policy";
 import {
@@ -171,7 +176,8 @@ void describe("runtime architecture", () => {
     assert.equal(commandLooksDangerous({ command: "node", args: ["--version"] }), false);
   });
 
-  void it("never requires approval for silent root memory tools", () => {
+  void it("keeps silent root tools hidden and approval-free", () => {
+    assert.equal((CHAT_TOOL_IDS as readonly string[]).includes(MEDIA_GENERATION_TOOL_NAME), false);
     for (const toolName of ["memory_search", "memory_save", "memory_update", "memory_delete"]) {
       assert.equal(
         rootToolRequiresApproval({
@@ -183,6 +189,15 @@ void describe("runtime architecture", () => {
         false,
       );
     }
+    assert.equal(
+      rootToolRequiresApproval({
+        toolName: MEDIA_GENERATION_TOOL_NAME,
+        reviewAll: true,
+        dynamicallyRequiresApproval: true,
+        policyRequiresApproval: true,
+      }),
+      false,
+    );
     assert.equal(
       rootToolRequiresApproval({
         toolName: "conversation_search",

@@ -1662,6 +1662,8 @@ export interface ProviderModelSyncResult {
 
 export type MediaGenerationKind = "image" | "speech" | "transcription" | "video";
 
+export const MEDIA_GENERATION_TOOL_NAME = "generate_media" as const;
+
 export interface MediaGenerationFile {
   type: "file";
   mediaType: string;
@@ -1684,6 +1686,13 @@ export interface MediaGenerationOptions {
   duration?: number;
   fps?: number;
   generateAudio?: boolean;
+}
+
+export interface MediaGenerationToolInput {
+  kind: MediaGenerationKind;
+  content?: string;
+  sourceFilename?: string;
+  options?: MediaGenerationOptions;
 }
 
 export type MediaGenerationRequest =

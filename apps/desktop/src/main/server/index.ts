@@ -2,14 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
-import {
-  experimental_generateVideo as generateVideo,
-  generateImage,
-  generateSpeech,
-  generateText,
-  transcribe,
-  type UIMessage,
-} from "ai";
+import { generateText, type UIMessage } from "ai";
 import {
   CHAT_REASONING_LEVELS,
   CHAT_SESSION_HEADER,
@@ -19,10 +12,14 @@ import {
   type LocalServerInfo,
   type MediaGenerationErrorResponse,
   type MediaGenerationRequest,
-  type MediaGenerationResponse,
-  type ModelProviderKind,
 } from "../../shared/types";
 import type { ResolvedChatModel } from "../lib/chat-agent";
+import {
+  classifyMediaGenerationError,
+  executeMediaGeneration,
+  mediaErrorStatus,
+  validateMediaGenerationRequest,
+} from "../lib/media-generation";
 
 const ALLOWED_ORIGIN_PATTERNS = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
 
@@ -114,120 +111,12 @@ export function createApp(options: CreateAppOptions = {}): Hono {
     const request = body as MediaGenerationRequest;
 
     try {
-      const resolveMediaModel =
-        options.resolveMediaModel ?? (await import("../lib/providers")).resolveMediaModel;
-      const writeMediaAsset =
-        options.writeMediaAsset ?? (await import("../lib/media-assets")).writeMediaAsset;
-
-      switch (request.kind) {
-        case "image": {
-          const resolved = resolveMediaModel(request.model, "image");
-          const result = await generateImage({
-            model: resolved.model,
-            prompt: request.prompt,
-            n: normalizeCount(request.options?.count, 1, 8),
-            size: normalizeSize(request.options?.size),
-            aspectRatio: normalizeAspectRatio(request.options?.aspectRatio),
-            seed: normalizeInteger(request.options?.seed),
-            providerOptions: resolved.providerOptions,
-          });
-          const files = result.images.map((image, index) =>
-            writeMediaAsset({
-              data: image.uint8Array,
-              mediaType: image.mediaType,
-              kind: "image",
-              filename: `image-${index + 1}`,
-            }),
-          );
-          return c.json({
-            kind: "image",
-            text: files.length === 1 ? "Image generated." : `${files.length} images generated.`,
-            files,
-            metadata: buildMediaMetadata(result.warnings, result.providerMetadata),
-          } satisfies MediaGenerationResponse);
-        }
-        case "speech": {
-          const resolved = resolveMediaModel(request.model, "speech");
-          const result = await generateSpeech({
-            model: resolved.model,
-            text: request.text,
-            voice: request.options?.voice?.trim() || defaultSpeechVoice(resolved.providerKind),
-            outputFormat: normalizeOutputFormat(request.options?.outputFormat),
-            speed: normalizeNumberOption(request.options?.speed, 0.25, 4),
-            language: normalizeOptionalText(request.options?.language),
-            instructions: normalizeOptionalText(request.options?.instructions),
-            providerOptions: resolved.providerOptions,
-          });
-          const file = writeMediaAsset({
-            data: result.audio.uint8Array,
-            mediaType: result.audio.mediaType,
-            kind: "speech",
-            filename: "speech",
-          });
-          return c.json({
-            kind: "speech",
-            text: "Speech audio generated.",
-            files: [file],
-            metadata: buildMediaMetadata(result.warnings, result.providerMetadata),
-          } satisfies MediaGenerationResponse);
-        }
-        case "transcription": {
-          const resolved = resolveMediaModel(request.model, "transcription");
-          const audio = dataUrlToUint8Array(request.audio.url);
-          const result = await transcribe({
-            model: resolved.model,
-            audio,
-            providerOptions: withTranscriptionLanguage(
-              resolved.providerOptions,
-              resolved.providerId,
-              request.options?.language,
-            ),
-          });
-          return c.json({
-            kind: "transcription",
-            text: result.text,
-            files: [],
-            metadata: {
-              ...buildMediaMetadata(result.warnings, result.providerMetadata),
-              language: result.language,
-              durationInSeconds: result.durationInSeconds,
-              segments: result.segments,
-            },
-          } satisfies MediaGenerationResponse);
-        }
-        case "video": {
-          const resolved = resolveMediaModel(request.model, "video");
-          const result = await generateVideo({
-            model: resolved.model,
-            prompt: request.prompt,
-            n: normalizeCount(request.options?.count, 1, 4),
-            aspectRatio: normalizeAspectRatio(request.options?.aspectRatio),
-            resolution: normalizeSize(request.options?.resolution),
-            duration: normalizeNumberOption(request.options?.duration, 1, 60),
-            fps: normalizeNumberOption(request.options?.fps, 1, 120),
-            seed: normalizeInteger(request.options?.seed),
-            generateAudio:
-              typeof request.options?.generateAudio === "boolean"
-                ? request.options.generateAudio
-                : undefined,
-            providerOptions: resolved.providerOptions,
-          });
-          const files = result.videos.map((video, index) =>
-            writeMediaAsset({
-              data: video.uint8Array,
-              mediaType: video.mediaType,
-              kind: "video",
-              filename: `video-${index + 1}`,
-            }),
-          );
-          return c.json({
-            kind: "video",
-            text: files.length === 1 ? "Video generated." : `${files.length} videos generated.`,
-            files,
-            metadata: buildMediaMetadata(result.warnings, result.providerMetadata),
-          } satisfies MediaGenerationResponse);
-        }
-      }
+      return c.json(
+        await executeMediaGeneration(request, {
+          resolveMediaModel: options.resolveMediaModel,
+          writeMediaAsset: options.writeMediaAsset,
+        }),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[server] /api/media/generate failed:", message);
@@ -544,143 +433,6 @@ export function createApp(options: CreateAppOptions = {}): Hono {
   // 底层 db schema、engine、cancellation、dispatcher（handoff/approval）保留作为核心模块。
 
   return app;
-}
-
-function validateMediaGenerationRequest(body: Partial<MediaGenerationRequest>): string | null {
-  if (!body || typeof body !== "object") return "request body is required";
-  if (!body.kind) return "kind is required";
-  if (
-    body.kind !== "image" &&
-    body.kind !== "speech" &&
-    body.kind !== "transcription" &&
-    body.kind !== "video"
-  ) {
-    return "kind must be one of: image, speech, transcription, video";
-  }
-  if (!body.model || typeof body.model !== "string")
-    return "model is required in provider/model format";
-  switch (body.kind) {
-    case "image":
-    case "video":
-      return typeof body.prompt === "string" && body.prompt.trim() ? null : "prompt is required";
-    case "speech":
-      return typeof body.text === "string" && body.text.trim() ? null : "text is required";
-    case "transcription":
-      return body.audio && typeof body.audio.url === "string" && body.audio.url.trim()
-        ? null
-        : "audio.url is required";
-  }
-}
-
-function normalizeOptionalText(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function normalizeCount(value: unknown, fallback: number, max: number): number {
-  const numberValue = Math.floor(Number(value));
-  if (!Number.isFinite(numberValue) || numberValue <= 0) return fallback;
-  return Math.min(max, numberValue);
-}
-
-function normalizeInteger(value: unknown): number | undefined {
-  const numberValue = Number(value);
-  if (!Number.isFinite(numberValue)) return undefined;
-  return Math.floor(numberValue);
-}
-
-function normalizeNumberOption(value: unknown, min: number, max: number): number | undefined {
-  const numberValue = Number(value);
-  if (!Number.isFinite(numberValue)) return undefined;
-  return Math.min(max, Math.max(min, numberValue));
-}
-
-function normalizeSize(value: unknown): `${number}x${number}` | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return /^\d+x\d+$/.test(trimmed) ? (trimmed as `${number}x${number}`) : undefined;
-}
-
-function normalizeAspectRatio(value: unknown): `${number}:${number}` | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return /^\d+:\d+$/.test(trimmed) ? (trimmed as `${number}:${number}`) : undefined;
-}
-
-function normalizeOutputFormat(value: unknown): "mp3" | "wav" | (string & {}) | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function defaultSpeechVoice(providerKind: ModelProviderKind | undefined): string | undefined {
-  if (providerKind === "google") return "Kore";
-  if (providerKind === "openai" || providerKind === "openai-compatible") return "alloy";
-  return undefined;
-}
-
-function dataUrlToUint8Array(url: string): Uint8Array {
-  const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,(.*)$/i.exec(url.trim());
-  if (!match) throw new Error("audio.url must be a base64 data URL");
-  return new Uint8Array(Buffer.from(match[2] ?? "", "base64"));
-}
-
-function withTranscriptionLanguage(
-  providerOptions: Parameters<typeof transcribe>[0]["providerOptions"],
-  providerId: string,
-  language: unknown,
-): Parameters<typeof transcribe>[0]["providerOptions"] {
-  const normalized = normalizeOptionalText(language);
-  if (!normalized) return providerOptions;
-  return {
-    ...providerOptions,
-    [providerId]: {
-      ...(providerOptions?.[providerId] as Record<string, unknown> | undefined),
-      language: normalized,
-    },
-  };
-}
-
-function buildMediaMetadata(warnings: unknown, providerMetadata: unknown): Record<string, unknown> {
-  return {
-    warnings: Array.isArray(warnings) ? warnings : [],
-    providerMetadata: providerMetadata ?? {},
-  };
-}
-
-function classifyMediaGenerationError(
-  message: string,
-  request: MediaGenerationRequest,
-): MediaGenerationErrorResponse {
-  const lower = message.toLowerCase();
-  const base = { error: message, kind: request.kind, model: request.model };
-  if (lower.includes("api key") || lower.includes("not configured")) {
-    return { ...base, code: "no_model" };
-  }
-  if (lower.includes("disabled") || lower.includes("unknown model")) {
-    return { ...base, code: "no_model" };
-  }
-  if (lower.includes("does not support")) {
-    return { ...base, code: "unsupported_model" };
-  }
-  if (
-    lower.includes("not enabled for this group") ||
-    lower.includes("permission") ||
-    lower.includes("forbidden") ||
-    lower.includes("unauthorized")
-  ) {
-    return { ...base, code: "permission_denied" };
-  }
-  return { ...base, code: "upstream_error" };
-}
-
-function mediaErrorStatus(
-  code: MediaGenerationErrorResponse["code"],
-  err: unknown,
-): 400 | 401 | 403 | 500 {
-  if (code === "unauthorized") return 401;
-  if (code === "permission_denied") return 403;
-  if (code === "invalid_request" || code === "no_model" || code === "unsupported_model") {
-    return 400;
-  }
-  return getHttpErrorStatus(err);
 }
 
 /** Start the local HTTP server bound to loopback on a random free port. */

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { UIMessage } from "ai";
-import { getMessageActivityStatus, getReasoningDisplay } from "./MessageList";
+import { getMessageActivityStatus, getReasoningDisplay, readMediaToolResult } from "./MessageList";
 
 function assistant(parts: UIMessage["parts"]): UIMessage[] {
   return [{ id: "assistant", role: "assistant", parts }];
@@ -87,5 +87,30 @@ void describe("reasoning display", () => {
 
     assert.equal(display?.text, "final thought");
     assert.equal(display?.isStreaming, false);
+  });
+});
+
+void describe("media tool output", () => {
+  void it("recognizes persisted generate_media results", () => {
+    const result = readMediaToolResult({
+      type: "tool-generate_media",
+      state: "output-available",
+      output: {
+        kind: "image",
+        text: "Image generated.",
+        files: [
+          {
+            type: "file",
+            mediaType: "image/png",
+            filename: "image-1.png",
+            url: "void-media://asset/image-1.png",
+          },
+        ],
+      },
+    });
+
+    assert.equal(result?.kind, "image");
+    assert.equal(result?.files[0]?.url, "void-media://asset/image-1.png");
+    assert.equal(readMediaToolResult({ type: "tool-web_search", output: result }), null);
   });
 });

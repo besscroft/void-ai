@@ -25,6 +25,7 @@ import {
   DEFAULT_AGENT_ID,
   DEFAULT_AGENT_RUNTIME_CONFIG,
   DEFAULT_AGENT_TOOL_POLICY,
+  MEDIA_GENERATION_TOOL_NAME,
   SettingKey,
   isChatToolReference,
   normalizeMaxConcurrentSubagents,
@@ -41,6 +42,7 @@ import {
   type ChatReasoningLevel,
   type ChatToolId,
   type ChatToolSelectionRequest,
+  type MediaGenerationToolInput,
   type ModelCapabilities,
 } from "../../shared/types";
 import { appendReactionFeedback, type ResolvedChatModel } from "./chat-agent";
@@ -87,6 +89,7 @@ import { getSandboxSessionOrThrow } from "./sandbox-runtime";
 import { ROOT_AGENT_STOP_WHEN } from "./agent-run-policy";
 import { agentLoopSessions, type AgentLoopMode, type AgentLoopSession } from "./agent-loop-session";
 import { RunToolScheduler, scheduleToolSet } from "./run-tool-scheduler";
+import { buildMediaGenerationToolRequest, executeMediaGeneration } from "./media-generation";
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
 type MessageMetadataCallback = NonNullable<
@@ -501,6 +504,7 @@ async function streamRootAgentLoop({
 
           const steering = context.session.drain("steering");
           if (steering.length > 0) {
+            context.messages.push(...steering);
             modelMessages = await appendQueuedMessages(modelMessages, steering, agent.tools);
             continue;
           }
@@ -571,6 +575,8 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
   const silentMemoryRuntime = mergeSilentRootMemoryTools(base, memoryHostTools);
   const tools = silentMemoryRuntime.tools;
   const activeTools = new Set<string>(silentMemoryRuntime.activeTools);
+  assignTool(tools, MEDIA_GENERATION_TOOL_NAME, createMediaGenerationTool(context));
+  activeTools.add(MEDIA_GENERATION_TOOL_NAME);
 
   // The remaining orchestration tools follow the user's selection as before.
   // When the user turns chat tools off, only the silently-enabled memory tools
@@ -631,6 +637,55 @@ async function buildRootToolRuntime(context: RuntimeContext): Promise<ChatToolRu
       .filter(Boolean)
       .join("\n"),
   };
+}
+
+function createMediaGenerationTool(context: RuntimeContext): ToolSet[string] {
+  return tool({
+    description:
+      "Generate an image, speech audio, transcription, or video only when the user explicitly requests that media output. Choose the media kind from the conversation. Do not call this tool merely because media is mentioned. For transcription, use the most recent user audio attachment and provide sourceFilename only to disambiguate multiple audio files.",
+    inputSchema: jsonSchema<MediaGenerationToolInput>({
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["image", "speech", "transcription", "video"],
+          description: "The output type required by the user's request.",
+        },
+        content: {
+          type: "string",
+          description:
+            "Image/video prompt or exact text to synthesize as speech. Omit for transcription.",
+        },
+        sourceFilename: {
+          type: "string",
+          description: "Audio attachment filename when transcription needs disambiguation.",
+        },
+        options: {
+          type: "object",
+          properties: {
+            size: { type: "string", description: "Image dimensions such as 1024x1024." },
+            aspectRatio: { type: "string", description: "Aspect ratio such as 16:9." },
+            count: { type: "number", description: "Number of outputs." },
+            seed: { type: "number", description: "Deterministic generation seed." },
+            voice: { type: "string", description: "Speech voice name." },
+            outputFormat: { type: "string", description: "Speech audio format." },
+            speed: { type: "number", description: "Speech speed from 0.25 to 4." },
+            language: { type: "string", description: "Speech or transcription language." },
+            instructions: { type: "string", description: "Speech delivery instructions." },
+            resolution: { type: "string", description: "Video resolution such as 1920x1080." },
+            duration: { type: "number", description: "Video duration in seconds." },
+            fps: { type: "number", description: "Video frames per second." },
+            generateAudio: { type: "boolean", description: "Whether video should include audio." },
+          },
+          additionalProperties: false,
+        },
+      },
+      required: ["kind"],
+      additionalProperties: false,
+    }),
+    execute: async (input) =>
+      executeMediaGeneration(await buildMediaGenerationToolRequest(input, context.messages)),
+  });
 }
 
 function createToolLoopAgent({
@@ -700,6 +755,7 @@ function createToolLoopAgent({
             if (injectSteering && protocol) {
               const steering = protocol.context.session.drain("steering");
               if (steering.length > 0) {
+                protocol.context.messages.push(...steering);
                 const converted = await convertToModelMessages(steering, { tools: agentTools });
                 protocol.context.preparedSteering.push(...converted);
                 messages = [...messages, ...converted];
@@ -1535,6 +1591,9 @@ async function createRootInstructions(
     "Use consult tools for specialist advice while you keep ownership. Use handoff tools when the child agent should own the result.",
     "Keep working until the task is complete or the user explicitly stops the run. Do not stop merely because you have used many model or tool steps.",
     "After a successful handoff, return the handoff result's output verbatim as the final answer. Do not summarize it, add a preface, or continue using tools.",
+    context.modelContext.capabilities.toolCalling
+      ? "When the user explicitly requests an image, speech audio, transcription, or video, decide the appropriate output and call generate_media. After it succeeds, briefly confirm the result without repeating the raw tool output."
+      : "This chat model cannot call tools or generate media through the app. If the user asks for an image, speech audio, transcription, or video, explain that limitation and ask them to switch to a tool-calling chat model.",
     context.preferredAgentId
       ? "The conversation is currently owned by " +
         context.preferredAgentId +

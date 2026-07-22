@@ -2,14 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { type ModelCapabilities, type ProviderInfo } from "@shared/types";
 import {
-  buildMediaGenerationRequest,
-  buildMediaPendingMessage,
-  buildMediaResultMessage,
-  detectMediaIntent,
   getMediaCapableProviders,
-  getTextGenerationProviders,
   parseMediaGenerationSettings,
-  selectMediaModelRef,
+  serializeMediaGenerationSettings,
 } from "./chat-media";
 
 const textCapabilities: ModelCapabilities = {
@@ -25,120 +20,49 @@ const textCapabilities: ModelCapabilities = {
 };
 
 const mediaCapabilities: ModelCapabilities = {
+  ...textCapabilities,
   textGeneration: false,
-  vision: false,
   imageOutput: true,
   speechOutput: true,
   transcription: true,
   videoOutput: true,
   toolCalling: false,
-  reasoning: false,
-  embedding: false,
 };
 
-void describe("chat media helpers", () => {
-  void it("detects only high-confidence explicit media intents", () => {
-    assert.equal(detectMediaIntent("generate an image of a glass city")?.kind, "image");
-    assert.equal(detectMediaIntent("帮我画一张海边日落的图片")?.kind, "image");
-    assert.equal(detectMediaIntent("请生成视频：海边日落")?.kind, "video");
-    assert.equal(detectMediaIntent("text to speech: hello")?.kind, "speech");
-    assert.equal(
-      detectMediaIntent("转录这个音频", [{ mediaType: "audio/mpeg" }])?.kind,
-      "transcription",
+void describe("chat media settings", () => {
+  void it("normalizes and serializes per-kind defaults", () => {
+    const settings = parseMediaGenerationSettings(
+      JSON.stringify({
+        defaults: {
+          image: { modelRef: " mock/media ", options: { count: 2.8, size: "1024x1024" } },
+          speech: { options: { voice: " alloy " } },
+        },
+      }),
     );
-    assert.equal(detectMediaIntent("what do you think about images?"), null);
+
+    assert.equal(settings.defaults.image.modelRef, "mock/media");
+    assert.deepEqual(settings.defaults.image.options, { count: 2, size: "1024x1024" });
+    assert.deepEqual(settings.defaults.speech.options, { voice: "alloy" });
+    assert.deepEqual(
+      parseMediaGenerationSettings(serializeMediaGenerationSettings(settings)),
+      settings,
+    );
   });
 
-  void it("filters text and media models by capability", () => {
+  void it("falls back to empty defaults for malformed settings", () => {
+    const settings = parseMediaGenerationSettings("{bad json");
+    assert.equal(settings.version, 1);
+    assert.equal(settings.defaults.image.modelRef, null);
+    assert.deepEqual(settings.defaults.video.options, {});
+  });
+
+  void it("filters enabled models by media capability", () => {
     const providers = [provider()];
-    assert.deepEqual(
-      getTextGenerationProviders(providers)[0]?.models.map((model) => model.id),
-      ["chat"],
-    );
     assert.deepEqual(
       getMediaCapableProviders(providers, "image")[0]?.models.map((model) => model.id),
       ["media"],
     );
-  });
-
-  void it("builds media requests with selected capable defaults", () => {
-    const providers = [provider()];
-    const settings = parseMediaGenerationSettings(null);
-    assert.equal(selectMediaModelRef(providers, settings, "image"), "mock/media");
-
-    const image = buildMediaGenerationRequest({
-      kind: "image",
-      text: "  draw a quiet dashboard  ",
-      files: [],
-      providers,
-      settings,
-      options: { count: 2, size: "1024x1024" },
-    });
-    assert.deepEqual(image, {
-      kind: "image",
-      model: "mock/media",
-      prompt: "draw a quiet dashboard",
-      options: { size: "1024x1024", count: 2 },
-    });
-
-    const transcription = buildMediaGenerationRequest({
-      kind: "transcription",
-      text: "transcribe",
-      files: [{ mediaType: "audio/wav", filename: "clip.wav", url: "data:audio/wav;base64,AA==" }],
-      providers,
-      settings,
-    });
-    assert.deepEqual(transcription, {
-      kind: "transcription",
-      model: "mock/media",
-      audio: { url: "data:audio/wav;base64,AA==", mediaType: "audio/wav", filename: "clip.wav" },
-      options: {},
-    });
-  });
-
-  void it("falls back when an explicit media model lacks the requested capability", () => {
-    const providers = [provider()];
-    const settings = parseMediaGenerationSettings(null);
-    const image = buildMediaGenerationRequest({
-      kind: "image",
-      text: "draw a quiet dashboard",
-      files: [],
-      providers,
-      settings,
-      modelRef: "mock/chat",
-    });
-
-    assert.equal(image.model, "mock/media");
-  });
-
-  void it("builds assistant pending and result messages with file parts", () => {
-    assert.deepEqual(buildMediaPendingMessage("a1", "image").metadata, {
-      mediaGeneration: { kind: "image", status: "pending" },
-    });
-
-    const result = buildMediaResultMessage("a1", {
-      kind: "speech",
-      text: "Speech audio generated.",
-      files: [
-        {
-          type: "file",
-          mediaType: "audio/mpeg",
-          filename: "speech.mp3",
-          url: "void-media://asset/speech.mp3",
-        },
-      ],
-    });
-
-    assert.equal(result.role, "assistant");
-    assert.deepEqual(result.parts, [
-      { type: "text", text: "Speech audio generated." },
-      {
-        type: "file",
-        mediaType: "audio/mpeg",
-        filename: "speech.mp3",
-        url: "void-media://asset/speech.mp3",
-      },
-    ]);
+    assert.deepEqual(getMediaCapableProviders(providers, "video"), []);
   });
 });
 
@@ -168,7 +92,7 @@ function provider(): ProviderInfo {
         topP: 1,
         maxOutputTokens: 4096,
         contextWindow: 32_000,
-        capabilities: mediaCapabilities,
+        capabilities: { ...mediaCapabilities, videoOutput: false },
         providerOptions: {},
       },
     ],

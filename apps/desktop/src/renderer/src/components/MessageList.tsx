@@ -17,6 +17,7 @@
 import { Fragment, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ChatAddToolApproveResponseFunction, UIMessage } from "ai";
+import { MEDIA_GENERATION_TOOL_NAME, type MediaGenerationResponse } from "@shared/types";
 import {
   ChainOfThought,
   ChainOfThoughtImage,
@@ -615,32 +616,36 @@ function MessageItem({
           if (isToolPart(part)) {
             const state = normalizeToolState(part.state);
             const approval = part.approval;
+            const mediaResult = state === "output-available" ? readMediaToolResult(part) : null;
             return (
-              <Tool
-                key={key}
-                active={isActiveToolState(state)}
-                defaultOpen={isActiveToolState(state)}
-              >
-                <ToolHeader
-                  type={part.type}
-                  toolName={part.type === "dynamic-tool" ? part.toolName : undefined}
-                  title={part.title}
-                  state={state}
-                />
-                <ToolContent>
-                  <ToolInput input={part.input} />
-                  {approval && state === "approval-requested" && approval.isAutomatic !== true ? (
-                    <ToolApprovalActions
-                      approvalId={approval.id}
-                      onRespond={onToolApprovalResponse}
-                    />
-                  ) : null}
-                  <ToolOutput
-                    output={renderToolOutput(part.output, t("tool.unserializable"))}
-                    errorText={part.errorText}
+              <Fragment key={key}>
+                <Tool active={isActiveToolState(state)} defaultOpen={isActiveToolState(state)}>
+                  <ToolHeader
+                    type={part.type}
+                    toolName={part.type === "dynamic-tool" ? part.toolName : undefined}
+                    title={part.title}
+                    state={state}
                   />
-                </ToolContent>
-              </Tool>
+                  <ToolContent>
+                    <ToolInput input={part.input} />
+                    {approval && state === "approval-requested" && approval.isAutomatic !== true ? (
+                      <ToolApprovalActions
+                        approvalId={approval.id}
+                        onRespond={onToolApprovalResponse}
+                      />
+                    ) : null}
+                    <ToolOutput
+                      output={
+                        mediaResult
+                          ? undefined
+                          : renderToolOutput(part.output, t("tool.unserializable"))
+                      }
+                      errorText={part.errorText}
+                    />
+                  </ToolContent>
+                </Tool>
+                {mediaResult ? <MediaToolResult response={mediaResult} /> : null}
+              </Fragment>
             );
           }
 
@@ -774,6 +779,56 @@ function isAttachmentPart(part: MessagePart): boolean {
 
 function isToolPart(part: MessagePart): part is MessagePart & RenderableToolPart {
   return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function MediaToolResult({ response }: { response: MediaGenerationResponse }): React.JSX.Element {
+  const files: FilePartLike[] = response.files.map((file) => ({
+    type: "file",
+    mediaType: file.mediaType,
+    filename: file.filename,
+    url: file.url,
+  }));
+  return (
+    <div className="flex flex-col gap-2">
+      {(response.kind === "transcription" || files.length === 0) && response.text.trim() ? (
+        <MessageResponse>{response.text.trim()}</MessageResponse>
+      ) : null}
+      {files.length > 0 ? <MessageAttachments parts={files} /> : null}
+    </div>
+  );
+}
+
+export function readMediaToolResult(part: RenderableToolPart): MediaGenerationResponse | null {
+  const toolName = part.type === "dynamic-tool" ? part.toolName : part.type.slice("tool-".length);
+  if (toolName !== MEDIA_GENERATION_TOOL_NAME) return null;
+  const output = part.output;
+  if (!output || typeof output !== "object" || Array.isArray(output)) return null;
+  const value = output as Partial<MediaGenerationResponse>;
+  if (
+    (value.kind !== "image" &&
+      value.kind !== "speech" &&
+      value.kind !== "transcription" &&
+      value.kind !== "video") ||
+    typeof value.text !== "string" ||
+    !Array.isArray(value.files)
+  ) {
+    return null;
+  }
+  const files = value.files.filter(
+    (file): file is MediaGenerationResponse["files"][number] =>
+      !!file &&
+      typeof file === "object" &&
+      file.type === "file" &&
+      typeof file.mediaType === "string" &&
+      typeof file.filename === "string" &&
+      typeof file.url === "string",
+  );
+  return {
+    kind: value.kind,
+    text: value.text,
+    files,
+    ...(value.metadata && typeof value.metadata === "object" ? { metadata: value.metadata } : {}),
+  };
 }
 
 function normalizeToolState(raw: string | undefined): ToolState {
