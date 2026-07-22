@@ -248,6 +248,14 @@ export function TextField({ className, isInvalid, ...props }: TextFieldProps): R
 export { Tabs, TabsList, TabsTrigger, TabsContent } from "./tabs";
 // 滑块组件改用 shadcn/ui（基于 Base UI）实现，源文件见 ./slider.tsx
 export { Slider } from "./slider";
+export {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./select";
 
 interface ToggleGroupContextValue {
   selectedKeys: Set<string>;

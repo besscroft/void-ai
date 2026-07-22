@@ -4,6 +4,12 @@ import {
   Card,
   Chip,
   Input,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Slider,
   Switch,
   TextArea,
@@ -224,22 +230,6 @@ function MemoryPanel({ agents }: { agents: AgentProfile[] }): React.JSX.Element 
             );
           })}
         </div>
-        {activeTab === "soul" && (
-          <label className="mt-2 flex flex-col gap-1 px-1 text-xs text-muted-foreground">
-            <span>{t("main.memory.scope.agent")}</span>
-            <select
-              className="rounded-md border border-border bg-background px-2 py-1.5 text-foreground"
-              value={selectedAgentId}
-              onChange={(event) => setSelectedAgentId(event.target.value)}
-            >
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
       </div>
 
       {/* 右侧内容区域 */}
@@ -251,6 +241,8 @@ function MemoryPanel({ agents }: { agents: AgentProfile[] }): React.JSX.Element 
             snapshot={memoryFiles[activeTab]}
             onRefresh={loadFiles}
             agentId={selectedAgentId}
+            agents={agents}
+            onAgentChange={setSelectedAgentId}
           />
         )}
         {activeTab !== "entries" && !memoryFiles && (
@@ -261,22 +253,28 @@ function MemoryPanel({ agents }: { agents: AgentProfile[] }): React.JSX.Element 
   );
 }
 
-function MemoryFilePanel({
+export function MemoryFilePanel({
   kind,
   snapshot,
   onRefresh,
   agentId,
+  agents,
+  onAgentChange,
 }: {
   kind: MemoryFileKind;
   snapshot: AgentMemoryFileSnapshot;
   onRefresh: () => void;
   agentId: string;
+  agents: AgentProfile[];
+  onAgentChange: (agentId: string) => void;
 }): React.JSX.Element {
   const { t, f } = useT();
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(snapshot.content);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selectedAgent = agents.find((agent) => agent.id === agentId) ?? null;
+  const agentOptions = agents.map((agent) => ({ label: agent.name, value: agent }));
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -315,6 +313,32 @@ function MemoryFilePanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold uppercase">{kind}.md</h2>
         <div className="flex items-center gap-2">
+          {kind === "soul" && (
+            <Select
+              items={agentOptions}
+              value={selectedAgent}
+              isItemEqualToValue={(agent, value) => agent.id === value.id}
+              itemToStringLabel={(agent) => agent.name}
+              itemToStringValue={(agent) => agent.id}
+              onValueChange={(agent) => {
+                if (agent) onAgentChange(agent.id);
+              }}
+              disabled={agents.length === 0}
+            >
+              <SelectTrigger className="w-56" aria-label={t("main.memory.scope.agent")}>
+                <SelectValue>{(agent: AgentProfile | null) => agent?.name ?? ""}</SelectValue>
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false} align="end">
+                <SelectGroup>
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
           <Button variant="secondary" size="sm" onPress={handleReload} isDisabled={isSaving}>
             <IconRotateCcw className="size-4" />
             {t("main.memory.file.refresh")}
@@ -529,7 +553,7 @@ function MemoryEntriesPanel(): React.JSX.Element {
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <div className="flex shrink-0 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
             <FilterSelect
-              label=""
+              ariaLabel={t("main.memory.filter.scope")}
               value={filters.scope}
               onChange={(scope) =>
                 setFilters((prev) => ({ ...prev, scope: scope as typeof prev.scope }))
@@ -870,31 +894,45 @@ function MemoryEditModal({
 }
 
 function FilterSelect({
-  label,
+  ariaLabel,
   value,
   onChange,
   options,
 }: {
-  label: string;
+  ariaLabel: string;
   value: string;
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
 }): React.JSX.Element {
+  const selectedOption = options.find((option) => option.value === value) ?? null;
+  const items = options.map((option) => ({ label: option.label, value: option }));
+
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <select
-        className="h-8 select-none rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-ring"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </div>
+    <Select
+      items={items}
+      value={selectedOption}
+      isItemEqualToValue={(option, selected) => option.value === selected.value}
+      itemToStringLabel={(option) => option.label}
+      itemToStringValue={(option) => option.value}
+      onValueChange={(option) => {
+        if (option) onChange(option.value);
+      }}
+    >
+      <SelectTrigger className="min-w-24" aria-label={ariaLabel}>
+        <SelectValue>
+          {(option: { value: string; label: string } | null) => option?.label ?? ""}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent alignItemWithTrigger={false} align="start">
+        <SelectGroup>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }
 
