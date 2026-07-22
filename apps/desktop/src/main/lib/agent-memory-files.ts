@@ -16,6 +16,7 @@ import { decrypt, encrypt, type EncryptedPayload } from "./crypto";
 import { getSetting, insertRuntimeEvent, listMemories, queueMemoryJob } from "./db";
 import { resolveModel } from "./providers";
 import {
+  DEFAULT_AGENT_ID,
   SettingKey,
   type AgentMemoryFileSnapshot,
   type AgentProfile,
@@ -62,22 +63,42 @@ const FILE_NAMES: Record<MemoryFileKind, string> = {
 };
 const MEMORY_FILE_KINDS: MemoryFileKind[] = ["soul", "user", "memory"];
 
-const cache = new Map<MemoryFileKind, MemoryFileState>();
+const cache = new Map<string, MemoryFileState>();
 let consolidationTimer: NodeJS.Timeout | null = null;
 
-function resolveAgentMemoriesDir(): string {
+function resolveAgentMemoriesRoot(): string {
   const userDataDir = process.env.VOID_AI_USER_DATA_DIR || app.getPath("userData");
   const dir = join(userDataDir, "data", AGENT_MEMORIES_DIRNAME);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-function filePath(kind: MemoryFileKind): string {
-  return join(resolveAgentMemoriesDir(), FILE_NAMES[kind]);
+function cacheKey(kind: MemoryFileKind, agentId?: string | null): string {
+  return kind === "soul" ? `soul:${agentId ?? DEFAULT_AGENT_ID}` : kind;
 }
 
-function backupPath(kind: MemoryFileKind): string {
-  return `${filePath(kind)}.bak`;
+function filePath(kind: MemoryFileKind, agentId?: string | null): string {
+  const root = resolveAgentMemoriesRoot();
+  const owner =
+    kind === "soul" ? join("agents", safePathPart(agentId ?? DEFAULT_AGENT_ID)) : "global";
+  const dir = join(root, owner);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const target = join(dir, FILE_NAMES[kind]);
+  const legacy = join(root, FILE_NAMES[kind]);
+  const canMigrateLegacySoul =
+    kind !== "soul" || (agentId ?? DEFAULT_AGENT_ID) === DEFAULT_AGENT_ID;
+  if (!existsSync(target) && existsSync(legacy) && canMigrateLegacySoul) {
+    copyFileSync(legacy, target);
+  }
+  return target;
+}
+
+function backupPath(kind: MemoryFileKind, agentId?: string | null): string {
+  return `${filePath(kind, agentId)}.bak`;
+}
+
+function safePathPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.-]+/g, "-").slice(0, 120) || DEFAULT_AGENT_ID;
 }
 
 function defaultContent(kind: MemoryFileKind): string {
@@ -142,10 +163,11 @@ function isEncryptedPayload(value: unknown): value is EncryptedPayload {
   );
 }
 
-function readCached(kind: MemoryFileKind): MemoryFileState {
-  const primary = filePath(kind);
+function readCached(kind: MemoryFileKind, agentId?: string | null): MemoryFileState {
+  const key = cacheKey(kind, agentId);
+  const primary = filePath(kind, agentId);
   const primarySignature = fileSignature(primary);
-  const cached = cache.get(kind);
+  const cached = cache.get(key);
   if (cached && cached.source === "primary" && cached.signature === primarySignature) return cached;
 
   let primaryError: unknown = null;
@@ -156,14 +178,14 @@ function readCached(kind: MemoryFileKind): MemoryFileState {
         signature: primarySignature,
         source: "primary" as const,
       };
-      cache.set(kind, state);
+      cache.set(key, state);
       return state;
     } catch (error) {
       primaryError = error;
     }
   }
 
-  const backup = backupPath(kind);
+  const backup = backupPath(kind, agentId);
   const backupSignature = fileSignature(backup);
   if (backupSignature) {
     try {
@@ -174,7 +196,7 @@ function readCached(kind: MemoryFileKind): MemoryFileState {
         signature: fileSignature(primary) ?? backupSignature,
         source: "primary" as const,
       };
-      cache.set(kind, state);
+      cache.set(key, state);
       recordMemoryFileDiagnostic(kind, "recovered-backup", primaryError);
       return state;
     } catch (backupError) {
@@ -191,18 +213,18 @@ function readCached(kind: MemoryFileKind): MemoryFileState {
     signature: `default:${primarySignature ?? "missing"}:${backupSignature ?? "missing"}`,
     source: "default",
   };
-  cache.set(kind, fallback);
+  cache.set(key, fallback);
   return fallback;
 }
 
 function writeEnvelope(
   kind: MemoryFileKind,
   content: string,
-  options?: { source?: MemoryFileWriteSource; updatedAt?: number },
+  options?: { source?: MemoryFileWriteSource; updatedAt?: number; agentId?: string | null },
 ): void {
   const source = options?.source ?? "system";
   const updatedAt = options?.updatedAt ?? Date.now();
-  const current = readCached(kind);
+  const current = readCached(kind, options?.agentId);
   const manualBaseline = source === "user" ? content : current.manualBaseline;
   const manualEditedAt = source === "user" ? updatedAt : current.manualEditedAt;
   const envelope: MemoryFileEnvelopeV2 = {
@@ -213,8 +235,8 @@ function writeEnvelope(
     ...(manualEditedAt != null ? { manualEditedAt } : {}),
   };
 
-  const path = filePath(kind);
-  const backup = backupPath(kind);
+  const path = filePath(kind, options?.agentId);
+  const backup = backupPath(kind, options?.agentId);
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(temporary, JSON.stringify(envelope), { encoding: "utf8", mode: 0o600 });
 
@@ -232,7 +254,7 @@ function writeEnvelope(
     throw error;
   }
 
-  cache.set(kind, {
+  cache.set(cacheKey(kind, options?.agentId), {
     content,
     updatedAt,
     manualBaseline,
@@ -242,26 +264,32 @@ function writeEnvelope(
   });
 }
 
-export function readMemoryFile(kind: MemoryFileKind): string {
-  return readCached(kind).content;
+export function readMemoryFile(kind: MemoryFileKind, agentId?: string | null): string {
+  return readCached(kind, agentId).content;
 }
 
 export function writeMemoryFile(
   kind: MemoryFileKind,
   content: string,
-  options?: { source?: MemoryFileWriteSource },
+  options?: { source?: MemoryFileWriteSource; agentId?: string | null },
 ): void {
   const clipped = content.slice(0, MEMORY_FILE_LIMITS[kind]);
-  writeEnvelope(kind, clipped, { source: options?.source });
+  writeEnvelope(kind, clipped, { source: options?.source, agentId: options?.agentId });
 }
 
-export function reloadMemoryFile(kind: MemoryFileKind): AgentMemoryFileSnapshot {
-  cache.delete(kind);
-  return getMemoryFileSnapshot(kind);
+export function reloadMemoryFile(
+  kind: MemoryFileKind,
+  agentId?: string | null,
+): AgentMemoryFileSnapshot {
+  cache.delete(cacheKey(kind, agentId));
+  return getMemoryFileSnapshot(kind, agentId);
 }
 
-export function getMemoryFileSnapshot(kind: MemoryFileKind): AgentMemoryFileSnapshot {
-  const state = readCached(kind);
+export function getMemoryFileSnapshot(
+  kind: MemoryFileKind,
+  agentId?: string | null,
+): AgentMemoryFileSnapshot {
+  const state = readCached(kind, agentId);
   return {
     kind,
     content: state.content,
@@ -271,8 +299,8 @@ export function getMemoryFileSnapshot(kind: MemoryFileKind): AgentMemoryFileSnap
   };
 }
 
-export function buildMemoryFilePromptBlock(): string {
-  return MEMORY_FILE_KINDS.map((kind) => readMemoryFile(kind).trim())
+export function buildMemoryFilePromptBlock(agentId?: string | null): string {
+  return MEMORY_FILE_KINDS.map((kind) => readMemoryFile(kind, agentId).trim())
     .filter(Boolean)
     .join("\n\n");
 }
@@ -297,7 +325,7 @@ export async function incorporateNewMemories(records: MemoryRecord[]): Promise<v
   );
   if (shouldDream) {
     queueMemoryJob({
-      kind: "dream",
+      kind: "consolidate",
       agentId: null,
       payload: { reason: "memory-file-near-limit" },
       scheduledAt: Date.now() + 2_000,
@@ -324,10 +352,13 @@ function truncateWithEllipsis(text: string, limit: number): string {
   return text.slice(0, Math.max(0, limit - 3)) + "...";
 }
 
-export async function consolidateMemoryFiles(): Promise<void> {
+export async function consolidateMemoryFiles(
+  agentId = DEFAULT_AGENT_ID,
+  options?: { allowSoulEvolution?: boolean },
+): Promise<void> {
   const model = tryResolveSelectedModel();
   const current = {
-    soul: readCached("soul"),
+    soul: readCached("soul", agentId),
     user: readCached("user"),
     memory: readCached("memory"),
   };
@@ -369,15 +400,23 @@ export async function consolidateMemoryFiles(): Promise<void> {
     }
 
     for (const kind of MEMORY_FILE_KINDS) {
-      writeMemoryFile(kind, parsed[kind], { source: "system" });
+      const content =
+        kind === "soul" && options?.allowSoulEvolution === false
+          ? current.soul.content
+          : parsed[kind];
+      writeMemoryFile(kind, content, { source: "system", agentId });
     }
   } catch (error) {
     recordMemoryFileDiagnostic(null, "consolidation-failed", error);
   }
 }
 
-export async function dreamMemoryFiles(_reason = "scheduled"): Promise<void> {
-  await consolidateMemoryFiles();
+export async function dreamMemoryFiles(
+  _reason = "scheduled",
+  agentId = DEFAULT_AGENT_ID,
+  allowSoulEvolution = false,
+): Promise<void> {
+  await consolidateMemoryFiles(agentId, { allowSoulEvolution });
 }
 
 function buildConsolidationPrompt(input: {
@@ -471,13 +510,13 @@ function normalizeStatement(value: string): string {
 
 export function ensureMemoryFiles(agent: AgentProfile): void {
   for (const kind of MEMORY_FILE_KINDS) {
-    const state = readCached(kind);
+    const state = readCached(kind, agent.id);
     if (state.source !== "default") continue;
     const initial =
       kind === "soul" && agent.instructions?.trim()
         ? `# SOUL\n\n${agent.instructions.trim()}`
         : defaultContent(kind);
-    writeMemoryFile(kind, initial, { source: "system" });
+    writeMemoryFile(kind, initial, { source: "system", agentId: agent.id });
   }
 }
 
@@ -488,7 +527,7 @@ export function scheduleMemoryFileConsolidation(): void {
       for (const kind of MEMORY_FILE_KINDS) {
         if (readCached(kind).content.length >= MEMORY_FILE_LIMITS[kind] * 0.8) {
           queueMemoryJob({
-            kind: "dream",
+            kind: "consolidate",
             agentId: null,
             payload: { reason: "scheduled-file-pressure" },
             scheduledAt: Date.now(),

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { isStepCount, jsonSchema, tool } from "ai";
 import type { streamText, ToolApprovalConfiguration, ToolChoice, ToolSet } from "ai";
 import {
@@ -12,21 +11,19 @@ import {
   type ChatToolId,
   type ChatToolSelectionRequest,
   type MemoryKind,
-  type MemoryRecord,
   type MemoryScope,
   type ModelCapabilities,
   type ModelProviderKind,
 } from "../../shared/types";
 import type { NativeChatTool } from "./providers";
 import {
-  deleteMemory,
   getMemoryById,
   getRuntimeSnapshot,
   insertRuntimeEvent,
   listMessages,
-  saveMemory,
   upsertAgentRuntimeState,
 } from "./db";
+import { memoryOrchestrator } from "./memory-orchestrator";
 import { createMcpToolDescriptors, createMcpToolSet } from "./mcp-manager";
 import { createSkillToolDescriptors, createSkillToolSet } from "./skill-runtime";
 import {
@@ -528,7 +525,7 @@ export async function executeChatHostTool({
           const value = input as MemorySearchInput;
           const query = normalizeQuery(value.query);
           const limit = normalizeLimit(value.limit, 6, 12);
-          const results = await searchMemories(query, limit, agentId, conversationId);
+          const results = await searchMemories(query, limit, agentId);
           return { query, count: results.length, results };
         }
         case "runtime_snapshot": {
@@ -668,7 +665,7 @@ function createHostTools({
         executeWithAudit("memory_search", "Memory search", model, conversationId, async () => {
           const query = normalizeQuery(input.query);
           const limit = normalizeLimit(input.limit, 6, 12);
-          const results = await searchMemories(query, limit, agentId, conversationId);
+          const results = await searchMemories(query, limit, agentId);
           return { query, count: results.length, results };
         }),
     }),
@@ -745,7 +742,7 @@ function createHostTools({
         properties: {
           title: { type: "string", description: "Short memory title." },
           content: { type: "string", description: "Memory content." },
-          scope: { type: "string", enum: ["global", "agent", "conversation"] },
+          scope: { type: "string", enum: ["global", "agent"] },
           kind: {
             type: "string",
             enum: ["fact", "preference", "episode", "profile", "skill"],
@@ -773,7 +770,7 @@ function createHostTools({
           id: { type: "string", description: "Memory ID to update." },
           title: { type: "string", description: "Short memory title." },
           content: { type: "string", description: "Memory content." },
-          scope: { type: "string", enum: ["global", "agent", "conversation"] },
+          scope: { type: "string", enum: ["global", "agent"] },
           kind: {
             type: "string",
             enum: ["fact", "preference", "episode", "profile", "skill"],
@@ -1172,7 +1169,6 @@ async function searchMemories(
   query: string,
   limit: number,
   agentId?: string | null,
-  conversationId?: string,
 ): Promise<
   Array<{
     id: string;
@@ -1185,8 +1181,7 @@ async function searchMemories(
   }>
 > {
   // Mem0 语义搜索（无 API Key 时内部降级到全量过滤）
-  const { searchMemoriesSemantic } = await import("./mem0-service");
-  const results = await searchMemoriesSemantic(query, agentId, conversationId, limit);
+  const results = await memoryOrchestrator.retrieve({ query, agentId, limit });
   return results.map((memory) => ({
     id: memory.id,
     scope: memory.scope,
@@ -1271,35 +1266,18 @@ async function saveChatMemory(
   conversationId: string | undefined,
   agentId: string | null | undefined,
 ): Promise<unknown> {
-  const now = Date.now();
-  const scope = input.scope ?? "conversation";
-  const kind = input.kind ?? "fact";
-  const memory: MemoryRecord = {
-    id: randomUUID(),
-    scope,
-    kind,
-    title: input.title.trim().slice(0, 120),
-    content: input.content.trim().slice(0, 4_000),
-    agent_id: scope === "agent" ? (agentId ?? null) : null,
-    conversation_id: scope === "conversation" ? (conversationId ?? null) : null,
-    salience: clampNumber(input.salience ?? 70, 1, 100),
-    pinned: input.pinned ? 1 : 0,
-    created_at: now,
-    updated_at: now,
-  };
-  if (!memory.title || !memory.content) throw new Error("title and content are required.");
-  saveMemory(memory);
-
-  // 双写 Mem0（fire-and-forget，不阻塞返回；Mem0 不可用时静默降级）
-  const { addMemoriesFromConversation } = await import("./mem0-service");
-  addMemoriesFromConversation(
-    [{ role: "user", content: `${input.title}: ${input.content}` }],
+  const memory = memoryOrchestrator.saveExplicit({
+    title: input.title,
+    content: input.content,
+    scope: input.scope ?? "global",
+    kind: input.kind ?? "fact",
     agentId,
-    conversationId,
-  ).catch((error) => {
-    console.warn("[chat-tools] saveChatMemory mem0 dual-write failed:", error);
+    sourceConversationId: conversationId ?? null,
+    salience: input.salience,
+    pinned: input.pinned,
   });
 
+  // 双写 Mem0（fire-and-forget，不阻塞返回；Mem0 不可用时静默降级）
   return {
     id: memory.id,
     scope: memory.scope,
@@ -1311,24 +1289,14 @@ async function saveChatMemory(
 }
 
 async function updateChatMemory(input: MemoryUpdateInput): Promise<unknown> {
-  const existing = getMemoryById(input.id);
-  if (!existing) throw new Error(`Memory not found: ${input.id}`);
-
-  const title = input.title?.trim();
-  const content = input.content?.trim();
-  const memory: MemoryRecord = {
-    ...existing,
-    title: title ? title.slice(0, 120) : existing.title,
-    content: content ? content.slice(0, 4_000) : existing.content,
-    scope: input.scope ?? existing.scope,
-    kind: input.kind ?? existing.kind,
-    salience:
-      input.salience !== undefined ? clampNumber(input.salience, 1, 100) : existing.salience,
-    pinned: input.pinned !== undefined ? (input.pinned ? 1 : 0) : existing.pinned,
-    updated_at: Date.now(),
-  };
-  if (!memory.title || !memory.content) throw new Error("title and content are required.");
-  saveMemory(memory);
+  const memory = memoryOrchestrator.update(input.id, {
+    title: input.title?.trim().slice(0, 120),
+    content: input.content?.trim().slice(0, 4_000),
+    scope: input.scope,
+    kind: input.kind,
+    salience: input.salience !== undefined ? clampNumber(input.salience, 1, 100) : undefined,
+    pinned: input.pinned !== undefined ? (input.pinned ? 1 : 0) : undefined,
+  });
 
   return {
     id: memory.id,
@@ -1343,7 +1311,7 @@ async function updateChatMemory(input: MemoryUpdateInput): Promise<unknown> {
 async function deleteChatMemory(input: { id: string }): Promise<unknown> {
   const existing = getMemoryById(input.id);
   if (!existing) throw new Error(`Memory not found: ${input.id}`);
-  deleteMemory(input.id);
+  memoryOrchestrator.remove(input.id);
   return { success: true, id: input.id };
 }
 

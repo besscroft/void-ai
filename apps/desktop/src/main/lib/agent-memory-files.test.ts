@@ -181,6 +181,20 @@ void describe("agent memory files", () => {
       { soul: "# SOUL\nSoul", user: "# USER\nUser", memory: "# MEMORY\nMemory" },
     );
   });
+
+  void it("keeps SOUL files isolated per agent while sharing USER and MEMORY", () => {
+    memoryFiles.writeMemoryFile("soul", "# SOUL\n\nAgent A", {
+      source: "user",
+      agentId: "agent-a",
+    });
+    memoryFiles.writeMemoryFile("soul", "# SOUL\n\nAgent B", {
+      source: "user",
+      agentId: "agent-b",
+    });
+
+    assert.equal(memoryFiles.readMemoryFile("soul", "agent-a"), "# SOUL\n\nAgent A");
+    assert.equal(memoryFiles.readMemoryFile("soul", "agent-b"), "# SOUL\n\nAgent B");
+  });
 });
 
 function enableConsolidationModel(): void {
@@ -188,7 +202,7 @@ function enableConsolidationModel(): void {
 }
 
 function memoryDirectory(): string {
-  return join(testRoot, "data", "agent-memories");
+  return join(testRoot, "data", "agent-memories", "global");
 }
 
 function readEnvelope(name: string): {

@@ -48,7 +48,7 @@ interface PanelData {
   runtimeEvents: RuntimeEvent[];
 }
 
-const MEMORY_SCOPES: MemoryScope[] = ["global", "agent", "conversation"];
+const MEMORY_SCOPES: MemoryScope[] = ["global", "agent"];
 const MEMORY_KINDS: MemoryKind[] = ["fact", "preference", "episode", "profile", "skill"];
 
 export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Element {
@@ -114,7 +114,7 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
             loading={loading || refreshing}
           />
         )}
-        {section === "memory" && <MemoryPanel />}
+        {section === "memory" && <MemoryPanel agents={data.agents} />}
       </div>
     </main>
   );
@@ -122,18 +122,19 @@ export function MainPanelView({ section }: MainPanelViewProps): React.JSX.Elemen
 
 type MemoryPanelTab = "entries" | MemoryFileKind;
 
-function MemoryPanel(): React.JSX.Element {
+function MemoryPanel({ agents }: { agents: AgentProfile[] }): React.JSX.Element {
   const { t, f } = useT();
   const [activeTab, setActiveTab] = useState<MemoryPanelTab>("entries");
+  const [selectedAgentId, setSelectedAgentId] = useState("agent-root");
   const [memoryFiles, setMemoryFiles] = useState<Record<
     MemoryFileKind,
     AgentMemoryFileSnapshot
   > | null>(null);
 
   const loadFiles = useCallback(async () => {
-    const files = await api.agents.memoryFiles.list();
+    const files = await api.agents.memoryFiles.list(selectedAgentId);
     setMemoryFiles(files);
-  }, []);
+  }, [selectedAgentId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -214,6 +215,22 @@ function MemoryPanel(): React.JSX.Element {
             );
           })}
         </div>
+        {activeTab === "soul" && (
+          <label className="mt-2 flex flex-col gap-1 px-1 text-xs text-muted-foreground">
+            <span>{t("main.memory.scope.agent")}</span>
+            <select
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-foreground"
+              value={selectedAgentId}
+              onChange={(event) => setSelectedAgentId(event.target.value)}
+            >
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {/* 右侧内容区域 */}
@@ -224,6 +241,7 @@ function MemoryPanel(): React.JSX.Element {
             kind={activeTab}
             snapshot={memoryFiles[activeTab]}
             onRefresh={loadFiles}
+            agentId={selectedAgentId}
           />
         )}
         {activeTab !== "entries" && !memoryFiles && (
@@ -238,10 +256,12 @@ function MemoryFilePanel({
   kind,
   snapshot,
   onRefresh,
+  agentId,
 }: {
   kind: MemoryFileKind;
   snapshot: AgentMemoryFileSnapshot;
   onRefresh: () => void;
+  agentId: string;
 }): React.JSX.Element {
   const { t, f } = useT();
   const [isEditing, setIsEditing] = useState(false);
@@ -262,7 +282,7 @@ function MemoryFilePanel({
     setIsSaving(true);
     setError(null);
     try {
-      await api.agents.memoryFiles.save(kind, draft);
+      await api.agents.memoryFiles.save(kind, draft, agentId);
       setIsEditing(false);
       onRefresh();
     } catch (err) {
@@ -274,7 +294,7 @@ function MemoryFilePanel({
 
   const handleReload = async (): Promise<void> => {
     try {
-      await api.agents.memoryFiles.reload(kind);
+      await api.agents.memoryFiles.reload(kind, agentId);
       onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

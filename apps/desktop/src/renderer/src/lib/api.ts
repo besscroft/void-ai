@@ -178,12 +178,16 @@ export const api = {
     > => assertApi().agents.runtimeSnapshot(),
     save: (agent: AgentProfile): Promise<boolean> => assertApi().agents.save(agent),
     memoryFiles: {
-      list: (): Promise<Record<MemoryFileKind, AgentMemoryFileSnapshot>> =>
-        assertApi().agents.memoryFiles.list(),
-      save: (kind: MemoryFileKind, content: string): Promise<AgentMemoryFileSnapshot> =>
-        assertApi().agents.memoryFiles.save(kind, content),
-      reload: (kind: MemoryFileKind): Promise<AgentMemoryFileSnapshot> =>
-        assertApi().agents.memoryFiles.reload(kind),
+      list: (agentId?: string): Promise<Record<MemoryFileKind, AgentMemoryFileSnapshot>> =>
+        assertApi().agents.memoryFiles.list(agentId),
+      save: (
+        kind: MemoryFileKind,
+        content: string,
+        agentId?: string,
+      ): Promise<AgentMemoryFileSnapshot> =>
+        assertApi().agents.memoryFiles.save(kind, content, agentId),
+      reload: (kind: MemoryFileKind, agentId?: string): Promise<AgentMemoryFileSnapshot> =>
+        assertApi().agents.memoryFiles.reload(kind, agentId),
     },
   },
   memories: {

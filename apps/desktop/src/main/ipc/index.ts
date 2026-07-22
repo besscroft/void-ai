@@ -31,7 +31,6 @@ import {
   saveAgent,
   runtimeSnapshot,
   listMemories,
-  saveMemory,
   deleteMemory,
   getMemoryById,
   searchMemories,
@@ -97,6 +96,7 @@ import type {
   ToolServerInput,
 } from "../../shared/types";
 import { queueAgentLearning } from "../lib/agent-learning";
+import { memoryOrchestrator } from "../lib/memory-orchestrator";
 import {
   getMemoryFileSnapshot,
   reloadMemoryFile,
@@ -285,11 +285,35 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("memories:list", () => listMemories());
   ipcMain.handle("memories:search", (_e, filters: Parameters<typeof searchMemories>[0]) =>
-    searchMemories(filters),
+    filters.query?.trim()
+      ? memoryOrchestrator.retrieve({
+          query: filters.query,
+          agentId: filters.agentId,
+          scope: filters.scope,
+          kind: filters.kind,
+          limit: filters.limit,
+        })
+      : searchMemories(filters),
   );
   ipcMain.handle("memories:get", (_e, id: string) => getMemoryById(id));
   ipcMain.handle("memories:save", (_e, memory: MemoryRecord) => {
-    saveMemory(memory);
+    const existing = getMemoryById(memory.id);
+    if (existing) {
+      memoryOrchestrator.update(memory.id, memory);
+    } else {
+      memoryOrchestrator.saveExplicit({
+        id: memory.id,
+        title: memory.title,
+        content: memory.content,
+        scope: memory.scope,
+        kind: memory.kind,
+        agentId: memory.agent_id,
+        sourceConversationId: memory.conversation_id,
+        sourceRunId: memory.source_run_id,
+        salience: memory.salience,
+        pinned: memory.pinned === 1,
+      });
+    }
     return true;
   });
   ipcMain.handle("memories:delete", (_e, id: string) => {
@@ -304,16 +328,21 @@ export function registerIpcHandlers(): void {
   );
 
   // 有界记忆文件（SOUL / USER / MEMORY）查看与编辑
-  ipcMain.handle("agents:memoryFiles:list", () => ({
-    soul: getMemoryFileSnapshot("soul"),
-    user: getMemoryFileSnapshot("user"),
-    memory: getMemoryFileSnapshot("memory"),
+  ipcMain.handle("agents:memoryFiles:list", (_e, agentId?: string) => ({
+    soul: getMemoryFileSnapshot("soul", agentId),
+    user: getMemoryFileSnapshot("user", agentId),
+    memory: getMemoryFileSnapshot("memory", agentId),
   }));
-  ipcMain.handle("agents:memoryFiles:save", (_e, kind: MemoryFileKind, content: string) => {
-    writeMemoryFile(kind, content, { source: "user" });
-    return getMemoryFileSnapshot(kind);
-  });
-  ipcMain.handle("agents:memoryFiles:reload", (_e, kind: MemoryFileKind) => reloadMemoryFile(kind));
+  ipcMain.handle(
+    "agents:memoryFiles:save",
+    (_e, kind: MemoryFileKind, content: string, agentId?: string) => {
+      writeMemoryFile(kind, content, { source: "user", agentId });
+      return getMemoryFileSnapshot(kind, agentId);
+    },
+  );
+  ipcMain.handle("agents:memoryFiles:reload", (_e, kind: MemoryFileKind, agentId?: string) =>
+    reloadMemoryFile(kind, agentId),
+  );
 
   // 工作流编排：仅暴露 chat 页面悬浮状态框需要的能力 —— 取消运行 + 按会话查最近一次 run
   ipcMain.handle("workflowRuns:cancel", (_e, runId: string) => cancelWorkflowRun(runId));

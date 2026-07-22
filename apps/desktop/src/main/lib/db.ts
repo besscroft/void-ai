@@ -24,6 +24,7 @@ import {
   contextCheckpoints,
   interactionProfiles,
   memories,
+  memoryObservations,
   memoryJobs,
   messages,
   modelApiKeys,
@@ -46,6 +47,7 @@ import {
   type ContextCheckpoint as DbContextCheckpoint,
   type AgentProfile as DbAgentProfile,
   type NewMemoryJob,
+  type NewMemoryObservation,
   type NewRuntimeEvent,
   type NewRuntimeRun,
   type NewRuntimeStep,
@@ -94,6 +96,8 @@ import {
   type MemoryJob,
   type MemoryJobKind,
   type MemoryJobStatus,
+  type MemoryObservation,
+  type MemoryObservationStatus,
   type MemoryOrigin,
   type MemoryRecord,
   type MemoryScope,
@@ -167,7 +171,7 @@ const DEFAULT_SYNC_PROFILE_ID = "sync-local";
 const DEFAULT_MEMORY_CONFIDENCE = 70;
 const DEFAULT_MEMORY_ORIGIN: MemoryOrigin = "manual";
 const DEFAULT_MEMORY_STATUS: MemoryStatus = "active";
-const MEMORY_JOB_MAX_ATTEMPTS = 3;
+const MEMORY_JOB_MAX_ATTEMPTS = 5;
 
 type DbInstance = BetterSQLite3Database<typeof schema>;
 type RuntimeStatus = RunStatus;
@@ -1200,8 +1204,9 @@ export function listMemories(options?: {
   return options?.limit && options.limit > 0 ? query.limit(options.limit).all() : query.all();
 }
 
-export function saveMemory(memory: MemoryRecord): void {
+export function saveMemory(memory: MemoryRecord, options?: { queueSync?: boolean }): void {
   const row = normalizeMemoryRecord(memory);
+  if (options?.queueSync !== false) row.sync_status = "pending";
   getDb()
     .insert(memories)
     .values(row)
@@ -1224,39 +1229,192 @@ export function saveMemory(memory: MemoryRecord): void {
         last_used_at: row.last_used_at,
         expires_at: row.expires_at,
         supersedes_id: row.supersedes_id,
+        mem0_id: row.mem0_id,
+        sync_status: row.sync_status,
+        strength: row.strength,
+        last_reinforced_at: row.last_reinforced_at,
         updated_at: row.updated_at,
       },
     })
     .run();
 
   // 同步更新 Mem0 向量索引；失败不阻断主流程
-  import("./mem0-service")
-    .then(({ updateMemoryInVectorStore }) => updateMemoryInVectorStore(row))
-    .catch((error) => {
-      console.warn("[db] saveMemory vector sync failed:", error);
+  if (options?.queueSync !== false) {
+    queueMemoryJob({
+      kind: "sync",
+      agentId: row.agent_id,
+      idempotencyKey: `memory:${row.id}:upsert`,
+      payload: { action: "upsert", memoryId: row.id },
     });
+  }
 }
 
 export function deleteMemory(id: string): void {
+  const existing = getMemoryById(id);
   getDb().delete(memories).where(eq(memories.id, id)).run();
 
   // 同步删除 Mem0 向量索引；失败不阻断主流程
-  import("./mem0-service")
-    .then(({ deleteMemoryFromVectorStore }) => deleteMemoryFromVectorStore(id))
-    .catch((error) => {
-      console.warn("[db] deleteMemory vector sync failed:", error);
+  if (existing) {
+    queueMemoryJob({
+      kind: "sync",
+      agentId: existing.agent_id,
+      idempotencyKey: `memory:${id}:delete`,
+      payload: { action: "delete", memoryId: id, mem0Id: existing.mem0_id ?? null },
     });
+  }
 }
 
 export function getMemoryById(id: string): MemoryRecord | null {
   return getDb().select().from(memories).where(eq(memories.id, id)).get() ?? null;
 }
 
+export function getMemoryByMem0Id(mem0Id: string): MemoryRecord | null {
+  return getDb().select().from(memories).where(eq(memories.mem0_id, mem0Id)).get() ?? null;
+}
+
+export function updateMemorySyncState(
+  id: string,
+  patch: { mem0Id?: string | null; status: "pending" | "synced" | "failed" },
+): void {
+  getDb()
+    .update(memories)
+    .set({
+      mem0_id: patch.mem0Id,
+      sync_status: patch.status,
+      updated_at: Date.now(),
+    })
+    .where(eq(memories.id, id))
+    .run();
+}
+
+export function listMemoryObservations(options?: {
+  status?: MemoryObservationStatus;
+  limit?: number;
+}): MemoryObservation[] {
+  const query = getDb()
+    .select()
+    .from(memoryObservations)
+    .where(options?.status ? eq(memoryObservations.status, options.status) : undefined)
+    .orderBy(desc(memoryObservations.updated_at));
+  return options?.limit && options.limit > 0 ? query.limit(options.limit).all() : query.all();
+}
+
+export function saveMemoryObservation(input: {
+  id?: string;
+  dedupeKey: string;
+  title: string;
+  content: string;
+  kind: MemoryKind;
+  sourceConversationId?: string | null;
+  sourceRunId?: string | null;
+  sourceAgentId?: string | null;
+  confidence: number;
+  evidence?: unknown;
+  expiresAt: number;
+}): MemoryObservation {
+  const now = Date.now();
+  const existing = getDb()
+    .select()
+    .from(memoryObservations)
+    .where(
+      and(
+        eq(memoryObservations.dedupe_key, input.dedupeKey),
+        eq(memoryObservations.status, "pending"),
+      ),
+    )
+    .get();
+  const evidence = normalizeJsonArrayText(JSON.stringify(input.evidence ?? []));
+  if (existing) {
+    const existingEvidence = parseJsonArray(existing.evidence_json);
+    const incomingEvidence = parseJsonArray(evidence);
+    const combinedEvidence = [...existingEvidence, ...incomingEvidence].slice(-20);
+    const evidenceIds = new Set(
+      combinedEvidence.map((item) => {
+        if (!item || typeof item !== "object") return JSON.stringify(item);
+        const value = item as Record<string, unknown>;
+        if (typeof value.turnId === "string") return value.turnId;
+        if (typeof value.conversationId === "string") return value.conversationId;
+        return JSON.stringify(item);
+      }),
+    );
+    const row = {
+      confidence: Math.max(existing.confidence, clampNumber(input.confidence, 1, 100)),
+      evidence_count: Math.max(existing.evidence_count, evidenceIds.size),
+      evidence_json: JSON.stringify(combinedEvidence),
+      expires_at: Math.max(existing.expires_at, input.expiresAt),
+      updated_at: now,
+    };
+    getDb().update(memoryObservations).set(row).where(eq(memoryObservations.id, existing.id)).run();
+    return getDb()
+      .select()
+      .from(memoryObservations)
+      .where(eq(memoryObservations.id, existing.id))
+      .get() as MemoryObservation;
+  }
+
+  const row: NewMemoryObservation = {
+    id: input.id ?? randomUUID(),
+    dedupe_key: input.dedupeKey,
+    title: input.title.trim().slice(0, 120),
+    content: input.content.trim().slice(0, 4_000),
+    kind: input.kind,
+    source_conversation_id: input.sourceConversationId ?? null,
+    source_run_id: input.sourceRunId ?? null,
+    source_agent_id: input.sourceAgentId ?? null,
+    confidence: clampNumber(input.confidence, 1, 100),
+    evidence_count: Math.max(
+      1,
+      new Set(parseJsonArray(evidence).map((item) => JSON.stringify(item))).size,
+    ),
+    evidence_json: evidence,
+    status: "pending",
+    expires_at: input.expiresAt,
+    promoted_memory_id: null,
+    created_at: now,
+    updated_at: now,
+  };
+  getDb().insert(memoryObservations).values(row).run();
+  return row as MemoryObservation;
+}
+
+export function updateMemoryObservation(
+  id: string,
+  patch: Partial<
+    Pick<MemoryObservation, "status" | "promoted_memory_id" | "confidence" | "expires_at">
+  >,
+): MemoryObservation | null {
+  getDb()
+    .update(memoryObservations)
+    .set({ ...patch, updated_at: Date.now() })
+    .where(eq(memoryObservations.id, id))
+    .run();
+  return (
+    getDb().select().from(memoryObservations).where(eq(memoryObservations.id, id)).get() ?? null
+  );
+}
+
+export function expireMemoryObservations(now = Date.now()): number {
+  return getDb()
+    .update(memoryObservations)
+    .set({ status: "expired", updated_at: now })
+    .where(and(eq(memoryObservations.status, "pending"), lt(memoryObservations.expires_at, now)))
+    .run().changes;
+}
+
+function parseJsonArray(raw: string): unknown[] {
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeMemoryRecord(memory: MemoryRecord): MemoryRecord {
   const now = Date.now();
   return {
     id: memory.id || randomUUID(),
-    scope: memory.scope,
+    scope: (memory.scope as string) === "agent" ? "agent" : "global",
     kind: memory.kind,
     title: memory.title,
     content: memory.content,
@@ -1272,6 +1430,10 @@ function normalizeMemoryRecord(memory: MemoryRecord): MemoryRecord {
     last_used_at: memory.last_used_at ?? null,
     expires_at: memory.expires_at ?? null,
     supersedes_id: memory.supersedes_id ?? null,
+    mem0_id: memory.mem0_id ?? null,
+    sync_status: memory.sync_status ?? "pending",
+    strength: clampNumber(memory.strength ?? memory.salience ?? 70, 1, 100),
+    last_reinforced_at: memory.last_reinforced_at ?? null,
     created_at: memory.created_at ?? now,
     updated_at: now,
   };
@@ -1300,9 +1462,19 @@ export function markMemoriesUsed(ids: string[]): number {
   const db = getDb();
   db.transaction((tx) => {
     for (const id of uniqueIds) {
+      const current = tx
+        .select({ strength: memories.strength })
+        .from(memories)
+        .where(eq(memories.id, id))
+        .get();
       const result = tx
         .update(memories)
-        .set({ last_used_at: now, updated_at: now })
+        .set({
+          last_used_at: now,
+          strength: Math.min(100, (current?.strength ?? 70) + 1),
+          last_reinforced_at: now,
+          updated_at: now,
+        })
         .where(eq(memories.id, id))
         .run();
       updated += result.changes;
@@ -1313,6 +1485,7 @@ export function markMemoriesUsed(ids: string[]): number {
 
 export function queueMemoryJob(input: {
   kind: MemoryJobKind;
+  idempotencyKey?: string | null;
   conversationId?: string | null;
   agentId?: string | null;
   runId?: string | null;
@@ -1329,6 +1502,9 @@ export function queueMemoryJob(input: {
       and(
         eq(memoryJobs.kind, input.kind),
         eq(memoryJobs.status, "queued"),
+        input.idempotencyKey
+          ? eq(memoryJobs.idempotency_key, input.idempotencyKey)
+          : isNull(memoryJobs.idempotency_key),
         input.conversationId === undefined || input.conversationId === null
           ? isNull(memoryJobs.conversation_id)
           : eq(memoryJobs.conversation_id, input.conversationId),
@@ -1356,6 +1532,7 @@ export function queueMemoryJob(input: {
 
   const row: NewMemoryJob = {
     id: randomUUID(),
+    idempotency_key: input.idempotencyKey ?? null,
     kind: input.kind,
     status: "queued",
     conversation_id: input.conversationId ?? null,
@@ -1434,6 +1611,9 @@ export function listMemoryJobs(limit = 100): MemoryJob[] {
 export function deleteMemoriesBatch(ids: string[]): number {
   if (ids.length === 0) return 0;
   const uniqueIds = [...new Set(ids)];
+  const existing = uniqueIds
+    .map((id) => getMemoryById(id))
+    .filter((memory): memory is MemoryRecord => memory != null);
   const db = getDb();
   let deleted = 0;
   db.transaction((tx) => {
@@ -1444,13 +1624,18 @@ export function deleteMemoriesBatch(ids: string[]): number {
   });
 
   // 事务提交后同步删除向量索引
-  import("./mem0-service")
-    .then(({ deleteMemoryFromVectorStore }) =>
-      Promise.all(uniqueIds.map((id) => deleteMemoryFromVectorStore(id))),
-    )
-    .catch((error) => {
-      console.warn("[db] deleteMemoriesBatch vector sync failed:", error);
+  for (const memory of existing) {
+    queueMemoryJob({
+      kind: "sync",
+      agentId: memory.agent_id,
+      idempotencyKey: `memory:${memory.id}:delete`,
+      payload: {
+        action: "delete",
+        memoryId: memory.id,
+        mem0Id: memory.mem0_id ?? null,
+      },
     });
+  }
 
   return deleted;
 }
@@ -1466,6 +1651,7 @@ export function updateMemoriesBatch(
   if (patch.kind !== undefined) setPatch.kind = patch.kind;
   if (patch.scope !== undefined) setPatch.scope = patch.scope;
   if (Object.keys(setPatch).length === 0) return 0;
+  setPatch.sync_status = "pending";
   setPatch.updated_at = Date.now();
 
   const uniqueIds = [...new Set(ids)];
@@ -1480,16 +1666,16 @@ export function updateMemoriesBatch(
 
   // 事务提交后同步更新向量索引（仅 title/content 变更时才需要，但批量 patch 不含这两个字段，
   // 仍调用 update 以刷新元数据/嵌入；实际内容未变时 Mem0 内部效果有限）
-  import("./mem0-service")
-    .then(async ({ updateMemoryInVectorStore }) => {
-      for (const id of uniqueIds) {
-        const memory = getMemoryById(id);
-        if (memory) await updateMemoryInVectorStore(memory);
-      }
-    })
-    .catch((error) => {
-      console.warn("[db] updateMemoriesBatch vector sync failed:", error);
+  for (const id of uniqueIds) {
+    const memory = getMemoryById(id);
+    if (!memory) continue;
+    queueMemoryJob({
+      kind: "sync",
+      agentId: memory.agent_id,
+      idempotencyKey: `memory:${id}:upsert`,
+      payload: { action: "upsert", memoryId: id },
     });
+  }
 
   return updated;
 }
@@ -1512,26 +1698,11 @@ export async function searchMemories(filters: {
     kind,
     status = "active",
     agentId,
-    conversationId,
     pinned,
     sortBy = "salience",
     sortOrder = "desc",
     limit,
   } = filters;
-
-  if (query?.trim()) {
-    const { searchMemoriesSemantic } = await import("./mem0-service");
-    const semantic = await searchMemoriesSemantic(
-      query.trim(),
-      agentId ?? null,
-      conversationId ?? undefined,
-      limit ?? 50,
-    );
-    const filtered = semantic.filter((m) =>
-      matchesMemoryFilters(m, { scope, kind, status, agentId, conversationId, pinned }),
-    );
-    if (filtered.length > 0) return filtered;
-  }
 
   return searchMemoriesSqlite({
     query: query?.trim().toLowerCase(),
@@ -1539,52 +1710,12 @@ export async function searchMemories(filters: {
     kind,
     status,
     agentId,
-    conversationId,
+    conversationId: null,
     pinned,
     sortBy,
     sortOrder,
     limit,
   });
-}
-
-function matchesMemoryFilters(
-  memory: MemoryRecord,
-  filters: {
-    scope?: MemoryScope | null;
-    kind?: MemoryKind | null;
-    status?: MemoryStatus | null;
-    agentId?: string | null;
-    conversationId?: string | null;
-    pinned?: boolean | null;
-  },
-  query?: string,
-): boolean {
-  if (filters.scope && memory.scope !== filters.scope) return false;
-  if (filters.kind && memory.kind !== filters.kind) return false;
-  if (filters.status && (memory.status ?? "active") !== filters.status) return false;
-  if (
-    filters.agentId !== undefined &&
-    filters.agentId !== null &&
-    memory.agent_id !== filters.agentId
-  )
-    return false;
-  if (
-    filters.conversationId !== undefined &&
-    filters.conversationId !== null &&
-    memory.conversation_id !== filters.conversationId
-  )
-    return false;
-  if (
-    filters.pinned !== undefined &&
-    filters.pinned !== null &&
-    (memory.pinned === 1) !== filters.pinned
-  )
-    return false;
-  if (query) {
-    const text = `${memory.title} ${memory.content}`.toLowerCase();
-    if (!text.includes(query)) return false;
-  }
-  return true;
 }
 
 function searchMemoriesSqlite(filters: {
@@ -1605,7 +1736,6 @@ function searchMemoriesSqlite(filters: {
     kind,
     status = "active",
     agentId,
-    conversationId,
     pinned,
     sortBy = "salience",
     sortOrder = "desc",
@@ -1616,9 +1746,9 @@ function searchMemoriesSqlite(filters: {
   if (scope) conditions.push(eq(memories.scope, scope));
   if (kind) conditions.push(eq(memories.kind, kind));
   if (status) conditions.push(eq(memories.status, status));
-  if (agentId !== undefined && agentId !== null) conditions.push(eq(memories.agent_id, agentId));
-  if (conversationId !== undefined && conversationId !== null)
-    conditions.push(eq(memories.conversation_id, conversationId));
+  if (agentId !== undefined && agentId !== null) {
+    conditions.push(or(isNull(memories.agent_id), eq(memories.agent_id, agentId))!);
+  }
   if (pinned !== undefined && pinned !== null) conditions.push(eq(memories.pinned, pinned ? 1 : 0));
   if (query) {
     const pattern = `%${query}%`;
@@ -2330,46 +2460,18 @@ export async function buildAgentSystemPrompt(
   const innerContext = await prepareInnerContext({ agent, conversationId: conversationId ?? null });
   const fileBlock = innerContext.promptBlock;
   // 可选：语义搜索补充最近 3 条相关记忆
-  const recentMessages = conversationId ? listMessages(conversationId) : [];
-  const lastUserMsg = [...recentMessages].reverse().find((m) => m.role === "user");
-  let extraMemories = "";
-  if (lastUserMsg) {
-    const query = extractMessageTextFromContent(lastUserMsg.content).slice(0, 200);
-    const { searchMemoriesSemantic } = await import("./mem0-service");
-    const hits = await searchMemoriesSemantic(query, agent.id, conversationId, 3);
-    if (hits.length > 0) {
-      extraMemories =
-        "\n\nRecently relevant memories:\n" +
-        hits.map((memory) => `- ${memory.title}: ${memory.content}`).join("\n");
-    }
-  }
-
   return [
     `You are ${agent.name}.`,
     `Role: ${agent.role}`,
     agent.personality ? `Personality seed: ${agent.personality}` : "",
     agent.soul_prompt ? `SOUL seed: ${agent.soul_prompt}` : "",
     fileBlock,
-    extraMemories,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
 /** 从消息 content JSON 中提取纯文本（内联以避免与 agent-learning.ts 的循环依赖） */
-function extractMessageTextFromContent(content: string): string {
-  try {
-    const parsed = JSON.parse(content) as { parts?: Array<{ type?: string; text?: string }> };
-    if (!Array.isArray(parsed.parts)) return content;
-    return parsed.parts
-      .filter((part) => part.type === "text" && typeof part.text === "string")
-      .map((part) => part.text)
-      .join("\n");
-  } catch {
-    return content;
-  }
-}
-
 export function listSandboxSessions(limit = 50): SandboxSession[] {
   return getDb()
     .select()

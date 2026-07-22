@@ -665,7 +665,7 @@ export const memories = sqliteTable(
   "memories",
   {
     id: text("id").primaryKey(),
-    scope: text("scope", { enum: ["global", "agent", "conversation"] }).notNull(),
+    scope: text("scope", { enum: ["global", "agent"] }).notNull(),
     kind: text("kind", { enum: ["fact", "preference", "episode", "profile", "skill"] }).notNull(),
     title: text("title").notNull(),
     content: text("content").notNull(),
@@ -689,6 +689,12 @@ export const memories = sqliteTable(
     last_used_at: integer("last_used_at"),
     expires_at: integer("expires_at"),
     supersedes_id: text("supersedes_id"),
+    mem0_id: text("mem0_id"),
+    sync_status: text("sync_status", { enum: ["pending", "synced", "failed"] })
+      .notNull()
+      .default("pending"),
+    strength: integer("strength").notNull().default(70),
+    last_reinforced_at: integer("last_reinforced_at"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
   },
@@ -701,6 +707,45 @@ export const memories = sqliteTable(
     index("idx_memories_origin").on(table.origin),
     index("idx_memories_last_used").on(table.last_used_at),
     index("idx_memories_expires").on(table.expires_at),
+    index("idx_memories_mem0").on(table.mem0_id),
+    index("idx_memories_sync_status").on(table.sync_status),
+  ],
+);
+
+export const memoryObservations = sqliteTable(
+  "memory_observations",
+  {
+    id: text("id").primaryKey(),
+    dedupe_key: text("dedupe_key").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    kind: text("kind", { enum: ["fact", "preference", "episode", "profile", "skill"] }).notNull(),
+    source_conversation_id: text("source_conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    source_run_id: text("source_run_id").references(() => runtimeRuns.id, {
+      onDelete: "set null",
+    }),
+    source_agent_id: text("source_agent_id").references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    confidence: integer("confidence").notNull().default(50),
+    evidence_count: integer("evidence_count").notNull().default(1),
+    evidence_json: text("evidence_json").notNull().default("[]"),
+    status: text("status", { enum: ["pending", "promoted", "expired", "rejected"] })
+      .notNull()
+      .default("pending"),
+    expires_at: integer("expires_at").notNull(),
+    promoted_memory_id: text("promoted_memory_id").references(() => memories.id, {
+      onDelete: "set null",
+    }),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_memory_observations_dedupe").on(table.dedupe_key),
+    index("idx_memory_observations_status_expires").on(table.status, table.expires_at),
+    index("idx_memory_observations_conversation").on(table.source_conversation_id),
   ],
 );
 
@@ -708,7 +753,10 @@ export const memoryJobs = sqliteTable(
   "memory_jobs",
   {
     id: text("id").primaryKey(),
-    kind: text("kind", { enum: ["learn", "dream", "rehydrate"] }).notNull(),
+    idempotency_key: text("idempotency_key"),
+    kind: text("kind", {
+      enum: ["learn", "consolidate", "sync", "decay", "rehydrate"],
+    }).notNull(),
     status: text("status", {
       enum: ["queued", "running", "succeeded", "failed", "cancelled"],
     })
@@ -731,6 +779,7 @@ export const memoryJobs = sqliteTable(
   (table) => [
     index("idx_memory_jobs_status_scheduled").on(table.status, table.scheduled_at),
     index("idx_memory_jobs_kind").on(table.kind),
+    index("idx_memory_jobs_idempotency").on(table.idempotency_key),
     index("idx_memory_jobs_conversation").on(table.conversation_id),
     index("idx_memory_jobs_agent").on(table.agent_id),
   ],
@@ -880,6 +929,7 @@ export const schema = {
   workflows,
   workflowRuns,
   memories,
+  memoryObservations,
   memoryJobs,
   settings,
   modelProviders,
@@ -927,6 +977,8 @@ export type ToolSecret = typeof toolSecrets.$inferSelect;
 export type NewToolSecret = typeof toolSecrets.$inferInsert;
 export type MemoryRecord = typeof memories.$inferSelect;
 export type NewMemoryRecord = typeof memories.$inferInsert;
+export type MemoryObservation = typeof memoryObservations.$inferSelect;
+export type NewMemoryObservation = typeof memoryObservations.$inferInsert;
 export type MemoryJob = typeof memoryJobs.$inferSelect;
 export type NewMemoryJob = typeof memoryJobs.$inferInsert;
 export type WorkflowDefinition = typeof workflows.$inferSelect;
