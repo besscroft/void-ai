@@ -1,8 +1,33 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { isRecoverableSchemaInitError } from "./schema-init";
+import { assertCognitiveMemorySchema, isRecoverableSchemaInitError } from "./schema-init";
+
+function createMemorySchema(options?: {
+  includeMem0Id?: boolean;
+  includeIdempotencyKey?: boolean;
+  includeObservations?: boolean;
+}): DatabaseSync {
+  const database = new DatabaseSync(":memory:");
+  const mem0Columns = options?.includeMem0Id
+    ? ", mem0_id text, sync_status text NOT NULL DEFAULT 'pending', strength integer NOT NULL DEFAULT 70, last_reinforced_at integer"
+    : "";
+  const idempotencyColumn =
+    options?.includeIdempotencyKey === false ? "" : ", idempotency_key text";
+  const observationsTable =
+    options?.includeObservations === false
+      ? ""
+      : "CREATE TABLE memory_observations (id text PRIMARY KEY NOT NULL);";
+
+  database.exec(`
+    CREATE TABLE memories (id text PRIMARY KEY NOT NULL${mem0Columns});
+    CREATE TABLE memory_jobs (id text PRIMARY KEY NOT NULL${idempotencyColumn});
+    ${observationsTable}
+  `);
+  return database;
+}
 
 void describe("drizzle metadata", () => {
   void it("keeps migration metadata as parseable BOM-free JSON", () => {
@@ -42,6 +67,57 @@ void describe("drizzle metadata", () => {
           cause: new Error("Could not locate the bindings file for better_sqlite3.node"),
         }),
       ),
+      false,
+    );
+  });
+
+  void it("detects legacy memory schemas before runtime startup", () => {
+    const database = createMemorySchema();
+    try {
+      assert.throws(() => assertCognitiveMemorySchema(database), /no such column: mem0_id/);
+    } finally {
+      database.close();
+    }
+  });
+
+  void it("detects a missing memory observations table", () => {
+    const database = createMemorySchema({ includeMem0Id: true, includeObservations: false });
+    try {
+      assert.throws(
+        () => assertCognitiveMemorySchema(database),
+        /no such table: memory_observations/,
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  void it("detects a missing memory job idempotency column", () => {
+    const database = createMemorySchema({
+      includeMem0Id: true,
+      includeIdempotencyKey: false,
+    });
+    try {
+      assert.throws(() => assertCognitiveMemorySchema(database), /no such column: idempotency_key/);
+    } finally {
+      database.close();
+    }
+  });
+
+  void it("accepts the current cognitive memory schema", () => {
+    const database = createMemorySchema({ includeMem0Id: true });
+    try {
+      assert.doesNotThrow(() => assertCognitiveMemorySchema(database));
+    } finally {
+      database.close();
+    }
+  });
+
+  void it("does not classify runtime and provider failures as schema failures", () => {
+    assert.equal(isRecoverableSchemaInitError(new Error("Mem0 API request timed out")), false);
+    assert.equal(isRecoverableSchemaInitError(new Error("model provider returned 500")), false);
+    assert.equal(
+      isRecoverableSchemaInitError(new Error("no such function: custom_extension")),
       false,
     );
   });

@@ -4,6 +4,26 @@ const UNRECOVERABLE_RUNTIME_PATTERN =
 const RECOVERABLE_SCHEMA_PATTERN =
   /no such table|no such column|already exists|duplicate column name|foreign key mismatch|FOREIGN KEY constraint failed|UNIQUE constraint failed|NOT NULL constraint failed/i;
 
+export interface SchemaProbeDatabase {
+  prepare(sql: string): {
+    get(): unknown;
+  };
+}
+
+/**
+ * Verify the schema required by the cognitive memory pipeline before any
+ * runtime code starts querying the database.
+ */
+export function assertCognitiveMemorySchema(database: SchemaProbeDatabase): void {
+  database
+    .prepare(
+      "SELECT `mem0_id`, `sync_status`, `strength`, `last_reinforced_at` FROM `memories` LIMIT 0",
+    )
+    .get();
+  database.prepare("SELECT `idempotency_key` FROM `memory_jobs` LIMIT 0").get();
+  database.prepare("SELECT `id` FROM `memory_observations` LIMIT 0").get();
+}
+
 export function isRecoverableSchemaInitError(error: unknown): boolean {
   const messages = errorChainMessages(error);
   if (messages.some((message) => UNRECOVERABLE_RUNTIME_PATTERN.test(message))) return false;

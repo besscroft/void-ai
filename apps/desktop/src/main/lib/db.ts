@@ -127,7 +127,7 @@ import {
 } from "../../shared/types";
 import { resolveDesktopPet } from "./desktop-pet-assets";
 import { applyDesktopPetIdleTimeout, resolveDesktopPetActivity } from "./desktop-pet-activity";
-import { isRecoverableSchemaInitError } from "./schema-init";
+import { assertCognitiveMemorySchema, isRecoverableSchemaInitError } from "./schema-init";
 import {
   createWorkflowRunRecord,
   listWorkflowDefinitions,
@@ -222,6 +222,7 @@ function openAndMigrateDb(dbPath: string): DbInstance {
   dbInstance = drizzle(rawDb, { schema });
   try {
     migrate(dbInstance, { migrationsFolder: resolveMigrationsFolder() });
+    assertCognitiveMemorySchema(rawDb);
     cancelStaleRuntimeRuns();
     purgeExpiredDeletedConversations();
     seedDefaults();
@@ -254,7 +255,10 @@ export function getDb(): DbInstance {
 
 function resetDatabaseFiles(dbPath: string, cause: unknown): void {
   const message = cause instanceof Error ? cause.message : String(cause);
-  console.warn("[db] Greenfield schema init failed; rebuilding local database:", message);
+  console.warn(
+    "[db] Incompatible runtime schema; backing up and rebuilding local database:",
+    message,
+  );
   closeDb();
 
   const backupDir = join(dirname(dbPath), `backup-before-runtime-schema-${Date.now()}`);
