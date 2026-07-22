@@ -233,7 +233,6 @@ export function DesktopPetsSettings(): React.JSX.Element {
               <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-background px-2.5 py-1 text-xs">
                 <span className={`pet-activity-dot pet-activity-${snapshot.activity.kind}`} />
                 {activityLabel(snapshot.activity.kind, t)}
-                {snapshot.pendingActivityCount > 1 ? ` · ${snapshot.pendingActivityCount}` : ""}
               </div>
             ) : null}
             {snapshot?.assetError ? (

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { strToU8, zipSync } from "fflate";
 import {
+  DEFAULT_AGENT_ID,
   DEFAULT_DESKTOP_PET_WINDOW,
   DESKTOP_PET_WINDOW_SIZE,
   mergeDesktopPetConfig,
@@ -168,54 +169,69 @@ void describe("desktop pet config", () => {
 });
 
 void describe("desktop pet activity", () => {
-  void it("prioritizes main-agent input, blocked, ready, then running and ignores child roots", () => {
-    const runs = [
+  void it("ignores historical runs when the main agent is idle", () => {
+    const resolved = resolveDesktopPetActivity([
       runtimeRun("child", "running", "agent-child"),
-      runtimeRun("running", "running"),
       runtimeRun("ready", "succeeded"),
       runtimeRun("blocked", "failed"),
-      runtimeRun("input", "waiting_approval"),
-    ];
-    const resolved = resolveDesktopPetActivity(runs, []);
-    assert.equal(resolved.activity.runId, "input");
-    assert.equal(resolved.activity.kind, "needs_input");
-    assert.equal(resolved.pendingCount, 4);
+    ]);
+
+    assert.equal(resolved.activity.kind, "idle");
+    assert.equal(resolved.activity.runId, null);
+    assert.equal(resolved.pendingCount, 0);
   });
 
-  void it("removes acknowledged terminal runs from the candidate set", () => {
-    const resolved = resolveDesktopPetActivity(
-      [runtimeRun("ready", "succeeded"), runtimeRun("running", "running")],
-      ["ready"],
-    );
-    assert.equal(resolved.activity.kind, "running");
+  void it("maps active main-agent states to the running animation", () => {
+    const statuses = ["queued", "running", "tool_calling", "sandbox", "learning"] as const;
+    for (const status of statuses) {
+      const resolved = resolveDesktopPetActivity(
+        [runtimeRun("active", "running")],
+        agentRuntimeState(status, "active"),
+      );
+
+      assert.equal(resolved.activity.kind, "running");
+      assert.equal(resolved.activity.agentStatus, status);
+      assert.equal(resolved.activity.runId, "active");
+      assert.equal(resolved.activity.conversationId, "conversation-active");
+      assert.equal(resolved.pendingCount, 1);
+    }
   });
 
-  void it("mirrors the main agent runtime status while a run is active", () => {
-    const resolved = resolveDesktopPetActivity(
-      [runtimeRun("failed", "failed"), runtimeRun("active", "running")],
-      [],
-      agentRuntimeState("tool_calling", "active"),
-    );
+  void it("maps review and handoff states to the input-needed animation", () => {
+    for (const status of ["reviewing", "handoff"] as const) {
+      const resolved = resolveDesktopPetActivity(
+        [runtimeRun("approval", "waiting_approval")],
+        agentRuntimeState(status, "approval"),
+      );
 
-    assert.equal(resolved.activity.kind, "running");
-    assert.equal(resolved.activity.agentStatus, "tool_calling");
-    assert.equal(resolved.activity.runId, "active");
-    assert.equal(resolved.activity.conversationId, "conversation-active");
+      assert.equal(resolved.activity.kind, "needs_input");
+      assert.equal(resolved.activity.agentStatus, status);
+    }
   });
 
-  void it("maps main agent review state to the input-needed animation", () => {
+  void it("maps the current main-agent failure state to the failed animation", () => {
     const resolved = resolveDesktopPetActivity(
-      [runtimeRun("approval", "waiting_approval")],
-      [],
-      agentRuntimeState("reviewing", "approval"),
+      [runtimeRun("failed", "failed")],
+      agentRuntimeState("failed", "failed"),
     );
 
-    assert.equal(resolved.activity.kind, "needs_input");
-    assert.equal(resolved.activity.agentStatus, "reviewing");
+    assert.equal(resolved.activity.kind, "blocked");
+    assert.equal(resolved.activity.agentStatus, "failed");
+  });
+
+  void it("ignores child-agent runtime state", () => {
+    const childState = { ...agentRuntimeState("running", "child"), agent_id: "agent-child" };
+    const resolved = resolveDesktopPetActivity(
+      [runtimeRun("child", "running", "agent-child")],
+      childState,
+    );
+
+    assert.equal(resolved.activity.kind, "idle");
+    assert.equal(resolved.pendingCount, 0);
   });
 
   void it("enters sleep only after 60 seconds of continuous idle time", () => {
-    const idle = resolveDesktopPetActivity([], []).activity;
+    const idle = resolveDesktopPetActivity([]).activity;
     assert.equal(
       applyDesktopPetIdleTimeout(idle, 1_000, 1_000 + DESKTOP_PET_SLEEP_AFTER_MS - 1).kind,
       "idle",
@@ -224,7 +240,10 @@ void describe("desktop pet activity", () => {
       applyDesktopPetIdleTimeout(idle, 1_000, 1_000 + DESKTOP_PET_SLEEP_AFTER_MS).kind,
       "sleeping",
     );
-    const running = resolveDesktopPetActivity([runtimeRun("running", "running")], []).activity;
+    const running = resolveDesktopPetActivity(
+      [runtimeRun("running", "running")],
+      agentRuntimeState("running", "running"),
+    ).activity;
     assert.equal(
       applyDesktopPetIdleTimeout(running, 0, DESKTOP_PET_SLEEP_AFTER_MS * 2).kind,
       "running",
@@ -235,7 +254,7 @@ void describe("desktop pet activity", () => {
 function runtimeRun(
   id: string,
   status: RuntimeRun["status"],
-  rootAgentId = "agent-void",
+  rootAgentId = DEFAULT_AGENT_ID,
 ): RuntimeRun {
   return {
     id,
@@ -259,7 +278,7 @@ function agentRuntimeState(
   currentRunId: string | null,
 ): AgentRuntimeState {
   return {
-    agent_id: "agent-void",
+    agent_id: DEFAULT_AGENT_ID,
     status,
     current_run_id: currentRunId,
     last_handoff_at: null,

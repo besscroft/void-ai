@@ -483,7 +483,6 @@ const entries = {
   "pets.chooseOne": { zh: "从下方选择一只桌宠。", en: "Choose a pet below." },
   "pets.alwaysOnTop": { zh: "总在最前", en: "Always on top" },
   "pets.resetPosition": { zh: "重置位置", en: "Reset position" },
-  "pets.openMain": { zh: "打开 Paimon", en: "Open Paimon" },
   "pets.tab.installed": { zh: "我的桌宠", en: "My pets" },
   "pets.tab.store": { zh: "商店", en: "Store" },
   "pets.library.title": { zh: "桌宠库", en: "Pet library" },

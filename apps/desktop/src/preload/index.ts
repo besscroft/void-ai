@@ -127,7 +127,6 @@ const api = {
     commitLocalImport: (token: string, replace = false) =>
       ipcRenderer.invoke("desktopPet:commitLocalImport", token, replace),
     delete: (selector: string) => ipcRenderer.invoke("desktopPet:delete", selector),
-    acknowledge: (runId: string) => ipcRenderer.invoke("desktopPet:acknowledge", runId),
     setEnabled: (enabled: boolean) => ipcRenderer.invoke("desktopPet:setEnabled", enabled),
     updateWindow: (patch: unknown) => ipcRenderer.invoke("desktopPet:updateWindow", patch),
     show: () => ipcRenderer.invoke("desktopPet:show"),
@@ -135,19 +134,10 @@ const api = {
     resetPosition: () => ipcRenderer.invoke("desktopPet:resetPosition"),
     moveWindowBy: (delta: { dx: number; dy: number }) =>
       ipcRenderer.invoke("desktopPet:moveWindowBy", delta),
-    openMain: (conversationId?: string) =>
-      ipcRenderer.invoke("desktopPet:openMain", conversationId),
     showContextMenu: () => ipcRenderer.invoke("desktopPet:showContextMenu"),
     getLookDirection: () => ipcRenderer.invoke("desktopPet:getLookDirection"),
     setIgnoreMouseEvents: (ignore: boolean) =>
       ipcRenderer.invoke("desktopPet:setIgnoreMouseEvents", ignore),
-    onOpenConversation: (handler: (conversationId?: string) => void) => {
-      const listener = (_event: IpcRendererEvent, conversationId?: string): void => {
-        handler(conversationId);
-      };
-      ipcRenderer.on("desktopPet:openConversation", listener);
-      return () => ipcRenderer.removeListener("desktopPet:openConversation", listener);
-    },
     onSnapshotApplied: (handler: (snapshot: unknown) => void) => {
       const listener = (_event: IpcRendererEvent, snapshot: unknown): void => {
         handler(snapshot);

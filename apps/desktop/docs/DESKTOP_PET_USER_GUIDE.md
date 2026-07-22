@@ -8,20 +8,19 @@ Desktop pets are optional animated companions for the main Void agent. They refl
 2. Choose a pet in **My pets**. Paimon is the single built-in pet and is available offline.
 3. Turn on **Wake pet** to show the floating companion.
 
-Only one pet can be selected at a time. The selection, awake state, position, and always-on-top preference persist across restarts. Click the floating pet to open the highest-priority main-agent task, drag it to reposition it, or use its context menu to open settings, reset its position, or tuck it away.
+Only one pet can be selected at a time. The selection, awake state, position, and always-on-top preference persist across restarts. Left-clicking the floating pet does not open Void. Drag it to reposition it, or use its context menu to open settings, reset its position, or tuck it away.
 
 ## Activity states
 
-| Status      | Meaning                                                        | Animation |
-| ----------- | -------------------------------------------------------------- | --------- |
-| Idle        | No main-agent task currently needs attention.                  | `idle`    |
-| Sleeping    | The main agent has remained idle for at least 60 seconds.      | still     |
-| Running     | A main-agent task is queued or running.                        | `running` |
-| Needs input | A task is waiting for approval or handoff input.               | `waiting` |
-| Ready       | A completed task has not been opened from the pet.             | `review`  |
-| Run failed  | A main-agent task failed and has not been opened from the pet. | `failed`  |
+| Status      | Meaning                                                   | Animation |
+| ----------- | --------------------------------------------------------- | --------- |
+| Idle        | The main agent is currently idle.                         | `idle`    |
+| Sleeping    | The main agent has remained idle for at least 60 seconds. | still     |
+| Running     | The main agent is currently active.                       | `running` |
+| Needs input | The main agent is waiting for approval or handoff input.  | `waiting` |
+| Run failed  | The main agent is currently in the failed state.          | `failed`  |
 
-When several main-agent tasks have activity, the pet prioritizes Needs input, Blocked, Ready, then Running. Child-agent runs are excluded. Opening a Ready or Blocked task marks that activity as read.
+The pet reflects only the current runtime state of the main agent. Historical completed or failed runs and child-agent activity do not affect it. When the main agent returns to idle, the pet returns to idle immediately.
 
 Pets respect the app and operating system reduced-motion preference. V2 pets use their neutral frame when motion is reduced; otherwise their additional 16 frames follow the pointer while idle.
 

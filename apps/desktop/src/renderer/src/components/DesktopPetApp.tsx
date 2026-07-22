@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useReducedMotion } from "motion/react";
 import type { DesktopPetSnapshot } from "@shared/types";
 import { api } from "../lib/api";
-import { useT } from "../lib/i18n";
 import { animationForActivity, petFrameAt, type PetAnimationName } from "../lib/pet-animation";
 
 type TransientState = "hover" | "drag-left" | "drag-right" | "drop" | null;
@@ -34,15 +33,13 @@ export function DesktopPetApp(): React.JSX.Element | null {
 }
 
 function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.JSX.Element {
-  const { t } = useT();
   const reducedMotion = Boolean(useReducedMotion());
   const [transient, setTransient] = useState<TransientState>(null);
   const [animationStartedAt, setAnimationStartedAt] = useState(Date.now());
   const [clock, setClock] = useState(Date.now());
   const [lookDirection, setLookDirection] = useState<number | null>(null);
-  const rootRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const ignoreRef = useRef(true);
-  const suppressClickRef = useRef(false);
   const dropTimerRef = useRef<number | null>(null);
   const dragRef = useRef({ pointerId: -1, screenX: 0, screenY: 0, distance: 0 });
 
@@ -138,12 +135,10 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
         setTransient(null);
         return;
       }
-      suppressClickRef.current = true;
       setTransient("drop");
       if (dropTimerRef.current) window.clearTimeout(dropTimerRef.current);
       dropTimerRef.current = window.setTimeout(() => {
         setTransient(null);
-        suppressClickRef.current = false;
         dropTimerRef.current = null;
       }, 1_400);
     };
@@ -189,7 +184,7 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
   const column = frameIndex % 8;
   const row = Math.floor(frameIndex / 8);
 
-  const pointerDown = (event: PointerEvent<HTMLButtonElement>): void => {
+  const pointerDown = (event: PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0 || dragRef.current.pointerId !== -1) return;
     dragRef.current = {
       pointerId: event.pointerId,
@@ -202,12 +197,13 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
   };
 
   return (
-    <button
+    <div
       ref={rootRef}
-      type="button"
       className={`desktop-pet-sprite-root absolute bottom-1 right-1 flex touch-none select-none flex-col items-center outline-none ${
         snapshot.activity.kind === "sleeping" ? "desktop-pet-is-sleeping" : ""
       }`}
+      role="img"
+      aria-label={snapshot.pet!.displayName}
       onPointerDown={pointerDown}
       onPointerEnter={() => {
         if (dragRef.current.pointerId === -1) setTransient("hover");
@@ -215,18 +211,6 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
       onPointerLeave={() => {
         if (transient === "hover") setTransient(null);
       }}
-      onClick={() => {
-        if (suppressClickRef.current) return;
-        const runningId = snapshot.activity.conversationId ?? undefined;
-        if (runningId) {
-          void api.desktopPet.openMain(runningId);
-          return;
-        }
-        void api.conversations.list().then((list) => {
-          void api.desktopPet.openMain(list[0]?.id);
-        });
-      }}
-      aria-label={t("pets.openMain")}
     >
       <span
         className="desktop-pet-sprite block h-[104px] w-24 bg-no-repeat [image-rendering:pixelated]"
@@ -236,6 +220,6 @@ function DesktopPetView({ snapshot }: { snapshot: DesktopPetSnapshot }): React.J
           backgroundPosition: `${-column * 96}px ${-row * 104}px`,
         }}
       />
-    </button>
+    </div>
   );
 }

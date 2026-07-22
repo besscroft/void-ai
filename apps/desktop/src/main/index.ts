@@ -181,7 +181,6 @@ void app.whenReady().then(async () => {
   registerIpcHandlers();
 
   const desktopPetController = new DesktopPetWindowController({
-    getMainWindow: getOrCreateMainWindow,
     preloadPath: getPreloadPath(),
     rendererFilePath: getRendererFilePath(),
     rendererDevUrl:
