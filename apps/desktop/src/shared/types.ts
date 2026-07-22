@@ -479,10 +479,11 @@ export interface ConversationAgentState {
   updated_at: number;
 }
 
-export type MemoryScope = "global" | "agent" | "conversation";
+export type MemoryScope = "global" | "agent";
 export type MemoryKind = "fact" | "preference" | "episode" | "profile" | "skill";
 export type MemoryOrigin = "manual" | "auto" | "dream" | "import" | "system";
 export type MemoryStatus = "active" | "superseded" | "archived" | "deleted";
+export type MemorySyncStatus = "pending" | "synced" | "failed";
 
 export interface MemoryRecord {
   id: string;
@@ -502,15 +503,41 @@ export interface MemoryRecord {
   last_used_at?: number | null;
   expires_at?: number | null;
   supersedes_id?: string | null;
+  mem0_id?: string | null;
+  sync_status?: MemorySyncStatus;
+  strength?: number;
+  last_reinforced_at?: number | null;
   created_at: number;
   updated_at: number;
 }
 
-export type MemoryJobKind = "learn" | "dream" | "rehydrate";
+export type MemoryObservationStatus = "pending" | "promoted" | "expired" | "rejected";
+
+export interface MemoryObservation {
+  id: string;
+  dedupe_key: string;
+  title: string;
+  content: string;
+  kind: MemoryKind;
+  source_conversation_id: string | null;
+  source_run_id: string | null;
+  source_agent_id: string | null;
+  confidence: number;
+  evidence_count: number;
+  evidence_json: string;
+  status: MemoryObservationStatus;
+  expires_at: number;
+  promoted_memory_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export type MemoryJobKind = "learn" | "consolidate" | "sync" | "decay" | "rehydrate";
 export type MemoryJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface MemoryJob {
   id: string;
+  idempotency_key: string | null;
   kind: MemoryJobKind;
   status: MemoryJobStatus;
   conversation_id: string | null;

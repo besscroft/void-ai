@@ -61,9 +61,17 @@ mock.module("./db", {
 
 mock.module("./mem0-service", {
   namedExports: {
-    addMemoriesFromConversation: mock.fn(() => Promise.resolve({ count: 0, records: [] })),
-    updateMemoryInVectorStore: mock.fn(() => Promise.resolve()),
-    deleteMemoryFromVectorStore: mock.fn(() => Promise.resolve()),
+    deleteMemoryFromMem0: mock.fn(() => Promise.resolve()),
+    resetMem0Index: mock.fn(() => Promise.resolve(true)),
+    searchMem0: mock.fn(() => Promise.resolve([])),
+    upsertMemoryInMem0: mock.fn(() => Promise.resolve("mem0-test")),
+  },
+});
+
+mock.module("./agent-memory-files", {
+  namedExports: {
+    incorporateNewMemories: mock.fn(() => Promise.resolve()),
+    dreamMemoryFiles: mock.fn(() => Promise.resolve()),
   },
 });
 
@@ -497,7 +505,7 @@ void describe("chat tool runtime", () => {
   void it("executes memory_delete and removes the memory", async () => {
     const existing: MemoryRecord = {
       id: "m2",
-      scope: "conversation",
+      scope: "global",
       kind: "episode",
       title: "To delete",
       content: "Content",

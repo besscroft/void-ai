@@ -54,7 +54,7 @@ export interface StepExecutionContext {
     prompt: string,
   ) => Promise<{ approved: boolean; comment?: string }>;
   /** 记忆读写。 */
-  readMemories: (query: string, kind?: string) => MemoryRecord[];
+  readMemories: (query: string, kind?: string) => Promise<MemoryRecord[]>;
   /** 记忆写入：返回写入的记忆 id。 */
   writeMemory: (payload: { title: string; content: string; kind: MemoryKind }) => string;
   /** 中断信号（cancel / timeout）。 */
@@ -172,7 +172,7 @@ export const executeMemory: StepExecutor = async (ctx) => {
     return { status: "succeeded", output: { written: true, id } };
   }
   const query = node.config.memoryQuery ?? node.title;
-  const records = ctx.readMemories(query, node.config.memoryKind);
+  const records = await ctx.readMemories(query, node.config.memoryKind);
   return {
     status: "succeeded",
     output: {

@@ -234,6 +234,10 @@ CREATE TABLE `memories` (
 	`last_used_at` integer,
 	`expires_at` integer,
 	`supersedes_id` text,
+	`mem0_id` text,
+	`sync_status` text DEFAULT 'pending' NOT NULL,
+	`strength` integer DEFAULT 70 NOT NULL,
+	`last_reinforced_at` integer,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE set null,
@@ -249,8 +253,37 @@ CREATE INDEX `idx_memories_status` ON `memories` (`status`);--> statement-breakp
 CREATE INDEX `idx_memories_origin` ON `memories` (`origin`);--> statement-breakpoint
 CREATE INDEX `idx_memories_last_used` ON `memories` (`last_used_at`);--> statement-breakpoint
 CREATE INDEX `idx_memories_expires` ON `memories` (`expires_at`);--> statement-breakpoint
+CREATE INDEX `idx_memories_mem0` ON `memories` (`mem0_id`);--> statement-breakpoint
+CREATE INDEX `idx_memories_sync_status` ON `memories` (`sync_status`);--> statement-breakpoint
+CREATE TABLE `memory_observations` (
+	`id` text PRIMARY KEY NOT NULL,
+	`dedupe_key` text NOT NULL,
+	`title` text NOT NULL,
+	`content` text NOT NULL,
+	`kind` text NOT NULL,
+	`source_conversation_id` text,
+	`source_run_id` text,
+	`source_agent_id` text,
+	`confidence` integer DEFAULT 50 NOT NULL,
+	`evidence_count` integer DEFAULT 1 NOT NULL,
+	`evidence_json` text DEFAULT '[]' NOT NULL,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`expires_at` integer NOT NULL,
+	`promoted_memory_id` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`source_conversation_id`) REFERENCES `conversations`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`source_run_id`) REFERENCES `runtime_runs`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`source_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`promoted_memory_id`) REFERENCES `memories`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE INDEX `idx_memory_observations_dedupe` ON `memory_observations` (`dedupe_key`);--> statement-breakpoint
+CREATE INDEX `idx_memory_observations_status_expires` ON `memory_observations` (`status`,`expires_at`);--> statement-breakpoint
+CREATE INDEX `idx_memory_observations_conversation` ON `memory_observations` (`source_conversation_id`);--> statement-breakpoint
 CREATE TABLE `memory_jobs` (
 	`id` text PRIMARY KEY NOT NULL,
+	`idempotency_key` text,
 	`kind` text NOT NULL,
 	`status` text DEFAULT 'queued' NOT NULL,
 	`conversation_id` text,
@@ -271,6 +304,7 @@ CREATE TABLE `memory_jobs` (
 --> statement-breakpoint
 CREATE INDEX `idx_memory_jobs_status_scheduled` ON `memory_jobs` (`status`,`scheduled_at`);--> statement-breakpoint
 CREATE INDEX `idx_memory_jobs_kind` ON `memory_jobs` (`kind`);--> statement-breakpoint
+CREATE INDEX `idx_memory_jobs_idempotency` ON `memory_jobs` (`idempotency_key`);--> statement-breakpoint
 CREATE INDEX `idx_memory_jobs_conversation` ON `memory_jobs` (`conversation_id`);--> statement-breakpoint
 CREATE INDEX `idx_memory_jobs_agent` ON `memory_jobs` (`agent_id`);--> statement-breakpoint
 CREATE TABLE `messages` (

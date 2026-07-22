@@ -130,7 +130,7 @@ const DEFAULT_DEPS: EngineDependencies = {
     throw new Error("Child agent dispatch not configured for this workflow run.");
   },
   waitForApproval: async () => ({ approved: false, comment: "No approval handler configured" }),
-  readMemories: () => [],
+  readMemories: async () => [],
   writeMemory: () => "",
   resolveModelRef: () => null,
   // 对齐 OpenAI `max_concurrent_subagents` 默认值；调用方可通过 deps.maxConcurrentSubagents 覆盖

@@ -4,7 +4,8 @@ import {
   type MemoryContextSnapshot,
   type MemoryRecord,
 } from "../../shared/types";
-import { listMessages, markMemoriesUsed, searchMemories } from "./db";
+import { listMessages } from "./db";
+import { memoryOrchestrator } from "./memory-orchestrator";
 import {
   buildMemoryFilePromptBlock,
   ensureMemoryFiles,
@@ -56,11 +57,9 @@ export async function retrieveRelevantMemories(input: {
   const query = input.query.trim();
   if (!query) return [];
 
-  const results = await searchMemories({
+  const results = await memoryOrchestrator.retrieve({
     query,
-    status: "active",
     agentId: input.agentId ?? DEFAULT_AGENT_ID,
-    conversationId: input.conversationId ?? null,
     limit: input.limit ?? RELEVANT_MEMORY_LIMIT,
   });
   const now = Date.now();
@@ -77,7 +76,6 @@ export async function retrieveRelevantMemories(input: {
     .sort(compareMemoryRelevance)
     .slice(0, input.limit ?? RELEVANT_MEMORY_LIMIT);
 
-  markMemoriesUsed(filtered.map((memory) => memory.id));
   return filtered;
 }
 
@@ -86,7 +84,7 @@ function buildBoundedInnerPromptBlock(input: {
   relevantMemories: MemoryRecord[];
   charBudget: number;
 }): string {
-  const fileBlock = buildMemoryFilePromptBlock();
+  const fileBlock = buildMemoryFilePromptBlock(input.agent.id);
   const relevantBlock = formatRelevantMemories(input.relevantMemories);
   const guardrail = [
     "Internal memory rules:",

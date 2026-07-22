@@ -5,17 +5,14 @@
  * 这层是「副作用适配器」：测试可以注入假 deps，本模块负责生产路径上的接线。
  */
 
-import { eq } from "drizzle-orm";
 import { isStepCount, ToolLoopAgent } from "ai";
 import {
   buildAgentSystemPrompt,
   getAgent,
-  getDb,
   getSetting,
   insertRuntimeEvent,
   saveAgentInstance,
   saveCollaborationMessage,
-  schema,
 } from "./db";
 import {
   DEFAULT_AGENT_RUNTIME_CONFIG,
@@ -30,6 +27,7 @@ import {
 import { AgentCoordinator } from "./agent-coordinator";
 import { buildChatToolRuntime } from "./chat-tools";
 import { resolveModel } from "./providers";
+import { memoryOrchestrator } from "./memory-orchestrator";
 
 export interface DefaultEngineDepsOptions {
   conversationId?: string | null;
@@ -80,14 +78,22 @@ export function buildDefaultEngineDeps(opts: DefaultEngineDepsOptions) {
         registerPendingApproval(opts.workflowRunId, nodeId, prompt, resolve);
       });
     },
-    readMemories: (query: string, kind?: string): MemoryRecord[] => {
-      return searchMemoriesForWorkflow(query, kind);
+    readMemories: async (query: string, kind?: string): Promise<MemoryRecord[]> => {
+      return memoryOrchestrator.retrieve({
+        query,
+        kind: kind as MemoryKind | undefined,
+        agentId: opts.triggeredByAgentId,
+      });
     },
     writeMemory: (payload: { title: string; content: string; kind: MemoryKind }): string => {
-      return writeMemoryForWorkflow(payload, {
-        conversationId: opts.conversationId ?? null,
-        runtimeRunId: opts.runtimeRunId ?? null,
-      });
+      return memoryOrchestrator.saveExplicit({
+        title: payload.title,
+        content: payload.content,
+        kind: payload.kind,
+        agentId: opts.triggeredByAgentId,
+        sourceConversationId: opts.conversationId ?? null,
+        sourceRunId: opts.runtimeRunId ?? null,
+      }).id;
     },
     resolveModelRef: (node: { config: { agentId?: string } }): string | null => {
       return resolveModelRefForAgent(node.config.agentId);
@@ -143,60 +149,7 @@ export function listPendingApprovals(runId: string): { nodeId: string; prompt: s
 
 // ---------- 内部：记忆读写 ----------
 
-function searchMemoriesForWorkflow(query: string, kind?: string): MemoryRecord[] {
-  const db = getDb();
-  // 简化：select all + 标题/内容 contains
-  const rows = db.select().from(schema.memories).orderBy(eq(schema.memories.pinned, 0)).all();
-  const q = query.trim().toLowerCase();
-  return rows
-    .filter((r) => {
-      if (kind && r.kind !== kind) return false;
-      if (!q) return true;
-      return r.title.toLowerCase().includes(q) || r.content.toLowerCase().includes(q);
-    })
-    .slice(0, 10)
-    .map((r) => ({
-      id: r.id,
-      scope: r.scope,
-      kind: r.kind as MemoryKind,
-      title: r.title,
-      content: r.content,
-      agent_id: r.agent_id ?? null,
-      conversation_id: r.conversation_id ?? null,
-      source_run_id: r.source_run_id ?? null,
-      salience: r.salience,
-      pinned: r.pinned,
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-    }));
-}
-
-function writeMemoryForWorkflow(
-  payload: { title: string; content: string; kind: MemoryKind },
-  ctx: { conversationId: string | null; runtimeRunId: string | null },
-): string {
-  const db = getDb();
-  const now = Date.now();
-  const id = `mem-${now}-${Math.random().toString(36).slice(2, 8)}`;
-  db.insert(schema.memories)
-    .values({
-      id,
-      scope: "agent",
-      kind: payload.kind,
-      title: payload.title,
-      content: payload.content,
-      agent_id: null,
-      conversation_id: ctx.conversationId,
-      source_run_id: ctx.runtimeRunId,
-      salience: 50,
-      pinned: 0,
-      created_at: now,
-      updated_at: now,
-    })
-    .run();
-  return id;
-}
-
+// 简化：select all + 标题/内容 contains
 // ---------- 内部：模型/工具派发 ----------
 
 function resolveModelRefForAgent(_agentId?: string | null): string | null {

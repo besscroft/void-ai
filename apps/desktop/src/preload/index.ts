@@ -90,10 +90,11 @@ const api = {
     runtimeSnapshot: () => ipcRenderer.invoke("agents:runtimeSnapshot"),
     save: (agent: unknown) => ipcRenderer.invoke("agents:save", agent),
     memoryFiles: {
-      list: () => ipcRenderer.invoke("agents:memoryFiles:list"),
-      save: (kind: string, content: string) =>
-        ipcRenderer.invoke("agents:memoryFiles:save", kind, content),
-      reload: (kind: string) => ipcRenderer.invoke("agents:memoryFiles:reload", kind),
+      list: (agentId?: string) => ipcRenderer.invoke("agents:memoryFiles:list", agentId),
+      save: (kind: string, content: string, agentId?: string) =>
+        ipcRenderer.invoke("agents:memoryFiles:save", kind, content, agentId),
+      reload: (kind: string, agentId?: string) =>
+        ipcRenderer.invoke("agents:memoryFiles:reload", kind, agentId),
     },
   },
   memories: {

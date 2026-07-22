@@ -158,9 +158,13 @@ export interface VoidAIApi {
     >;
     save: (agent: AgentProfile) => Promise<boolean>;
     memoryFiles: {
-      list: () => Promise<Record<MemoryFileKind, AgentMemoryFileSnapshot>>;
-      save: (kind: MemoryFileKind, content: string) => Promise<AgentMemoryFileSnapshot>;
-      reload: (kind: MemoryFileKind) => Promise<AgentMemoryFileSnapshot>;
+      list: (agentId?: string) => Promise<Record<MemoryFileKind, AgentMemoryFileSnapshot>>;
+      save: (
+        kind: MemoryFileKind,
+        content: string,
+        agentId?: string,
+      ) => Promise<AgentMemoryFileSnapshot>;
+      reload: (kind: MemoryFileKind, agentId?: string) => Promise<AgentMemoryFileSnapshot>;
     };
   };
   memories: {
