@@ -55,6 +55,7 @@ const api = {
   catalog: {
     snapshot: () => ipcRenderer.invoke("catalog:snapshot"),
     search: (input?: unknown) => ipcRenderer.invoke("catalog:search", input),
+    detail: (itemId: string) => ipcRenderer.invoke("catalog:detail", itemId),
     install: (input: unknown) => ipcRenderer.invoke("catalog:install", input),
     enable: (id: string, enabled: boolean) => ipcRenderer.invoke("catalog:enable", id, enabled),
     uninstall: (id: string) => ipcRenderer.invoke("catalog:uninstall", id),

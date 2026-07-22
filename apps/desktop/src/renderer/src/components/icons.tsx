@@ -109,6 +109,7 @@ export const IconRefresh = fromLucide(RefreshCw);
 export const IconEdit = fromLucide(Pencil);
 export const IconSend2 = fromLucide(CornerDownLeft);
 export const IconImage = fromLucide(Image);
+export const IconInfo = fromLucide(Info);
 export const IconList = fromLucide(List);
 export const IconChartBar = fromLucide(BarChart3);
 export const IconCurrency = fromLucide(DollarSign);

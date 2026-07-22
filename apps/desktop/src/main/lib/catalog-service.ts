@@ -2,14 +2,17 @@ import { createHash, randomUUID } from "node:crypto";
 import { app } from "electron";
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { eq, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type {
   ArtifactInstallation,
   CatalogInstallInput,
   CatalogItem,
+  CatalogItemDetail,
   CatalogSearchInput,
   CatalogSearchResult,
   CatalogSnapshot,
+  CatalogSourceKind,
+  CatalogSourceState,
   JsonObject,
 } from "../../shared/types";
 import {
@@ -22,16 +25,39 @@ import {
   updateSkillTool,
 } from "./db";
 import { artifactInstallations, catalogItems, catalogSources } from "./schema";
-import { searchModelScopeSkills } from "./catalog-adapters";
+import {
+  downloadSkillsShPackage,
+  MODELSCOPE_SOURCE_ID,
+  searchModelScopeSkills,
+  searchSkillsShSkills,
+  SKILLS_SH_SOURCE_ID,
+  type CatalogAdapterItem,
+} from "./catalog-adapters";
 import { discoverMcpServer } from "./mcp-manager";
-import { inspectSkillArchive } from "./catalog-safety";
+import {
+  inspectSkillArchive,
+  inspectSkillFiles,
+  type InspectedSkillArchive,
+} from "./catalog-safety";
 
-const MODELSCOPE_SKILLS_SOURCE_ID = "catalog-modelscope-skills";
 const MODELSCOPE_SKILLS_SOURCE: typeof catalogSources.$inferInsert = {
-  id: MODELSCOPE_SKILLS_SOURCE_ID,
+  id: MODELSCOPE_SOURCE_ID,
   name: "ModelScope Skills",
   kind: "modelscope-skills",
   url: "https://www.modelscope.cn/skills",
+  enabled: 1,
+  builtin: 1,
+  config_json: "{}",
+  last_synced_at: null,
+  last_error: null,
+  created_at: 0,
+  updated_at: 0,
+};
+const SKILLS_SH_SOURCE: typeof catalogSources.$inferInsert = {
+  id: SKILLS_SH_SOURCE_ID,
+  name: "skills.sh",
+  kind: "skills-sh",
+  url: "https://skills.sh",
   enabled: 1,
   builtin: 1,
   config_json: "{}",
@@ -44,21 +70,22 @@ const MODELSCOPE_SKILLS_SOURCE: typeof catalogSources.$inferInsert = {
 export function ensureBuiltinCatalogSources(now = Date.now()): void {
   const db = getDb();
   db.transaction((tx) => {
-    tx.delete(catalogSources).where(ne(catalogSources.id, MODELSCOPE_SKILLS_SOURCE_ID)).run();
-    tx.insert(catalogSources)
-      .values({ ...MODELSCOPE_SKILLS_SOURCE, created_at: now, updated_at: now })
-      .onConflictDoUpdate({
-        target: catalogSources.id,
-        set: {
-          name: MODELSCOPE_SKILLS_SOURCE.name,
-          kind: MODELSCOPE_SKILLS_SOURCE.kind,
-          url: MODELSCOPE_SKILLS_SOURCE.url,
-          enabled: 1,
-          builtin: 1,
-          updated_at: now,
-        },
-      })
-      .run();
+    for (const source of [MODELSCOPE_SKILLS_SOURCE, SKILLS_SH_SOURCE]) {
+      tx.insert(catalogSources)
+        .values({ ...source, created_at: now, updated_at: now })
+        .onConflictDoUpdate({
+          target: catalogSources.id,
+          set: {
+            name: source.name,
+            kind: source.kind,
+            url: source.url,
+            enabled: 1,
+            builtin: 1,
+            updated_at: now,
+          },
+        })
+        .run();
+    }
   });
 }
 
@@ -73,97 +100,99 @@ export async function searchCatalogSkills(
   ensureBuiltinCatalogSources();
   const page = normalizeInteger(input.page, 1, 1, 1_000);
   const pageSize = normalizeInteger(input.pageSize, 48, 1, 100);
-  try {
-    const result = await searchModelScopeSkills({ query: input.query, page, pageSize });
-    if (result.items.length === 0 && result.total > 0) {
-      throw new Error("ModelScope Skills returned an empty page unexpectedly.");
+  const source =
+    input.source === "skills-sh" || input.source === "modelscope-skills" ? input.source : "all";
+  const query = input.query?.trim() ?? "";
+  const requested: CatalogSourceKind[] =
+    source === "all"
+      ? query.length >= 2
+        ? ["skills-sh", "modelscope-skills"]
+        : ["modelscope-skills"]
+      : [source];
+  const settled = await Promise.allSettled(
+    requested.map(async (kind) => {
+      const result =
+        kind === "skills-sh"
+          ? await searchSkillsShSkills({ ...input, page, pageSize })
+          : await searchModelScopeSkills({ ...input, page, pageSize });
+      const items = result.items;
+      const hasMore =
+        kind === "skills-sh"
+          ? (result as Awaited<ReturnType<typeof searchSkillsShSkills>>).hasMore
+          : page * pageSize < (result as Awaited<ReturnType<typeof searchModelScopeSkills>>).total;
+      cacheSourceItems(sourceIdForKind(kind), items);
+      setSourceSuccess(sourceIdForKind(kind));
+      return {
+        kind,
+        items: catalogItemsInOrder(
+          sourceIdForKind(kind),
+          items.map((item) => item.externalId),
+        ),
+        hasMore,
+      };
+    }),
+  );
+  const lists: CatalogItem[][] = [];
+  const states: CatalogSourceState[] = [];
+  settled.forEach((result, index) => {
+    const kind = requested[index]!;
+    if (result.status === "fulfilled") {
+      lists.push(result.value.items);
+      states.push({ source: kind, status: "online", hasMore: result.value.hasMore });
+      return;
     }
-    const now = Date.now();
-    getDb().transaction((tx) => {
-      for (const item of result.items) {
-        tx.insert(catalogItems)
-          .values({
-            id: catalogItemId(MODELSCOPE_SKILLS_SOURCE_ID, item.externalId),
-            source_id: MODELSCOPE_SKILLS_SOURCE_ID,
-            artifact_type: "skill",
-            external_id: item.externalId,
-            name: item.name.slice(0, 200),
-            description: item.description.slice(0, 2_000),
-            version: item.version ?? null,
-            install_url: item.installUrl ?? null,
-            detail_json: JSON.stringify(item.detail),
-            content_hash: item.contentHash ?? null,
-            cached_at: now,
-            updated_at: now,
-          })
-          .onConflictDoUpdate({
-            target: catalogItems.id,
-            set: {
-              name: item.name.slice(0, 200),
-              description: item.description.slice(0, 2_000),
-              version: item.version ?? null,
-              install_url: item.installUrl,
-              detail_json: JSON.stringify(item.detail),
-              content_hash: item.contentHash,
-              cached_at: now,
-              updated_at: now,
-            },
-          })
-          .run();
-      }
-      tx.update(catalogSources)
-        .set({ last_synced_at: now, last_error: null, updated_at: now })
-        .where(eq(catalogSources.id, MODELSCOPE_SKILLS_SOURCE_ID))
-        .run();
-    });
-    return {
-      items: catalogItemsInOrder(result.items.map((item) => item.externalId)),
-      total: result.total,
-      page: result.page,
-      pageSize: result.pageSize,
-      offline: false,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    getDb()
-      .update(catalogSources)
-      .set({ last_error: message.slice(0, 2_000), updated_at: Date.now() })
-      .where(eq(catalogSources.id, MODELSCOPE_SKILLS_SOURCE_ID))
-      .run();
-    const cached = searchCachedCatalogItems(input.query, page, pageSize);
-    if (cached.items.length > 0) return { ...cached, offline: true, error: message };
-    throw new Error(`ModelScope Skills is unavailable and no cached results exist: ${message}`);
+    const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    setSourceError(sourceIdForKind(kind), message);
+    const cached = searchCachedCatalogItems(sourceIdForKind(kind), query, page, pageSize);
+    if (cached.length > 0) {
+      lists.push(cached);
+      states.push({
+        source: kind,
+        status: "cache",
+        hasMore: cached.length === pageSize,
+        error: message,
+      });
+    } else {
+      states.push({ source: kind, status: "error", hasMore: false, error: message });
+    }
+  });
+  const items = mergeCatalogItems(lists);
+  if (items.length === 0 && states.every((state) => state.status === "error")) {
+    throw new Error(
+      states
+        .map((state) => state.error)
+        .filter(Boolean)
+        .join(" "),
+    );
   }
+  return {
+    items,
+    page,
+    pageSize,
+    hasMore: states.some((state) => state.hasMore),
+    sources: states,
+  };
 }
 
 function searchCachedCatalogItems(
-  queryValue: string | undefined,
+  sourceId: string,
+  query: string,
   page: number,
   pageSize: number,
-): Omit<CatalogSearchResult, "offline" | "error"> {
-  const query = queryValue?.trim().toLowerCase();
+): CatalogItem[] {
+  const normalizedQuery = query.toLowerCase();
   const rows = getDb()
     .select()
     .from(catalogItems)
     .all()
-    .filter((row) => row.source_id === MODELSCOPE_SKILLS_SOURCE_ID)
+    .filter((row) => row.source_id === sourceId)
     .filter(
       (row) =>
-        !query || `${row.name} ${row.description} ${row.external_id}`.toLowerCase().includes(query),
+        !normalizedQuery ||
+        `${row.name} ${row.description} ${row.external_id}`.toLowerCase().includes(normalizedQuery),
     );
-  const installations = getDb().select().from(artifactInstallations).all();
-  const installationByItem = new Map(
-    installations.filter((item) => item.item_id).map((item) => [item.item_id!, item]),
-  );
   const offset = (page - 1) * pageSize;
-  return {
-    items: rows
-      .slice(offset, offset + pageSize)
-      .map((row) => toCatalogItem(row, installationByItem.get(row.id))),
-    total: rows.length,
-    page,
-    pageSize,
-  };
+  return rows.slice(offset, offset + pageSize).map((row) => toCatalogItem(row));
 }
 
 export function listArtifactInstallations(): ArtifactInstallation[] {
@@ -179,6 +208,21 @@ export async function installCatalogItem(
     throw new Error("The marketplace only installs Skills. Configure MCP servers manually.");
   }
   return await installSkillItem(item, input);
+}
+
+export async function getCatalogItemDetail(itemId: string): Promise<CatalogItemDetail> {
+  const item = getDb().select().from(catalogItems).where(eq(catalogItems.id, itemId)).get();
+  if (!item) throw new Error("Catalog item does not exist.");
+  const inspected = await loadSkillPackage(item);
+  const contentHash = skillPackageHash(inspected);
+  return {
+    itemId,
+    markdown: inspected.markdown,
+    files: Object.entries(inspected.files).map(([path, data]) => ({ path, size: data.byteLength })),
+    totalBytes: inspected.totalBytes,
+    contentHash,
+    safetyChecks: ["frontmatter", "path-traversal", "file-count", "package-size"],
+  };
 }
 
 export async function setArtifactInstallationEnabled(
@@ -226,8 +270,7 @@ async function installSkillItem(
   input: CatalogInstallInput,
 ): Promise<ArtifactInstallation> {
   if (!item.install_url) throw new Error("Skill item does not provide an install URL.");
-  const archive = await downloadSkillArchive(item.install_url);
-  const inspected = inspectSkillArchive(archive);
+  const inspected = await loadSkillPackage(item);
   const installationId = existingInstallationId(item.id) ?? randomUUID();
   const target = join(app.getPath("userData"), "catalog", "skills", installationId);
   atomicWriteSkill(target, inspected.files);
@@ -270,7 +313,7 @@ async function installSkillItem(
         ],
       });
   const now = Date.now();
-  const hash = createHash("sha256").update(archive).digest("hex");
+  const hash = skillPackageHash(inspected);
   const row: typeof artifactInstallations.$inferInsert = {
     id: installationId,
     item_id: item.id,
@@ -283,7 +326,7 @@ async function installSkillItem(
     status: "disabled",
     safety_json: JSON.stringify({
       reviewed: false,
-      archiveSha256: hash,
+      packageSha256: hash,
       fileCount: Object.keys(inspected.files).length,
       totalBytes: inspected.totalBytes,
       checks: [
@@ -304,6 +347,28 @@ async function installSkillItem(
   upsertInstallation(row);
   if (input.enable) return await setArtifactInstallationEnabled(installationId, true);
   return toInstallation(requireInstallation(installationId));
+}
+
+async function loadSkillPackage(
+  item: typeof catalogItems.$inferSelect,
+): Promise<InspectedSkillArchive> {
+  if (item.source_id === SKILLS_SH_SOURCE_ID) {
+    const pkg = await downloadSkillsShPackage(item.external_id);
+    return inspectSkillFiles(pkg.files);
+  }
+  if (!item.install_url) throw new Error("Skill item does not provide an install URL.");
+  return inspectSkillArchive(await downloadSkillArchive(item.install_url));
+}
+
+function skillPackageHash(inspected: InspectedSkillArchive): string {
+  const hash = createHash("sha256");
+  for (const [path, data] of Object.entries(inspected.files).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    hash.update(path);
+    hash.update(data);
+  }
+  return hash.digest("hex");
 }
 
 async function downloadSkillArchive(urlValue: string): Promise<Uint8Array> {
@@ -393,24 +458,63 @@ function toCatalogItem(
   row: typeof catalogItems.$inferSelect,
   installation?: typeof artifactInstallations.$inferSelect,
 ): CatalogItem {
+  const detail = parseJson(row.detail_json);
+  const canonicalKey = typeof detail.canonicalKey === "string" ? detail.canonicalKey : null;
+  const exactInstallation =
+    installation ??
+    getDb()
+      .select()
+      .from(artifactInstallations)
+      .all()
+      .find((value) => value.item_id === row.id);
+  const installedByCanonical = canonicalKey
+    ? getDb()
+        .select()
+        .from(artifactInstallations)
+        .all()
+        .some((value) => {
+          if (!value.item_id) return false;
+          const sourceItem = getDb()
+            .select()
+            .from(catalogItems)
+            .where(eq(catalogItems.id, value.item_id))
+            .get();
+          const sourceDetail = sourceItem ? parseJson(sourceItem.detail_json) : {};
+          return sourceDetail.canonicalKey === canonicalKey;
+        })
+    : false;
+  const sourceKind = sourceKindForId(row.source_id);
   return {
     id: row.id,
     sourceId: row.source_id,
+    sourceKind,
+    sourceLabel: sourceKind === "skills-sh" ? "skills.sh" : "ModelScope",
     artifactType: row.artifact_type,
     externalId: row.external_id,
+    canonicalKey,
     name: row.name,
     description: row.description,
     version: row.version,
     installUrl: row.install_url,
-    detail: parseJson(row.detail_json),
+    catalogUrl:
+      typeof detail.skillUrl === "string"
+        ? detail.skillUrl
+        : typeof detail.catalogUrl === "string"
+          ? detail.catalogUrl
+          : null,
+    metrics: {
+      ...(typeof detail.installs === "number" ? { installs: detail.installs } : {}),
+      ...(typeof detail.downloads === "number" ? { downloads: detail.downloads } : {}),
+    },
+    detail,
     contentHash: row.content_hash,
     cachedAt: row.cached_at,
-    installed: !!installation,
+    installed: !!exactInstallation || installedByCanonical,
     updateAvailable:
-      !!installation &&
-      (row.version && installation.version
-        ? row.version !== installation.version
-        : !!row.content_hash && installation.content_hash !== row.content_hash),
+      !!exactInstallation &&
+      (row.version && exactInstallation.version
+        ? row.version !== exactInstallation.version
+        : !!row.content_hash && exactInstallation.content_hash !== row.content_hash),
   };
 }
 
@@ -450,13 +554,13 @@ function parseJson(value: string): JsonObject {
   }
 }
 
-function catalogItemsInOrder(externalIds: string[]): CatalogItem[] {
+function catalogItemsInOrder(sourceId: string, externalIds: string[]): CatalogItem[] {
   if (externalIds.length === 0) return [];
   const rows = getDb()
     .select()
     .from(catalogItems)
     .all()
-    .filter((row) => row.source_id === MODELSCOPE_SKILLS_SOURCE_ID);
+    .filter((row) => row.source_id === sourceId);
   const installations = getDb().select().from(artifactInstallations).all();
   const installationByItem = new Map(
     installations.filter((item) => item.item_id).map((item) => [item.item_id!, item]),
@@ -466,6 +570,92 @@ function catalogItemsInOrder(externalIds: string[]): CatalogItem[] {
     const row = byExternalId.get(externalId);
     return row ? [toCatalogItem(row, installationByItem.get(row.id))] : [];
   });
+}
+
+function cacheSourceItems(sourceId: string, items: CatalogAdapterItem[]): void {
+  const now = Date.now();
+  getDb().transaction((tx) => {
+    for (const item of items) {
+      tx.insert(catalogItems)
+        .values({
+          id: catalogItemId(sourceId, item.externalId),
+          source_id: sourceId,
+          artifact_type: "skill",
+          external_id: item.externalId,
+          name: item.name.slice(0, 200),
+          description: item.description.slice(0, 2_000),
+          version: item.version ?? null,
+          install_url: item.installUrl,
+          detail_json: JSON.stringify(item.detail),
+          content_hash: item.contentHash ?? null,
+          cached_at: now,
+          updated_at: now,
+        })
+        .onConflictDoUpdate({
+          target: catalogItems.id,
+          set: {
+            name: item.name.slice(0, 200),
+            description: item.description.slice(0, 2_000),
+            version: item.version ?? null,
+            install_url: item.installUrl,
+            detail_json: JSON.stringify(item.detail),
+            content_hash: item.contentHash ?? null,
+            cached_at: now,
+            updated_at: now,
+          },
+        })
+        .run();
+    }
+  });
+}
+
+function setSourceSuccess(sourceId: string): void {
+  const now = Date.now();
+  getDb()
+    .update(catalogSources)
+    .set({ last_synced_at: now, last_error: null, updated_at: now })
+    .where(eq(catalogSources.id, sourceId))
+    .run();
+}
+
+function setSourceError(sourceId: string, message: string): void {
+  getDb()
+    .update(catalogSources)
+    .set({ last_error: message.slice(0, 2_000), updated_at: Date.now() })
+    .where(eq(catalogSources.id, sourceId))
+    .run();
+}
+
+export function mergeCatalogItems(lists: CatalogItem[][]): CatalogItem[] {
+  const result: CatalogItem[] = [];
+  const seen = new Map<string, number>();
+  const max = Math.max(0, ...lists.map((items) => items.length));
+  for (let index = 0; index < max; index++) {
+    for (const list of lists) {
+      const item = list[index];
+      if (!item) continue;
+      const key = item.canonicalKey ?? `${item.sourceId}:${item.externalId}`;
+      const previousIndex = seen.get(key);
+      if (previousIndex === undefined) {
+        seen.set(key, result.length);
+        result.push(item);
+      } else if (item.sourceKind === "skills-sh") {
+        result[previousIndex] = {
+          ...item,
+          installed: item.installed || result[previousIndex]!.installed,
+        };
+      }
+    }
+  }
+  return result;
+}
+
+function sourceIdForKind(kind: CatalogSourceKind): string {
+  return kind === "skills-sh" ? SKILLS_SH_SOURCE_ID : MODELSCOPE_SOURCE_ID;
+}
+
+function sourceKindForId(sourceId: string): CatalogSourceKind {
+  return sourceId === SKILLS_SH_SOURCE_ID ? "skills-sh" : "modelscope-skills";
 }
 
 function normalizeInteger(

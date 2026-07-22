@@ -5,6 +5,7 @@ import type {
   Conversation,
   ArtifactInstallation,
   CatalogInstallInput,
+  CatalogItemDetail,
   CatalogSearchInput,
   CatalogSearchResult,
   CatalogSnapshot,
@@ -124,6 +125,7 @@ export const api = {
     snapshot: (): Promise<CatalogSnapshot> => assertApi().catalog.snapshot(),
     search: (input?: CatalogSearchInput): Promise<CatalogSearchResult> =>
       assertApi().catalog.search(input),
+    detail: (itemId: string): Promise<CatalogItemDetail> => assertApi().catalog.detail(itemId),
     install: (input: CatalogInstallInput): Promise<ArtifactInstallation> =>
       assertApi().catalog.install(input),
     enable: (id: string, enabled: boolean): Promise<ArtifactInstallation> =>
